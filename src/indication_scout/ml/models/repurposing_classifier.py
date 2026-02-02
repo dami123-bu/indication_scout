@@ -1,1 +1,0 @@
-# Drug repurposing classifier model
