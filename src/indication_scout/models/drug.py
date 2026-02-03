@@ -1,15 +1,12 @@
 """Drug data model."""
 
-from dataclasses import dataclass
+from pydantic import BaseModel
 
-
-@dataclass
-class Drug:
-    """Represents a drug/compound."""
-
-    id: str
+class Drug(BaseModel):
+    chembl_id: str
     name: str
-    synonyms: list[str] | None = None
-    drugbank_id: str | None = None
-    chembl_id: str | None = None
-    mechanism_of_action: str | None = None
+    description: str | None = None
+    drug_type: str | None = None
+    max_clinical_phase: int | None = None
+    mechanisms: list[Mechanism] = []
+    indications: list[DiseaseIndication] = []
