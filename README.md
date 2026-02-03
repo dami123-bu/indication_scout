@@ -1,8 +1,23 @@
 # IndicationScout
 
-A machine learning toolkit for drug repurposing and indication discovery.
+An agentic system for discovering drug repurposing opportunities.
+
+## Overview
+
+IndicationScout uses multiple AI agents to analyze drugs and identify potential new therapeutic indications by aggregating evidence from:
+
+- Scientific literature (PubMed)
+- Clinical trials (ClinicalTrials.gov)
+- Drug databases (DrugBank, ChEMBL, Open Targets)
+- Mechanism of action analysis
 
 ## Installation
+
+```bash
+pip install -e .
+```
+
+For development:
 
 ```bash
 pip install -e ".[dev]"
@@ -10,56 +25,46 @@ pip install -e ".[dev]"
 
 ## Usage
 
-### CLI
-
 ```bash
-# Find indications for a drug
-scout find -d "Tylenol"
-
-# Limit results
-scout find -d "Metformin" -n 5
-
-# Save results to JSON
-scout find -d "Aspirin" -o results.json
-```
-
-### API
-
-```bash
-uvicorn indication_scout.api.main:app --reload
+scout find -d "metformin"
 ```
 
 ## Development
 
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+### Running Tests
 
-# Run tests
+```bash
+# All tests
 pytest
 
-# Format code
-black src/
+# Integration tests only
+pytest tests/integration/
 
-# Lint code
-ruff check src/
+# Unit tests only
+pytest tests/unit/
+```
+
+### Code Formatting
+
+```bash
+black src/
 ```
 
 ## Project Structure
 
 ```
-indication-scout/
-├── src/indication_scout/
-│   ├── agents/          # AI agents for analysis
-│   ├── api/             # FastAPI application
-│   ├── data_sources/    # External API clients
-│   ├── db/              # Database layer
-│   ├── models/          # Data models
-│   └── services/        # Business logic
-├── tests/               # Test suite
-├── notebooks/           # Jupyter notebooks
-└── scripts/             # Utility scripts
+src/indication_scout/
+├── agents/          # AI agents (orchestrator, literature, clinical trials, etc.)
+├── data_sources/    # External API clients (PubMed, Open Targets, etc.)
+├── models/          # Data models (Drug, Indication, Evidence, Report)
+├── services/        # Business logic (LLM, embeddings, scoring)
+├── db/              # Database layer
+└── api/             # FastAPI application
 ```
+
+### Citations
+Open Targets: Ochoa, D. et al. (2023). The next-generation Open Targets Platform: reimagined, redesigned, rebuilt. 
+Nucleic Acids Research, 51(D1), D1353–D1359. DOI: 10.1093/nar/gkac1037. 
 
 ## License
 
