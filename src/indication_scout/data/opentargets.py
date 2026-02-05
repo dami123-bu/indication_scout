@@ -22,10 +22,6 @@ class OpenTargetsClient:
         response.raise_for_status()
         return response.json().get("data", {})
 
-    async def get_drug_mechanisms(self, chembl_id: str) -> dict:
-        """What targets does this drug hit, and how?"""
-        ...
-
     def _parse_target(self, d: dict) -> Target:
         return Target(
             ensembl_id=d["id"],
@@ -40,20 +36,20 @@ class OpenTargetsClient:
             therapeutic_areas=[ta["name"] for ta in d.get("therapeuticAreas") or []],
         )
 
-    def _parse_activities(self, d: dict) -> list[DrugActivity]:
-        activities = []
+    def _parse_drug_activities(self, d: dict) -> list[DrugActivity]:
+        drug_activities = []
 
         for moa in (d.get("mechanismsOfAction") or {}).get("rows", []):
             targets = [self._parse_target(t) for t in moa.get("targets") or []]
             if targets:
                 for target in targets:
-                    activities.append(DrugActivity(
+                    drug_activities.append(DrugActivity(
                         description=moa.get("mechanismOfAction"),
                         action_type=moa.get("actionType"),
                         target=target,
                     ))
             else:
-                activities.append(DrugActivity(
+                drug_activities.append(DrugActivity(
                     description=moa.get("mechanismOfAction"),
                     action_type=moa.get("actionType"),
                 ))
@@ -61,11 +57,11 @@ class OpenTargetsClient:
         for row in (d.get("indications") or {}).get("rows", []):
             disease = row.get("disease")
             if disease:
-                activities.append(DrugActivity(
+                drug_activities.append(DrugActivity(
                     indication=self._parse_indication(disease),
                 ))
 
-        return activities
+        return drug_activities
 
     def _parse_drug(self, d: dict) -> Drug:
         return Drug(
@@ -79,7 +75,7 @@ class OpenTargetsClient:
             max_clinical_phase=d.get("maximumClinicalTrialPhase"),
             synonyms=d.get("synonyms") or [],
             trade_names=d.get("tradeNames") or [],
-            activities=self._parse_activities(d),
+            activities=self._parse_drug_activities(d),
         )
 
     async def get_drug(self, chembl_id: str) -> Drug | None:
@@ -124,58 +120,6 @@ class OpenTargetsClient:
 
         return self._parse_drug(drug_data)
 
-    async def get_drug_old(self, chembl_id: str) -> dict | None:
-        """Get comprehensive drug information by ChEMBL ID (raw dict)."""
-        query = """
-        query Drug($chemblId: String!) {
-            drug(chemblId: $chemblId) {
-                id
-                name
-                description
-                drugType
-                hasBeenWithdrawn
-                yearOfFirstApproval
-                maximumClinicalTrialPhase
-                isApproved
-                synonyms
-                tradeNames
-                linkedTargets {
-                    rows { id approvedSymbol approvedName }
-                }
-                mechanismsOfAction {
-                    rows {
-                        mechanismOfAction
-                        targetName
-                        actionType
-                        targets { id approvedSymbol approvedName }
-                    }
-                }
-                linkedDiseases {
-                    rows { id name }
-                }
-                indications {
-                    rows {
-                        disease {
-                            id
-                            name
-                            therapeuticAreas { id name }
-                        }
-                    }
-                }
-            }
-        }
-        """
-        data = await self._execute(query, {"chemblId": chembl_id})
-        return data.get("drug")
-
-    async def get_drug_indications(self, chembl_id: str) -> list:
-        """What is this drug already approved for?"""
-        ...
-
-    async def get_disease_targets(self, efo_id: str, min_score: float = 0.3) -> list:
-        """What targets are associated with this disease?"""
-        ...
-
     async def search(self, term: str, entity_type: str = None) -> list:
         """
         Convert human-readable name to Open Targets ID.
@@ -214,3 +158,21 @@ class OpenTargetsClient:
         """Get the top matching ID, or None if not found."""
         results = await self.search(term, entity_type)
         return results[0]["id"] if results else None
+
+    # Stubbed methods, in case implementation is needed in the future
+
+    async def get_drug_indications(self, chembl_id: str) -> list:
+        """What is this drug already approved for?"""
+        ...
+
+    async def get_disease_targets(self, efo_id: str, min_score: float = 0.3) -> list:
+        """What targets are associated with this disease?"""
+        ...
+
+    async def get_target_diseases(self, ensembl_id: str, min_score: float = 0.3) -> list:
+        """What diseases are associated with this target?"""
+        ...
+
+    async def get_drug_mechanisms(self, chembl_id: str) -> dict:
+        """What targets does this drug hit, and how?"""
+        ...

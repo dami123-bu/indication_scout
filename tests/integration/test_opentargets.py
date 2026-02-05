@@ -103,3 +103,4 @@ class TestGetDrug:
         result = await client.get_drug("CHEMBL999999999")
 
         assert result is None
+
