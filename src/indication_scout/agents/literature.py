@@ -9,5 +9,5 @@ class LiteratureAgent(BaseAgent):
     """Agent for searching and analyzing scientific literature."""
 
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
-        """Search literature for drug-indication evidence."""
+        """Search literature for drug-indication signal."""
         raise NotImplementedError

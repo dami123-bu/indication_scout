@@ -1,14 +1,25 @@
-"""Indication data model."""
+"""Indication data models."""
 
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 
-@dataclass
-class Indication:
-    """Represents a medical indication/condition."""
+class Indication(BaseModel):
+    """Anything a drug can be used to treat.
+
+    This is the base class for all treatable conditions — diseases, symptoms,
+    syndromes, or other clinical presentations (e.g. "fever", "puffy eyes").
+    """
 
     id: str
     name: str
-    synonyms: list[str] | None = None
-    icd_codes: list[str] | None = None
-    mesh_terms: list[str] | None = None
+
+
+class DiseaseIndication(Indication):
+    """A disease entity with external ontology cross-references.
+
+    Extends Indication with identifiers from disease ontologies
+    (EFO from Open Targets, MONDO from Monarch Initiative).
+    """
+
+    efo_id: str | None = None
+    mondo_id: str | None = None

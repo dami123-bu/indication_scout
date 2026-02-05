@@ -1,6 +1,9 @@
 import httpx
 
-from indication_scout.models.drug import Drug, Mechanism, DiseaseIndication
+from indication_scout.models.drug import Drug
+from indication_scout.models.indication import ApprovedIndication
+from indication_scout.models.mechanism import DrugMechanism
+from indication_scout.models.target import Target
 
 
 class OpenTargetsClient:
@@ -57,15 +60,15 @@ class OpenTargetsClient:
             return None
 
         mechanisms = [
-            Mechanism(
+            DrugMechanism(
                 description=m["mechanismOfAction"],
-                target_name=m.get("targetName"),
+                target=Target(symbol=m["targetName"]) if m.get("targetName") else None,
             )
             for m in drug_data.get("mechanismsOfAction", {}).get("rows", [])
         ]
 
         indications = [
-            DiseaseIndication(
+            ApprovedIndication(
                 disease_id=row["disease"]["id"],
                 disease_name=row["disease"]["name"],
             )

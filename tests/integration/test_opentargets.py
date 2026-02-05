@@ -81,8 +81,8 @@ class TestGetDrug:
         result = await client.get_drug("CHEMBL25")
 
         assert len(result.indications) > 0
-        assert result.indications[0].disease_id is not None
-        assert result.indications[0].disease_name is not None
+        assert result.indications[0].indication_id is not None
+        assert result.indications[0].indication_name is not None
 
     async def test_get_drug_metformin(self, client: OpenTargetsClient):
         """Test fetching metformin - a common repurposing candidate."""
