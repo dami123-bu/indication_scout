@@ -1,6 +1,7 @@
 import httpx
 
 from indication_scout.models.drug import Drug, DrugActivity
+from indication_scout.models.indication import DiseaseIndication
 from indication_scout.models.target import Target
 
 
@@ -32,6 +33,13 @@ class OpenTargetsClient:
             name=d["approvedName"]
         )
 
+    def _parse_indication(self, d: dict) -> DiseaseIndication:
+        return DiseaseIndication(
+            efo_id=d["id"],
+            name=d["name"],
+            therapeutic_areas=[ta["name"] for ta in d.get("therapeuticAreas") or []],
+        )
+
     def _parse_activities(self, d: dict) -> list[DrugActivity]:
         activities = []
 
@@ -48,6 +56,13 @@ class OpenTargetsClient:
                 activities.append(DrugActivity(
                     description=moa.get("mechanismOfAction"),
                     action_type=moa.get("actionType"),
+                ))
+
+        for row in (d.get("indications") or {}).get("rows", []):
+            disease = row.get("disease")
+            if disease:
+                activities.append(DrugActivity(
+                    indication=self._parse_indication(disease),
                 ))
 
         return activities
@@ -88,6 +103,15 @@ class OpenTargetsClient:
                         targetName
                         actionType
                         targets { id approvedSymbol approvedName }
+                    }
+                }
+                indications {
+                    rows {
+                        disease {
+                            id
+                            name
+                            therapeuticAreas { id name }
+                        }
                     }
                 }
             }

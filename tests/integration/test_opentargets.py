@@ -4,6 +4,7 @@ import pytest
 
 from indication_scout.data.opentargets import OpenTargetsClient
 from indication_scout.models.drug import Drug
+from indication_scout.models.indication import DiseaseIndication
 
 pytestmark = pytest.mark.asyncio
 
@@ -83,6 +84,19 @@ class TestGetDrug:
         assert len(targets) > 0
         assert targets[0].ensembl_id is not None
         assert targets[0].symbol is not None
+
+    async def test_get_drug_has_indications(self, client: OpenTargetsClient):
+        """Test that aspirin has DrugActivity entries with indications."""
+        result = await client.get_drug("CHEMBL25")
+
+        indication_activities = [
+            a for a in result.activities if a.indication is not None
+        ]
+        assert len(indication_activities) > 0
+        ind = indication_activities[0].indication
+        assert isinstance(ind, DiseaseIndication)
+        assert ind.efo_id is not None
+        assert ind.name is not None
 
     async def test_get_drug_nonexistent_returns_none(self, client: OpenTargetsClient):
         """Test that a nonexistent ChEMBL ID returns None."""

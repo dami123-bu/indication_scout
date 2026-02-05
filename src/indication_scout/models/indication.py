@@ -24,4 +24,6 @@ class DiseaseIndication(Indication):
 
     efo_id: str | None = None
     mondo_id: str | None = None
+    # Broad disease categories
+    # e.g. 'coronary artery disease' belongs to therapeutic area 'cardiovascular disease'
     therapeutic_areas: list[str] = []
