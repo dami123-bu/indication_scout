@@ -1,8 +1,6 @@
 import httpx
 
-from indication_scout.models.drug import Drug
-from indication_scout.models.indication import ApprovedIndication
-from indication_scout.models.mechanism import DrugMechanism
+from indication_scout.models.drug import Drug, DrugActivity
 from indication_scout.models.target import Target
 
 
@@ -27,8 +25,50 @@ class OpenTargetsClient:
         """What targets does this drug hit, and how?"""
         ...
 
+    def _parse_target(self, d: dict) -> Target:
+        return Target(
+            ensembl_id=d["id"],
+            symbol=d["approvedSymbol"],
+            name=d["approvedName"]
+        )
+
+    def _parse_activities(self, d: dict) -> list[DrugActivity]:
+        activities = []
+
+        for moa in (d.get("mechanismsOfAction") or {}).get("rows", []):
+            targets = [self._parse_target(t) for t in moa.get("targets") or []]
+            if targets:
+                for target in targets:
+                    activities.append(DrugActivity(
+                        description=moa.get("mechanismOfAction"),
+                        action_type=moa.get("actionType"),
+                        target=target,
+                    ))
+            else:
+                activities.append(DrugActivity(
+                    description=moa.get("mechanismOfAction"),
+                    action_type=moa.get("actionType"),
+                ))
+
+        return activities
+
+    def _parse_drug(self, d: dict) -> Drug:
+        return Drug(
+            chembl_id=d["id"],
+            generic_name=d["name"],
+            description=d.get("description"),
+            drug_type=d.get("drugType"),
+            is_approved=d.get("isApproved", False),
+            has_been_withdrawn=d.get("hasBeenWithdrawn", False),
+            year_first_approved=d.get("yearOfFirstApproval"),
+            max_clinical_phase=d.get("maximumClinicalTrialPhase"),
+            synonyms=d.get("synonyms") or [],
+            trade_names=d.get("tradeNames") or [],
+            activities=self._parse_activities(d),
+        )
+
     async def get_drug(self, chembl_id: str) -> Drug | None:
-        """Get comprehensive drug information by ChEMBL ID."""
+        """Get drug information by ChEMBL ID."""
         query = """
         query Drug($chemblId: String!) {
             drug(chemblId: $chemblId) {
@@ -36,19 +76,18 @@ class OpenTargetsClient:
                 name
                 description
                 drugType
+                hasBeenWithdrawn
+                yearOfFirstApproval
                 maximumClinicalTrialPhase
+                isApproved
+                synonyms
+                tradeNames
                 mechanismsOfAction {
                     rows {
                         mechanismOfAction
                         targetName
-                    }
-                }
-                indications {
-                    rows {
-                        disease {
-                            id
-                            name
-                        }
+                        actionType
+                        targets { id approvedSymbol approvedName }
                     }
                 }
             }
@@ -56,35 +95,54 @@ class OpenTargetsClient:
         """
         data = await self._execute(query, {"chemblId": chembl_id})
         drug_data = data.get("drug")
-        if not drug_data:
+        if drug_data is None:
             return None
 
-        mechanisms = [
-            DrugMechanism(
-                description=m["mechanismOfAction"],
-                target=Target(symbol=m["targetName"]) if m.get("targetName") else None,
-            )
-            for m in drug_data.get("mechanismsOfAction", {}).get("rows", [])
-        ]
+        return self._parse_drug(drug_data)
 
-        indications = [
-            ApprovedIndication(
-                disease_id=row["disease"]["id"],
-                disease_name=row["disease"]["name"],
-            )
-            for row in drug_data.get("indications", {}).get("rows", [])
-            if row.get("disease")
-        ]
-
-        return Drug(
-            chembl_id=drug_data["id"],
-            name=drug_data["name"],
-            description=drug_data.get("description"),
-            drug_type=drug_data.get("drugType"),
-            max_clinical_phase=drug_data.get("maximumClinicalTrialPhase"),
-            mechanisms=mechanisms,
-            indications=indications,
-        )
+    async def get_drug_old(self, chembl_id: str) -> dict | None:
+        """Get comprehensive drug information by ChEMBL ID (raw dict)."""
+        query = """
+        query Drug($chemblId: String!) {
+            drug(chemblId: $chemblId) {
+                id
+                name
+                description
+                drugType
+                hasBeenWithdrawn
+                yearOfFirstApproval
+                maximumClinicalTrialPhase
+                isApproved
+                synonyms
+                tradeNames
+                linkedTargets {
+                    rows { id approvedSymbol approvedName }
+                }
+                mechanismsOfAction {
+                    rows {
+                        mechanismOfAction
+                        targetName
+                        actionType
+                        targets { id approvedSymbol approvedName }
+                    }
+                }
+                linkedDiseases {
+                    rows { id name }
+                }
+                indications {
+                    rows {
+                        disease {
+                            id
+                            name
+                            therapeuticAreas { id name }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        data = await self._execute(query, {"chemblId": chembl_id})
+        return data.get("drug")
 
     async def get_drug_indications(self, chembl_id: str) -> list:
         """What is this drug already approved for?"""

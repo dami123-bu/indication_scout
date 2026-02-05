@@ -1,6 +1,7 @@
 """Target data model."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import uuid4
 
 
 class Target(BaseModel):
@@ -12,7 +13,8 @@ class Target(BaseModel):
     Referenced by DrugActivity to represent the molecular target of a drug's mechanism.
     """
 
-    id: str
+    id: str = Field(default_factory=lambda: str(uuid4()))
     ncbi_id: str | None = None
     ensembl_id: str | None = None  # Ensembl gene ID, e.g. "ENSG00000146648"
-    symbol: str  # gene symbol, e.g. "EGFR"
+    symbol: str | None = None  # gene symbol, e.g. "EGFR"
+    name: str | None = None

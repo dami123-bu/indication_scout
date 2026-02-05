@@ -1,6 +1,7 @@
 """Indication data models."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import uuid4
 
 
 class Indication(BaseModel):
@@ -10,7 +11,7 @@ class Indication(BaseModel):
     syndromes, or other clinical presentations (e.g. "fever", "puffy eyes").
     """
 
-    id: str
+    id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
 
 
@@ -23,3 +24,4 @@ class DiseaseIndication(Indication):
 
     efo_id: str | None = None
     mondo_id: str | None = None
+    therapeutic_areas: list[str] = []

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import uuid4
 
 from indication_scout.models import Indication
 from indication_scout.models.target import Target
@@ -16,15 +17,22 @@ class Drug(BaseModel):
     linking it to the indications it acts on via specific mechanisms.
     """
 
-    id: str
+    id: str = Field(default_factory=lambda: str(uuid4()))
     chembl_id: str | None = None
     drugbank_id: str | None = None
     generic_name: str
     brand_name: str | None = None
     description: str | None = None
     drug_type: str | None = None
-    max_clinical_phase: int | None = None
     activities: list[DrugActivity] = []
+    is_approved: bool = False
+    has_been_withdrawn: bool = False
+    year_first_approved: int | None = None
+    max_clinical_phase: float | None = None
+    synonyms: list[str] = []
+    trade_names: list[str] = []
+    parent_molecule_id: str | None = None
+    child_molecule_ids: list[str] = []
 
 
 class DrugActivity(BaseModel):
@@ -36,5 +44,6 @@ class DrugActivity(BaseModel):
     """
 
     description: str | None = None
+    action_type: str | None = None
     target: Target | None = None
     indication: Indication | None = None
