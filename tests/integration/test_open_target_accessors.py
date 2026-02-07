@@ -44,6 +44,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pdgf.pathway_id, "R-HSA-186797")
         self.assertEqual(pdgf.top_level_pathway, "Signal Transduction")
 
+
     async def test_get_target_interactions(self):
         """Test get_target_interactions returns interaction data."""
         interactions = await self.client.get_target_interactions(
@@ -59,6 +60,60 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plcg1.interacting_target_id, "ENSG00000124181")
         self.assertGreater(plcg1.interaction_score, 0.99)
         self.assertEqual(plcg1.evidence_count, 4)
+
+    async def test_interaction_type_string_is_functional(self):
+        """Test that STRING database interactions have interaction_type='functional'."""
+        interactions = await self.client.get_target_interactions(
+            "imatinib", "ENSG00000113721"
+        )
+
+        string_interactions = [i for i in interactions if i.source_database == "string"]
+        self.assertGreater(len(string_interactions), 0)
+        for interaction in string_interactions:
+            self.assertEqual(interaction.interaction_type, "functional")
+
+    async def test_interaction_type_intact_is_physical(self):
+        """Test that IntAct database interactions have interaction_type='physical'."""
+        interactions = await self.client.get_target_interactions(
+            "imatinib", "ENSG00000113721"
+        )
+
+        intact_interactions = [i for i in interactions if i.source_database == "intact"]
+        self.assertGreater(len(intact_interactions), 0)
+        for interaction in intact_interactions:
+            self.assertEqual(interaction.interaction_type, "physical")
+
+    async def test_interaction_type_signor_is_signalling(self):
+        """Test that Signor database interactions have interaction_type='signalling'.
+
+        Note: Signor data may not be currently available in Open Targets API.
+        This test validates the mapping if Signor interactions are present.
+        """
+        interactions = await self.client.get_target_interactions(
+            "imatinib", "ENSG00000113721"
+        )
+
+        signor_interactions = [i for i in interactions if i.source_database == "signor"]
+        # Signor may not be available - test the mapping only if data exists
+        for interaction in signor_interactions:
+            self.assertEqual(interaction.interaction_type, "signalling")
+
+    async def test_interaction_type_reactome_is_enzymatic(self):
+        """Test that Reactome database interactions have interaction_type='enzymatic'.
+
+        Note: Reactome data may not be currently available in Open Targets API.
+        This test validates the mapping if Reactome interactions are present.
+        """
+        interactions = await self.client.get_target_interactions(
+            "imatinib", "ENSG00000113721"
+        )
+
+        reactome_interactions = [
+            i for i in interactions if i.source_database == "reactome"
+        ]
+        # Reactome may not be available - test the mapping only if data exists
+        for interaction in reactome_interactions:
+            self.assertEqual(interaction.interaction_type, "enzymatic")
 
     async def test_get_known_drugs(self):
         """Test get_known_drugs returns drugs targeting the same protein."""

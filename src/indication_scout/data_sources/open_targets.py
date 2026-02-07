@@ -31,6 +31,14 @@ from indication_scout.models.open_targets import (
 )
 
 
+INTERACTION_TYPE_MAP = {
+    "intact": "physical",
+    "signor": "signalling",
+    "reactome": "enzymatic",
+    "string": "functional",
+}
+
+
 class OpenTargetsClient(BaseClient):
     BASE_URL = "https://api.platform.opentargets.org/api/v4/graphql"
     CACHE_TTL = 5 * 86400
@@ -339,14 +347,16 @@ class OpenTargetsClient(BaseClient):
         )
 
     def _parse_interaction(self, raw: dict) -> Interaction:
+        source = raw.get("sourceDatabase", "")
         target_b = raw.get("targetB", {}) or {}
         return Interaction(
             interacting_target_id=target_b.get("id", raw.get("intB", "")),
             interacting_target_symbol=target_b.get("approvedSymbol", ""),
             interaction_score=raw.get("score", 0.0),
-            source_database=raw.get("sourceDatabase", ""),
+            source_database=source,
             biological_role=raw.get("intBBiologicalRole", ""),
             evidence_count=raw.get("count", 0),
+            interaction_type=INTERACTION_TYPE_MAP.get(source.lower()),
         )
 
     def _parse_known_drug(self, raw: dict) -> KnownDrug:
