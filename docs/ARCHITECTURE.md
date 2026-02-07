@@ -1,5 +1,81 @@
 # Architecture
 
+## BaseClient Infrastructure
+
+All data source clients inherit from `BaseClient`, which provides common infrastructure for reliable API communication.
+
+### Core Components
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              BaseClient                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Request Methods                                                             │
+│  ├── _request()   - Low-level HTTP with retry + rate limiting               │
+│  ├── _graphql()   - GraphQL queries with caching                            │
+│  └── _rest_get()  - REST GET requests with caching                          │
+│                                                                              │
+│  Rate Limiting (TokenBucketRateLimiter)                                      │
+│  └── Token bucket algorithm, configurable requests/second and burst         │
+│                                                                              │
+│  Retry Logic                                                                 │
+│  └── Exponential backoff with jitter, configurable max retries              │
+│                                                                              │
+│  Disk Cache (DiskCache)                                                      │
+│  └── JSON files in _cache/, keyed by namespace + params hash, TTL-based     │
+│                                                                              │
+│  Response Wrapper (PartialResult)                                            │
+│  └── Graceful degradation: is_complete, data, errors                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Configuration
+
+```python
+ClientConfig(
+    timeout_seconds=30.0,
+    retry=RetryConfig(
+        max_retries=3,
+        base_delay=1.0,
+        max_delay=60.0,
+        exponential_base=2.0,
+    ),
+    rate_limit=RateLimitConfig(
+        requests_per_second=5.0,
+        burst=10,
+    ),
+    cache=CacheConfig(
+        enabled=True,
+        directory=Path("_cache"),
+    ),
+)
+```
+
+### DiskCache
+
+- Location: `_cache/` relative to working directory
+- File naming: `{namespace}_{hash}.json` where hash is MD5 of sorted params
+- Each file contains: `{"timestamp": epoch, "data": ...}`
+- TTL checked on read; expired entries return cache miss
+
+### PartialResult
+
+Wrapper for API responses enabling graceful degradation:
+
+```python
+PartialResult(
+    is_complete=True,   # False if errors occurred
+    data={...},         # Response data (may be partial)
+    errors=[...],       # List of error messages
+)
+```
+
+Clients check `result.is_complete` before processing; partial data can still be used when appropriate.
+
+---
+
 ## Open Targets Data Structure
 
 The `OpenTargetsClient` provides two independent data objects: `DrugData` and `TargetData`. These are fetched separately via `get_drug()` and `get_target_data()` methods, each with their own cache.

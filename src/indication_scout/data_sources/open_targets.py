@@ -26,7 +26,6 @@ from indication_scout.models.open_targets import (
     Indication,
     SafetyLiability,
     SafetyEffect,
-    DiseaseDrug,
 )
 
 INTERACTION_TYPE_MAP = {
