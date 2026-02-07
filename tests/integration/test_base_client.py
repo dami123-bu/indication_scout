@@ -272,9 +272,7 @@ class TestBaseClient:
 
     async def test_client_context_manager(self, temp_cache_dir: Path):
         """Test that client can be used as async context manager."""
-        config = ClientConfig(
-            cache=CacheConfig(enabled=True, directory=temp_cache_dir)
-        )
+        config = ClientConfig(cache=CacheConfig(enabled=True, directory=temp_cache_dir))
 
         async with ConcreteTestClient(config) as client:
             assert client._session is None  # Session created lazily
@@ -287,9 +285,7 @@ class TestBaseClient:
 
     async def test_session_reuse(self, temp_cache_dir: Path):
         """Test that session is reused across requests."""
-        config = ClientConfig(
-            cache=CacheConfig(enabled=True, directory=temp_cache_dir)
-        )
+        config = ClientConfig(cache=CacheConfig(enabled=True, directory=temp_cache_dir))
         client = ConcreteTestClient(config)
 
         session1 = await client._get_session()

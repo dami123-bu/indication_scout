@@ -1,260 +1,261 @@
-# IndicationScout Architecture
+# Architecture
 
-**Version:** 0.1.0 (pre-alpha)
-**Python:** >=3.10
-**Build:** setuptools
+## Open Targets Data Structure
 
-IndicationScout is a toolkit for drug repurposing and indication discovery. Given a drug, it gathers evidence from multiple biomedical data sources, scores the strength of that evidence for potential new indications, and produces a structured report.
-
----
-
-## Directory Structure
+The `DrugEvaluation` object is the main data container fetched by `OpenTargetsClient.load()`. It contains everything needed for indication discovery.
 
 ```
-src/indication_scout/
-├── __init__.py                  # Package root, defines __version__
-├── config.py                    # Application settings (env-based)
-│
-├── models/                      # Pydantic domain models
-│   ├── target.py                # Target (gene/protein a drug acts on)
-│   ├── indication.py            # Indication (base), DiseaseIndication (with ontology IDs)
-│   └── drug.py                  # Drug, DrugActivity (mechanism-target-indication link)
-│
-├── data/                        # Implemented external API clients
-│   └── opentargets.py           # OpenTargetsClient (GraphQL, async httpx)
-│
-├── data_sources/                # Planned external API clients (all stubbed)
-│   ├── pubmed.py                # PubMedClient
-│   ├── clinicaltrials_gov.py    # ClinicalTrialsClient
-│   ├── chembl.py                # ChEMBLClient
-│   └── drugbank.py              # DrugBankClient
-│
-├── agents/                      # Multi-agent analysis layer (all stubbed)
-│   ├── base.py                  # BaseAgent ABC
-│   ├── mechanism.py             # MechanismAgent
-│   ├── literature.py            # LiteratureAgent
-│   ├── clinical_trials.py       # ClinicalTrialsAgent
-│   ├── safety.py                # SafetyAgent
-│   └── orchestrator.py          # Orchestrator (coordinates agents)
-│
-├── services/                    # Business logic (empty)
-│
-├── db/                          # Persistence layer (all stubbed)
-│   ├── connection.py            # Database async connection manager
-│   ├── repositories.py          # DrugRepository, IndicationRepository, ReportRepository
-│   └── migrations/              # Empty
-│
-└── api/                         # FastAPI application
-    ├── main.py                  # App factory, health check endpoint
-    ├── routes/                  # Empty
-    └── schemas/                 # Empty
-
-tests/
-├── conftest.py                  # Shared fixtures (sample_drug, sample_indication)
-├── unit/                        # Empty
-├── integration/
-│   └── test_opentargets.py      # Live API tests for OpenTargetsClient
-└── fixtures/                    # Empty
-
-scripts/
-├── run_evaluation.py            # Placeholder
-└── seed_db.py                   # Placeholder
+DrugData
+ |-- list[DrugWarning]
+ |-- list[Indication]
+ |-- list[AdverseEvent]           (FAERS drug-level adverse events)
+ +-- list[DrugTarget]
+      |
+      +-- TargetData (fetched separately, keyed by target_id)
+           |-- list[Association]
+           |-- list[Pathway]
+           |-- list[Interaction]
+           |-- list[KnownDrug]
+           |-- list[TissueExpression]
+           |    |-- RNAExpression
+           |    +-- ProteinExpression
+           |         +-- list[CellTypeExpression]
+           |-- list[MousePhenotype]
+           |    +-- list[BiologicalModel]
+           |-- list[SafetyLiability]
+           |    +-- list[SafetyEffect]
+           +-- list[GeneticConstraint]
 ```
 
 ---
 
-## Domain Models
+## Model Definitions
 
-All domain models are Pydantic `BaseModel` subclasses.
+### DrugData
 
-### Target (`models/target.py`)
+| Field | Type | Description |
+|-------|------|-------------|
+| chembl_id | str | ChEMBL identifier, e.g. "CHEMBL3137309" |
+| name | str | Drug name, e.g. "semaglutide" |
+| synonyms | list[str] | Alternative names |
+| trade_names | list[str] | Brand names, e.g. ["Ozempic", "Wegovy"] |
+| drug_type | str | "Protein", "Small molecule", etc. |
+| is_approved | bool | Whether drug is approved |
+| max_clinical_phase | float | Highest phase reached (0-4) |
+| year_first_approved | int or None | Year of first approval |
+| warnings | list[DrugWarning] | Black box warnings, withdrawals |
+| indications | list[Indication] | Diseases this drug targets |
+| targets | list[DrugTarget] | Molecular targets |
+| adverse_events | list[AdverseEvent] | FAERS drug-level adverse events |
+| adverse_events_critical_value | float | LLR threshold for significance |
 
-A gene or protein that a drug may act on.
+### DrugTarget
 
+| Field | Type | Description |
+|-------|------|-------------|
+| target_id | str | Ensembl ID, e.g. "ENSG00000112164" |
+| target_symbol | str | Gene symbol, e.g. "GLP1R" |
+| mechanism_of_action | str | e.g. "GLP-1 receptor agonist" |
+| action_type | str or None | "AGONIST", "INHIBITOR", etc. |
+
+### DrugWarning
+
+| Field | Type | Description |
+|-------|------|-------------|
+| warning_type | str | "Black Box Warning", "Withdrawn" |
+| description | str or None | Warning details |
+| toxicity_class | str or None | Classification of toxicity |
+| country | str or None | Where warning was issued |
+| year | int or None | When warning was issued |
+| efo_id | str or None | Disease term for warning |
+
+### Indication
+
+| Field | Type | Description |
+|-------|------|-------------|
+| disease_id | str | EFO identifier, e.g. "EFO_0001360" |
+| disease_name | str | e.g. "type 2 diabetes mellitus" |
+| max_phase | float | Highest phase for this indication (0-4) |
+| references | list[dict] | Supporting references |
+
+### TargetData
+
+| Field | Type | Description |
+|-------|------|-------------|
+| target_id | str | Ensembl ID |
+| symbol | str | Gene symbol |
+| name | str | Full gene name |
+| associations | list[Association] | All diseases linked to this target |
+| pathways | list[Pathway] | Reactome pathways |
+| interactions | list[Interaction] | Protein-protein interactions |
+| known_drugs | list[KnownDrug] | Other drugs targeting this protein |
+| expressions | list[TissueExpression] | Tissue expression data |
+| mouse_phenotypes | list[MousePhenotype] | Mouse model phenotypes |
+| safety_liabilities | list[SafetyLiability] | Known target safety effects |
+| genetic_constraint | list[GeneticConstraint] | GnomAD constraint scores |
+
+### Association
+
+| Field | Type | Description |
+|-------|------|-------------|
+| disease_id | str | EFO identifier |
+| disease_name | str | Human-readable disease name |
+| overall_score | float | Association strength (0-1) |
+| datatype_scores | dict[str, float] | Breakdown by evidence type |
+| therapeutic_areas | list[str] | Top-level disease categories |
+
+### Pathway
+
+| Field | Type | Description |
+|-------|------|-------------|
+| pathway_id | str | Reactome ID |
+| pathway_name | str | Pathway name |
+| top_level_pathway | str | Parent category |
+
+### Interaction
+
+| Field | Type | Description |
+|-------|------|-------------|
+| interacting_target_id | str | Ensembl ID of partner |
+| interacting_target_symbol | str | Gene symbol of partner |
+| interaction_score | float | Confidence (0-1) |
+| source_database | str | IntAct, STRING, Signor, Reactome |
+| biological_role | str | e.g. "enzyme target" |
+| evidence_count | int | Number of supporting experiments |
+
+### KnownDrug
+
+| Field | Type | Description |
+|-------|------|-------------|
+| drug_id | str | ChEMBL ID |
+| drug_name | str | Drug name |
+| disease_id | str | Target indication |
+| disease_name | str | Indication name |
+| phase | float | Clinical phase (0-4) |
+| status | str or None | "Active", "Completed", "Terminated" |
+| mechanism_of_action | str | Mechanism description |
+| clinical_trial_ids | list[str] | NCT IDs |
+
+### TissueExpression
+
+| Field | Type | Description |
+|-------|------|-------------|
+| tissue_id | str | UBERON ID |
+| tissue_name | str | e.g. "liver", "pancreas" |
+| tissue_anatomical_system | str | e.g. "digestive system" |
+| rna | RNAExpression | RNA expression data |
+| protein | ProteinExpression | Protein expression data |
+
+### RNAExpression
+
+| Field | Type | Description |
+|-------|------|-------------|
+| value | float | Expression value in TPM |
+| quantile | int | Relative level across tissues |
+| unit | str | Unit of measurement (default "TPM") |
+
+### ProteinExpression
+
+| Field | Type | Description |
+|-------|------|-------------|
+| level | int | Expression level (0-3) |
+| reliability | bool | Whether measurement is reliable |
+| cell_types | list[CellTypeExpression] | Cell type breakdown |
+
+### CellTypeExpression
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | str | Cell type name |
+| level | int | Expression level |
+| reliability | bool | Whether measurement is reliable |
+
+### MousePhenotype
+
+| Field | Type | Description |
+|-------|------|-------------|
+| phenotype_id | str | MP ontology ID |
+| phenotype_label | str | e.g. "increased circulating glucose" |
+| phenotype_categories | list[str] | Top-level MP categories |
+| biological_models | list[BiologicalModel] | Mouse models showing this |
+
+### BiologicalModel
+
+| Field | Type | Description |
+|-------|------|-------------|
+| allelic_composition | str | Allelic composition of the model |
+| genetic_background | str | Genetic background strain |
+| literature | list[str] | PMIDs for supporting literature |
+| model_id | str | MGI model ID |
+
+### SafetyLiability
+
+| Field | Type | Description |
+|-------|------|-------------|
+| event | str or None | Safety event description |
+| event_id | str or None | Unique identifier for safety event |
+| effects | list[SafetyEffect] | Reported safety effects |
+| datasource | str or None | Source reporting the liability |
+| literature | str or None | Reference citations |
+| url | str or None | Link for additional details |
+
+### SafetyEffect
+
+| Field | Type | Description |
+|-------|------|-------------|
+| direction | str | Direction of reported effect (e.g., "increase", "decrease") |
+| dosing | str or None | Dosing conditions related to the effect |
+
+### AdverseEvent (Drug-level)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | str | Adverse event term |
+| meddra_code | str or None | MedDRA identifier |
+| count | int | Number of FAERS reports |
+| log_likelihood_ratio | float | Statistical significance |
+
+### GeneticConstraint
+
+| Field | Type | Description |
+|-------|------|-------------|
+| constraint_type | str | "syn", "mis", or "lof" |
+| oe | float or None | Observed/expected ratio |
+| oe_lower | float or None | Lower confidence bound |
+| oe_upper | float or None | Upper confidence bound |
+| score | float or None | Constraint score |
+| upper_bin | int or None | 0 = most constrained, 5 = least |
+
+---
+
+## Three Disease Links
+
+| Path | What it answers |
+|------|-----------------|
+| `drug.indications` | What diseases is **this drug** being tested for? |
+| `target.associations` | What diseases is **this target** linked to (by any evidence)? |
+| `target.known_drugs` | What **other drugs** target this protein, and for what diseases? |
+
+
+---
+
+## Finding Whitespace Indications
+
+The system finds repurposing opportunities by:
+
+1. Get `target.associations` - diseases linked to the target
+2. Filter out `drug.indications` - diseases already being pursued
+3. What remains = potential new indications
+
+Example: If GLP1R has a high association score with NASH, but semaglutide's `indications` list doesn't include NASH, that's a whitespace opportunity.
+
+---
+
+## Helper Properties on DrugEvaluation
+
+```python
+evaluation.get_target(target_id)      # Returns TargetData, raises TargetNotFoundError
+evaluation.primary_target             # First target (or None if no targets)
+evaluation.approved_disease_ids       # set[str] of phase 4+ disease IDs
+evaluation.investigated_disease_ids   # set[str] of all disease IDs being pursued
 ```
-Target
-├── id: str                      # Source-independent identifier
-├── ncbi_id: str | None          # NCBI gene ID
-├── ensembl_id: str | None       # Ensembl gene ID, e.g. "ENSG00000146648"
-└── symbol: str                  # Gene symbol, e.g. "EGFR"
-```
-
-### Indication hierarchy (`models/indication.py`)
-
-Represents anything a drug can be used to treat — diseases, symptoms, syndromes, or other clinical presentations (e.g. "fever", "puffy eyes").
-
-```
-Indication (base)
-├── id: str
-└── name: str
-
-DiseaseIndication (extends Indication)
-├── efo_id: str | None           # EFO ID (Open Targets)
-└── mondo_id: str | None         # MONDO ID (Monarch Initiative)
-```
-
-### Drug and DrugActivity (`models/drug.py`)
-
-A pharmaceutical compound and its mechanism-target-indication relationships.
-
-```
-Drug
-├── id: str                      # Source-independent identifier
-├── chembl_id: str | None
-├── drugbank_id: str | None
-├── generic_name: str
-├── brand_name: str | None
-├── description: str | None
-├── drug_type: str | None
-├── max_clinical_phase: int | None
-└── activities: list[DrugActivity]
-      ├── description: str | None      # e.g. "Cyclooxygenase inhibitor"
-      ├── target: Target | None        # e.g. Target(symbol="PTGS2")
-      └── indication: Indication | None
-```
-
-All DrugActivity fields are optional to allow partially populated entries from different data sources. A single Drug can have multiple DrugActivity entries — one per mechanism-target-indication combination.
-
----
-
-## OpenTargetsClient (the only implemented data client)
-
-**Location:** `src/indication_scout/data/opentargets.py`
-**Protocol:** GraphQL over HTTPS (`https://api.platform.opentargets.org/api/v4/graphql`)
-**HTTP client:** `httpx.AsyncClient` (async, 30s timeout)
-
-**Note:** This client currently imports deleted models (`DrugMechanism`, `ApprovedIndication`) and uses old `Drug` field names. It needs to be updated to use the current domain models.
-
-### Implemented methods
-
-| Method | What it does | Returns |
-|---|---|---|
-| `get_drug(chembl_id)` | Fetches drug info, mechanisms of action, and approved indications | `Drug \| None` |
-| `search(term, entity_type)` | Free-text search across drugs, diseases, or targets | `list[dict]` |
-| `resolve_id(term, entity_type)` | Convenience wrapper: returns the top search hit's ID | `str \| None` |
-
-### Stubbed methods (signature only, no implementation)
-
-| Method | Intended purpose |
-|---|---|
-| `get_drug_mechanisms(chembl_id)` | Detailed mechanism-of-action data |
-| `get_drug_indications(chembl_id)` | Approved indications with clinical phase |
-| `get_disease_targets(efo_id, min_score)` | Targets associated with a disease above a score threshold |
-
----
-
-## Agent Layer
-
-All agents inherit from `BaseAgent` (an ABC with a single `async run(input_data) -> dict` method). None are implemented.
-
-| Agent | Intended role |
-|---|---|
-| `MechanismAgent` | Determine if a drug's target is relevant to a candidate disease |
-| `LiteratureAgent` | Search PubMed for published evidence of the drug-disease link |
-| `ClinicalTrialsAgent` | Check ClinicalTrials.gov for active or completed trials |
-| `SafetyAgent` | Assess safety signals and contraindications |
-| `Orchestrator` | Coordinate the above agents, collect results |
-
----
-
-## Configuration
-
-`config.py` uses `pydantic-settings` to load from environment variables (with `.env` file support):
-
-| Setting | Purpose |
-|---|---|
-| `database_url` | SQLite connection string |
-| `openai_api_key` | For LLM-based scoring / rationale generation |
-| `pubmed_api_key` | PubMed E-utilities API key |
-| `llm_model` | Model name (default: gpt-4) |
-| `embedding_model` | Embedding model name |
-| `debug`, `log_level` | Runtime behavior |
-
----
-
-## Database Layer
-
-Stubbed with async interface patterns:
-
-- **`Database`** (`db/connection.py`): Connection manager with `connect()`, `disconnect()`, and `session()` context manager. SQLite-backed.
-- **`DrugRepository`**: CRUD for Drug objects
-- **`IndicationRepository`**: CRUD for Indication objects
-- **`ReportRepository`**: Save and retrieve analysis reports (references a `Report` model that does not yet exist)
-
----
-
-## API Layer
-
-`FastAPI` application in `api/main.py`. Currently only exposes:
-
-```
-GET /health  →  {"status": "healthy", "version": "0.1.0"}
-```
-
-`api/routes/` and `api/schemas/` directories exist but are empty.
-
----
-
-## Entry Points
-
-| Entry point | Location | Status |
-|---|---|---|
-| CLI (`scout` command) | `indication_scout.cli.cli:main` (registered in pyproject.toml) | Module does not exist |
-| FastAPI | `src/indication_scout/api/main.py` | Health check only |
-| Streamlit | Referenced in CLAUDE.md as `app.py` | Does not exist |
-
----
-
-## Testing
-
-**Framework:** pytest with `pytest-asyncio`
-**Config:** `pyproject.toml [tool.pytest.ini_options]`, verbose output, short tracebacks
-
-### Integration tests (`tests/integration/test_opentargets.py`)
-
-Hit the live Open Targets API. Two test classes:
-
-- **`TestResolveId`** (5 tests): Verifies `resolve_id` returns correct ID prefixes for drugs (CHEMBL), diseases (EFO/MONDO/Orphanet), and targets (ENSG). Tests a nonsense query returns `None`.
-- **`TestGetDrug`** (5 tests): Verifies `get_drug` returns a populated `Drug` model for Aspirin (CHEMBL25) and Metformin (CHEMBL1431), including mechanisms and indications. Tests a nonexistent ID returns `None`.
-
-### Unit tests
-
-None yet.
-
-### Fixtures (`tests/conftest.py`)
-
-- `sample_drug`: Acetaminophen dict
-- `sample_indication`: Pain dict
-- `sample_disease`: Multiple Sclerosis dict (missing `@pytest.fixture` decorator)
-
----
-
-## Dependencies
-
-### Runtime
-| Package | Purpose |
-|---|---|
-| `httpx` | Async HTTP client (used by OpenTargetsClient, not listed in pyproject.toml but imported) |
-| `pydantic` / `pydantic-settings` | Model validation, settings |
-| `fastapi` / `uvicorn` | API server |
-| `click` | CLI framework |
-| `numpy`, `pandas`, `scikit-learn` | Declared but not yet used |
-
-### Dev
-`pytest`, `pytest-cov`, `black`, `ruff`, `mypy`, `pre-commit`
-
----
-
-## Known Issues
-
-1. **`opentargets.py` uses stale imports**: Imports `DrugMechanism` (from deleted `mechanism.py`) and `ApprovedIndication` (removed from `indication.py`). Also references old `Drug` field names (`name`, `mechanisms`, `indications`). Will raise `ImportError` if imported.
-
-2. **`httpx` not in pyproject.toml dependencies**: `opentargets.py` imports `httpx` but it is not listed in `[project.dependencies]`.
-
-3. **`pytest-asyncio` not in dev dependencies**: Integration tests use `pytest.mark.asyncio` but `pytest-asyncio` is not listed in `[project.optional-dependencies.dev]`.
-
-4. **Missing `@pytest.fixture` decorator**: `sample_disease` in `tests/conftest.py` is a plain function, not a fixture.
-
-5. **CLI module does not exist**: `pyproject.toml` registers `scout = "indication_scout.cli.cli:main"` but no `cli/` package exists.
-
-6. **Missing `Report` model**: `db/repositories.py` references a `Report` model that does not exist.

@@ -1,0 +1,339 @@
+"""Integration tests for OpenTargetsClient."""
+
+import unittest
+
+from indication_scout.data_sources.base_client import (
+    CacheConfig,
+    ClientConfig,
+    RateLimitConfig,
+    RetryConfig,
+)
+from indication_scout.data_sources.open_targets import OpenTargetsClient
+
+
+class TestOpenTargetsClientConfig:
+    """Tests for OpenTargetsClient configuration."""
+
+    def test_default_config(self):
+        """Test that client uses default config when none provided."""
+        client = OpenTargetsClient()
+
+        assert client.config is not None
+        assert client.config.timeout_seconds == 30.0
+        assert client.config.retry.max_retries == 3
+        assert client.config.rate_limit.requests_per_second == 5.0
+        assert client.config.cache.enabled is True
+
+    def test_custom_config(self):
+        """Test that custom config is applied correctly."""
+        custom_config = ClientConfig(
+            timeout_seconds=60.0,
+            retry=RetryConfig(max_retries=5, base_delay=2.0),
+            rate_limit=RateLimitConfig(requests_per_second=10.0, burst=20),
+            cache=CacheConfig(enabled=False),
+        )
+        client = OpenTargetsClient(config=custom_config)
+
+        assert client.config.timeout_seconds == 60.0
+        assert client.config.retry.max_retries == 5
+        assert client.config.retry.base_delay == 2.0
+        assert client.config.rate_limit.requests_per_second == 10.0
+        assert client.config.rate_limit.burst == 20
+        assert client.config.cache.enabled is False
+
+
+class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for get_drug_indications method."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_semaglutide_drug_data(self):
+        """Test fetching drug data and indications for semaglutide."""
+        evaluation = await self.client.load("semaglutide")
+        drug = evaluation.drug
+
+        # DrugData top-level fields
+        self.assertEqual(drug.chembl_id, "CHEMBL2108724")
+        self.assertEqual(drug.name, "SEMAGLUTIDE")
+        self.assertIn("NN-9535", drug.synonyms)
+        self.assertIn("Ozempic", drug.trade_names)
+        self.assertIn("Wegovy", drug.trade_names)
+        self.assertEqual(drug.drug_type, "Protein")
+        self.assertTrue(drug.is_approved)
+        self.assertEqual(drug.max_clinical_phase, 4.0)
+        self.assertEqual(drug.year_first_approved, 2017)
+        self.assertGreater(len(drug.indications), 5)
+        self.assertGreater(len(drug.targets), 0)
+        self.assertGreater(len(drug.adverse_events), 5)
+        self.assertTrue(38.5 < drug.adverse_events_critical_value < 38.6)
+        self.assertEqual(len(drug.warnings), 1)
+
+        # Indications - should include type 2 diabetes (approved)
+        t2d_indication = next(
+            (
+                i
+                for i in drug.indications
+                if "type 2 diabetes" in i.disease_name.lower()
+            ),
+            None,
+        )
+        self.assertIsNotNone(t2d_indication)
+        self.assertEqual(t2d_indication.max_phase, 4.0)
+
+    async def test_semaglutide_drug_target(self):
+        """Test DrugTarget fields for semaglutide's GLP1R target."""
+        evaluation = await self.client.load("semaglutide")
+        [glp1r] = [t for t in evaluation.drug.targets if t.target_symbol == "GLP1R"]
+
+        self.assertEqual(glp1r.target_id, "ENSG00000112164")
+        self.assertEqual(glp1r.target_symbol, "GLP1R")
+        self.assertEqual(
+            glp1r.mechanism_of_action, "Glucagon-like peptide 1 receptor agonist"
+        )
+        self.assertEqual(glp1r.action_type, "AGONIST")
+
+    async def test_semaglutide_indication(self):
+        """Test Indication fields for semaglutide's type 2 diabetes indication."""
+        evaluation = await self.client.load("semaglutide")
+        [t2d] = [
+            i
+            for i in evaluation.drug.indications
+            if i.disease_name == "type 2 diabetes mellitus"
+        ]
+
+        self.assertEqual(t2d.disease_id, "MONDO_0005148")
+        self.assertEqual(t2d.disease_name, "type 2 diabetes mellitus")
+        self.assertEqual(t2d.max_phase, 4.0)
+        self.assertEqual(len(t2d.references), 4)
+        fda_ref = next(r for r in t2d.references if r["source"] == "FDA")
+        self.assertIn("label/2017/209637lbl.pdf", fda_ref["ids"])
+
+    async def test_semaglutide_known_drug(self):
+        """Test KnownDrug fields for GLP1R target."""
+        evaluation = await self.client.load("semaglutide")
+        target = evaluation.primary_target
+        liraglutide = next(
+            d
+            for d in target.known_drugs
+            if d.drug_name == "LIRAGLUTIDE"
+            and d.disease_name == "type 2 diabetes mellitus"
+        )
+
+        self.assertEqual(liraglutide.drug_id, "CHEMBL4084119")
+        self.assertEqual(liraglutide.drug_name, "LIRAGLUTIDE")
+        self.assertEqual(liraglutide.disease_id, "MONDO_0005148")
+        self.assertEqual(liraglutide.disease_name, "type 2 diabetes mellitus")
+        self.assertEqual(liraglutide.phase, 4.0)
+        self.assertIsNone(liraglutide.status)
+        self.assertEqual(
+            liraglutide.mechanism_of_action, "Glucagon-like peptide 1 receptor agonist"
+        )
+        self.assertIsInstance(liraglutide.clinical_trial_ids, list)
+
+    async def test_semaglutide_target_associations(self):
+        """Test fetching associations for semaglutide's target (GLP1R)."""
+        evaluation = await self.client.load("semaglutide")
+        target_id = evaluation.drug.targets[0].target_id
+
+        associations = await self.client.get_target_associations(
+            "semaglutide", target_id
+        )
+        assert len(associations) > 10
+        [assoc] = [a for a in associations if a.disease_name == "gastroparesis"]
+
+        self.assertIsNotNone(assoc)
+        self.assertTrue(
+            assoc.disease_id.startswith("EFO_") or assoc.disease_id.startswith("MONDO_")
+        )
+        self.assertGreater(assoc.overall_score, 0.2)
+        self.assertTrue(0.4 < assoc.datatype_scores["genetic_association"] < 0.5)
+        self.assertTrue(0.2 < assoc.datatype_scores["literature"] < 0.3)
+        self.assertIn("gastrointestinal disease", assoc.therapeutic_areas)
+
+    async def test_imatinib_target_pathway(self):
+        """Test Pathway fields for imatinib's PDGFRB target."""
+        evaluation = await self.client.load("imatinib")
+        target = evaluation.primary_target
+        [pathway] = [
+            p for p in target.pathways if p.pathway_name == "Signaling by PDGF"
+        ]
+
+        self.assertEqual(pathway.pathway_id, "R-HSA-186797")
+        self.assertEqual(pathway.pathway_name, "Signaling by PDGF")
+        self.assertEqual(pathway.top_level_pathway, "Signal Transduction")
+
+    async def test_imatinib_target_interaction(self):
+        """Test Interaction fields for imatinib's PDGFRB target."""
+        evaluation = await self.client.load("imatinib")
+        target = evaluation.primary_target
+        interaction = next(
+            i
+            for i in target.interactions
+            if i.interacting_target_symbol == "PLCG1" and i.source_database == "string"
+        )
+
+        self.assertEqual(interaction.interacting_target_id, "ENSG00000124181")
+        self.assertEqual(interaction.interacting_target_symbol, "PLCG1")
+        self.assertGreater(interaction.interaction_score, 0.99)
+        self.assertEqual(interaction.source_database, "string")
+        self.assertEqual(interaction.biological_role, "unspecified role")
+        self.assertEqual(interaction.evidence_count, 4)
+
+    async def test_digoxin_target_tissue_expression(self):
+        """Test TissueExpression, RNAExpression, ProteinExpression, and CellTypeExpression fields."""
+        evaluation = await self.client.load("digoxin")
+        [atp1a1] = [t for t in evaluation.drug.targets if t.target_symbol == "ATP1A1"]
+        target = evaluation.get_target(atp1a1.target_id)
+        expression = next(e for e in target.expressions if e.tissue_name == "liver")
+
+        # TissueExpression fields
+        self.assertEqual(expression.tissue_id, "UBERON_0002107")
+        self.assertEqual(expression.tissue_name, "liver")
+        self.assertEqual(expression.tissue_anatomical_system, "endocrine system")
+
+        # RNAExpression fields
+        self.assertEqual(expression.rna.value, 11819.0)
+        self.assertEqual(expression.rna.quantile, 5)
+        self.assertEqual(expression.rna.unit, "TPM")
+
+        # ProteinExpression fields
+        self.assertEqual(expression.protein.level, 2)
+        self.assertTrue(expression.protein.reliability)
+        self.assertGreater(len(expression.protein.cell_types), 0)
+
+        # CellTypeExpression fields
+        hepatocytes = next(
+            ct for ct in expression.protein.cell_types if ct.name == "hepatocytes"
+        )
+        self.assertEqual(hepatocytes.name, "hepatocytes")
+        self.assertEqual(hepatocytes.level, 1)
+        self.assertTrue(hepatocytes.reliability)
+
+    async def test_semaglutide_target_mouse_phenotype(self):
+        """Test MousePhenotype and BiologicalModel fields for GLP1R target."""
+        evaluation = await self.client.load("semaglutide")
+        target = evaluation.primary_target
+        phenotype = next(
+            p for p in target.mouse_phenotypes if p.phenotype_id == "MP:0013279"
+        )
+
+        # MousePhenotype fields
+        self.assertEqual(phenotype.phenotype_id, "MP:0013279")
+        self.assertEqual(
+            phenotype.phenotype_label, "increased fasting circulating glucose level"
+        )
+        self.assertIn(
+            "homeostasis/metabolism phenotype", phenotype.phenotype_categories
+        )
+        self.assertEqual(len(phenotype.biological_models), 1)
+
+        # BiologicalModel fields
+        [model] = phenotype.biological_models
+        self.assertEqual(model.allelic_composition, "Glp1r<tm1b(KOMP)Mbp> hom early")
+        self.assertEqual(model.genetic_background, "C57BL/6NTac")
+
+    async def test_trastuzumab_adverse_event(self):
+        """Test AdverseEvent fields for trastuzumab."""
+        evaluation = await self.client.load("trastuzumab")
+        drug = evaluation.drug
+        adverse_event = next(
+            ae for ae in drug.adverse_events if ae.name == "ejection fraction decreased"
+        )
+
+        self.assertEqual(adverse_event.name, "ejection fraction decreased")
+        self.assertEqual(adverse_event.meddra_code, "10050528")
+        self.assertEqual(adverse_event.count, 1124)
+        self.assertTrue(2725.0 < adverse_event.log_likelihood_ratio < 2726.0)
+
+    async def test_trastuzumab_target_genetic_constraint(self):
+        """Test GeneticConstraint fields for trastuzumab's ERBB2 target."""
+        evaluation = await self.client.load("trastuzumab")
+        target = evaluation.primary_target
+        lof_constraint = next(
+            gc for gc in target.genetic_constraint if gc.constraint_type == "lof"
+        )
+
+        self.assertEqual(lof_constraint.constraint_type, "lof")
+        self.assertTrue(0.41 < lof_constraint.oe < 0.42)
+        self.assertTrue(0.33 < lof_constraint.oe_lower < 0.34)
+        self.assertTrue(0.51 < lof_constraint.oe_upper < 0.52)
+        self.assertTrue(0.06 < lof_constraint.score < 0.07)
+        self.assertEqual(lof_constraint.upper_bin, 1)
+
+    async def test_rofecoxib_drug_warning(self):
+        """Test DrugWarning fields for rofecoxib (Vioxx) - a withdrawn drug with complete warning data."""
+        evaluation = await self.client.load("rofecoxib")
+        drug = evaluation.drug
+        self.assertGreater(len(drug.warnings), 5)
+
+        # Find a specific warning with all fields populated
+        warning = next(
+            w
+            for w in drug.warnings
+            if w.toxicity_class == "cardiotoxicity"
+            and w.efo_id == "EFO:0000612"
+            and "serious cardiovascular events" in (w.description or "")
+        )
+
+        self.assertEqual(warning.warning_type, "Withdrawn")
+        self.assertEqual(
+            warning.description,
+            "Increased risk of serious cardiovascular events, such as heart attacks and strokes",
+        )
+        self.assertEqual(warning.toxicity_class, "cardiotoxicity")
+        self.assertEqual(warning.country, "Worldwide")
+        self.assertEqual(warning.year, 2004)
+        self.assertEqual(warning.efo_id, "EFO:0000612")
+
+    async def test_digoxin_target_safety_liability(self):
+        """Test SafetyLiability and SafetyEffect fields for digoxin's ATP1A1 target."""
+        evaluation = await self.client.load("digoxin")
+        [atp1a1] = [t for t in evaluation.drug.targets if t.target_symbol == "ATP1A1"]
+        target = evaluation.get_target(atp1a1.target_id)
+        self.assertGreater(len(target.safety_liabilities), 5)
+
+        # Find a specific safety liability with effects
+        liability = next(
+            sl
+            for sl in target.safety_liabilities
+            if sl.event == "cardiac arrhythmia" and sl.event_id == "EFO_0004269"
+        )
+
+        # SafetyLiability fields
+        self.assertEqual(liability.event, "cardiac arrhythmia")
+        self.assertEqual(liability.event_id, "EFO_0004269")
+        self.assertEqual(liability.datasource, "Lynch et al. (2017)")
+        self.assertEqual(liability.literature, "28216264")
+        self.assertIsNone(liability.url)
+        self.assertEqual(len(liability.effects), 1)
+
+        # SafetyEffect fields
+        [effect] = liability.effects
+        self.assertEqual(effect.direction, "Inhibition/Decrease/Downregulation")
+        self.assertEqual(effect.dosing, "acute")
+
+    async def test_metformin_drug_data(self):
+        """Simple test for metformin - a different drug than others in the suite."""
+        evaluation = await self.client.load("metformin")
+        drug = evaluation.drug
+
+        self.assertEqual(drug.chembl_id, "CHEMBL1431")
+        self.assertEqual(drug.name, "METFORMIN")
+        self.assertEqual(drug.drug_type, "Small molecule")
+        self.assertTrue(drug.is_approved)
+        self.assertEqual(drug.max_clinical_phase, 4.0)
+        self.assertEqual(drug.year_first_approved, 1995)
+
+    async def test_resolve_drug_aspirin(self):
+        """Test resolve_drug returns DrugData directly."""
+        drug = await self.client.resolve_drug("aspirin")
+
+        self.assertEqual(drug.chembl_id, "CHEMBL25")
+        self.assertEqual(drug.name, "ASPIRIN")
+        self.assertEqual(drug.drug_type, "Small molecule")
+        self.assertTrue(drug.is_approved)
+        self.assertEqual(drug.max_clinical_phase, 4.0)

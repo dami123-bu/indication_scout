@@ -26,30 +26,35 @@ logger = logging.getLogger("indication_scout.data_sources")
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 class RetryConfig(BaseModel):
     """Retry behaviour for failed requests."""
+
     max_retries: int = 3
-    base_delay: float = 1.0          # seconds
-    max_delay: float = 30.0          # seconds
+    base_delay: float = 1.0  # seconds
+    max_delay: float = 30.0  # seconds
     backoff_factor: float = 2.0
     retryable_status_codes: set[int] = {429, 500, 502, 503, 504}
 
 
 class RateLimitConfig(BaseModel):
     """Token-bucket rate limiter settings."""
+
     requests_per_second: float = 5.0
     burst: int = 10
 
 
 class CacheConfig(BaseModel):
     """Disk cache settings."""
+
     enabled: bool = True
-    directory: Path = Path(".cache/indication_scout")
-    ttl_seconds: int = 86400         # 24 hours default
+    directory: Path = Path("_cache")
+    ttl_seconds: int = 86400  # 24 hours default
 
 
 class ClientConfig(BaseModel):
     """Top-level config aggregating retry, rate limit, and cache."""
+
     retry: RetryConfig = RetryConfig()
     rate_limit: RateLimitConfig = RateLimitConfig()
     cache: CacheConfig = CacheConfig()
@@ -59,6 +64,7 @@ class ClientConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Rate limiter (async token bucket)
 # ---------------------------------------------------------------------------
+
 
 class TokenBucketRateLimiter:
     """
@@ -96,6 +102,7 @@ class TokenBucketRateLimiter:
 # ---------------------------------------------------------------------------
 # Disk cache
 # ---------------------------------------------------------------------------
+
 
 class DiskCache:
     """
@@ -169,17 +176,20 @@ class DiskCache:
 # Request context (for structured logging)
 # ---------------------------------------------------------------------------
 
+
 class RequestContext(BaseModel):
     """Metadata attached to every outgoing request for logging."""
-    source: str              # e.g. "open_targets", "pubmed"
-    method: str              # e.g. "get_target_associations"
-    agent: str | None = None # e.g. "biology", "critique" — set by caller
+
+    source: str  # e.g. "open_targets", "pubmed"
+    method: str  # e.g. "get_target_associations"
+    agent: str | None = None  # e.g. "biology", "critique" — set by caller
     params: dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
+
 
 class DataSourceError(Exception):
     """Base exception for data source failures."""
@@ -192,17 +202,20 @@ class DataSourceError(Exception):
 
 class RateLimitError(DataSourceError):
     """Raised when rate limit is exceeded and retries are exhausted."""
+
     pass
 
 
 class TemporalFilterError(DataSourceError):
     """Raised when a temporal filter cannot be applied by the API."""
+
     pass
 
 
 # ---------------------------------------------------------------------------
 # Partial result wrapper
 # ---------------------------------------------------------------------------
+
 
 class PartialResult(BaseModel):
     """
@@ -211,6 +224,7 @@ class PartialResult(BaseModel):
     Agents check `is_complete` and `errors` to decide how much to trust
     the data.  The Supervisor can log degraded responses.
     """
+
     data: Any
     is_complete: bool = True
     errors: list[str] = []
@@ -221,6 +235,7 @@ class PartialResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Base client
 # ---------------------------------------------------------------------------
+
 
 class BaseClient(ABC):
     """
@@ -318,7 +333,10 @@ class BaseClient(ABC):
 
                 logger.info(
                     "Request [%s.%s] attempt=%d url=%s",
-                    ctx.source, ctx.method, attempt + 1, url,
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    url,
                 )
 
                 if method.upper() == "GET":
@@ -333,7 +351,10 @@ class BaseClient(ABC):
                     body = await resp.text()
                     logger.warning(
                         "Retryable %d from %s.%s: %s",
-                        resp.status, ctx.source, ctx.method, body[:200],
+                        resp.status,
+                        ctx.source,
+                        ctx.method,
+                        body[:200],
                     )
                     last_error = DataSourceError(
                         ctx.source,
@@ -349,7 +370,7 @@ class BaseClient(ABC):
 
                     delay = min(
                         self.config.retry.base_delay
-                        * (self.config.retry.backoff_factor ** attempt),
+                        * (self.config.retry.backoff_factor**attempt),
                         self.config.retry.max_delay,
                     )
                     await asyncio.sleep(delay)
@@ -369,7 +390,9 @@ class BaseClient(ABC):
 
                 logger.info(
                     "Success [%s.%s] elapsed=%.2fs cached=False",
-                    ctx.source, ctx.method, elapsed,
+                    ctx.source,
+                    ctx.method,
+                    elapsed,
                 )
 
                 # Store in cache
@@ -387,21 +410,27 @@ class BaseClient(ABC):
                 )
                 logger.warning(
                     "Timeout [%s.%s] attempt=%d elapsed=%.1fs",
-                    ctx.source, ctx.method, attempt + 1, elapsed,
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    elapsed,
                 )
 
             except aiohttp.ClientError as e:
                 last_error = DataSourceError(ctx.source, f"Connection error: {e}")
                 logger.warning(
                     "Connection error [%s.%s] attempt=%d: %s",
-                    ctx.source, ctx.method, attempt + 1, e,
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    e,
                 )
 
             # Exponential backoff before next attempt
             if attempt < self.config.retry.max_retries:
                 delay = min(
                     self.config.retry.base_delay
-                    * (self.config.retry.backoff_factor ** attempt),
+                    * (self.config.retry.backoff_factor**attempt),
                     self.config.retry.max_delay,
                 )
                 await asyncio.sleep(delay)
@@ -410,7 +439,10 @@ class BaseClient(ABC):
         elapsed = time.monotonic() - start
         logger.error(
             "All retries exhausted [%s.%s] after %.1fs: %s",
-            ctx.source, ctx.method, elapsed, last_error,
+            ctx.source,
+            ctx.method,
+            elapsed,
+            last_error,
         )
         return PartialResult(
             data=None,
@@ -453,16 +485,30 @@ class BaseClient(ABC):
     ) -> PartialResult:
         """Convenience wrapper for GraphQL POST requests (Open Targets)."""
         json_body = {"query": query, "variables": variables}
-        return await self._request(
+        result = await self._request(
             "POST",
             url,
             json_body=json_body,
             headers={"Content-Type": "application/json"},
             cache_namespace=cache_namespace,
-            cache_params={"query_hash": hashlib.md5(query.encode()).hexdigest(), **variables},
+            cache_params={
+                "query_hash": hashlib.md5(query.encode()).hexdigest(),
+                **variables,
+            },
             cache_ttl=cache_ttl,
             context=context,
         )
+
+        # Check for GraphQL errors
+        if result.data and "errors" in result.data:
+            ctx = context or RequestContext(source=self._source_name, method="unknown")
+            error_messages = [e.get("message", str(e)) for e in result.data["errors"]]
+            raise DataSourceError(
+                ctx.source,
+                f"GraphQL errors: {error_messages}",
+            )
+
+        return result
 
     # -- Temporal filtering helper -------------------------------------------
 

@@ -7,7 +7,6 @@ import pytest
 def sample_drug() -> dict:
     """Sample drug data for testing."""
     return {
-
         "id": "DB00316",
         "name": "Acetaminophen",
         "synonyms": ["Tylenol", "Paracetamol"],
@@ -15,7 +14,6 @@ def sample_drug() -> dict:
 
 
 @pytest.fixture
-
 def sample_indication() -> dict:
     """Sample indication data for testing."""
     return {
@@ -24,10 +22,10 @@ def sample_indication() -> dict:
         "synonyms": ["Chronic Pain", "Acute Pain"],
     }
 
+
 def sample_disease() -> dict:
     """Sample disease data for testing."""
     return {
         "id": "EFO_0003885",
         "name": "Multiple Sclerosis",
-
     }
