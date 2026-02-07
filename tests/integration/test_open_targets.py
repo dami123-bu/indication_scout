@@ -182,12 +182,12 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(0.2 < assoc.datatype_scores["literature"] < 0.3)
         self.assertIn("gastrointestinal disease", assoc.therapeutic_areas)
 
-    async def test_glp1r_known_drugs(self):
-        """Test KnownDrug fields for GLP1R target."""
+    async def test_glp1r_drug_summary(self):
+        """Test DrugSummary fields for GLP1R target."""
         target = await self.client.get_target_data("ENSG00000112164")
         liraglutide = next(
             d
-            for d in target.known_drugs
+            for d in target.drug_summaries
             if d.drug_name == "LIRAGLUTIDE"
             and d.disease_name == "type 2 diabetes mellitus"
         )

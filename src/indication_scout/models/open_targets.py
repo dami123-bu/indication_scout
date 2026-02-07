@@ -143,7 +143,7 @@ class GeneticConstraint(BaseModel):
     upper_bin: int | None = None  # 0 = most constrained, 5 = least
 
 
-class KnownDrug(BaseModel):
+class DrugSummary(BaseModel):
     """A drug known to act on this target, with indication and phase info."""
 
     drug_id: str  # ChEMBL ID
@@ -165,7 +165,7 @@ class TargetData(BaseModel):
     associations: list[Association] = []
     pathways: list[Pathway] = []
     interactions: list[Interaction] = []
-    known_drugs: list[KnownDrug] = []
+    drug_summaries: list[DrugSummary] = []
     expressions: list[TissueExpression] = []
     mouse_phenotypes: list[MousePhenotype] = []
     safety_liabilities: list[SafetyLiability] = []
@@ -184,6 +184,15 @@ class DrugTarget(BaseModel):
     target_symbol: str  # e.g. "GLP1R"
     mechanism_of_action: str  # e.g. "Glucagon-like peptide 1 receptor agonist"
     action_type: str | None = None  # e.g. "AGONIST", "INHIBITOR"
+
+
+class DiseaseDrug(BaseModel):
+    """A drug being developed for a specific disease, from the disease node."""
+
+    drug_id: str
+    drug_name: str
+    mechanism_of_action: str
+    max_phase: float
 
 
 class DrugWarning(BaseModel):

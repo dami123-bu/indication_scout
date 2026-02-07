@@ -10,7 +10,7 @@ from indication_scout.models.open_targets import (
     Association,
     Pathway,
     Interaction,
-    KnownDrug,
+    DrugSummary,
     TissueExpression,
     MousePhenotype,
     TargetData,
@@ -26,6 +26,7 @@ from indication_scout.models.open_targets import (
     Indication,
     SafetyLiability,
     SafetyEffect,
+    DiseaseDrug,
 )
 
 INTERACTION_TYPE_MAP = {
@@ -123,9 +124,9 @@ class OpenTargetsClient(BaseClient):
         target = await self.get_target_data(target_id)
         return target.interactions
 
-    async def get_target_data_known_drugs(self, target_id: str) -> list[KnownDrug]:
+    async def get_target_data_drug_summaries(self, target_id: str) -> list[DrugSummary]:
         target = await self.get_target_data(target_id)
-        return target.known_drugs
+        return target.drug_summaries
 
     async def get_target_data_tissue_expression(
         self, target_id: str
@@ -320,8 +321,8 @@ class OpenTargetsClient(BaseClient):
                 self._parse_interaction(i)
                 for i in raw.get("interactions", {}).get("rows", [])
             ],
-            known_drugs=[
-                self._parse_known_drug(d)
+            drug_summaries=[
+                self._parse_drug_summary(d)
                 for d in raw.get("knownDrugs", {}).get("rows", [])
             ],
             expressions=[self._parse_expression(e) for e in raw.get("expressions", [])],
@@ -369,8 +370,8 @@ class OpenTargetsClient(BaseClient):
             interaction_type=INTERACTION_TYPE_MAP.get(source.lower()),
         )
 
-    def _parse_known_drug(self, raw: dict) -> KnownDrug:
-        return KnownDrug(
+    def _parse_drug_summary(self, raw: dict) -> DrugSummary:
+        return DrugSummary(
             drug_id=raw.get("drugId", ""),
             drug_name=raw.get("prefName", ""),
             disease_id=raw.get("diseaseId", ""),
@@ -465,7 +466,7 @@ class OpenTargetsClient(BaseClient):
             upper_bin=raw.get("upperBin"),
         )
 
-    async def get_disease_drugs(self, disease_id: str) -> list[KnownDrug]:
+    async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
         result = await self._graphql(
             self.BASE_URL,
@@ -475,6 +476,24 @@ class OpenTargetsClient(BaseClient):
             cache_ttl=self.CACHE_TTL,
             context=self._ctx("get_disease_drugs"),
         )
+        if not result.is_complete:
+            raise DataSourceError(
+                self._source_name,
+                f"Failed to fetch drugs for disease {disease_id}: {result.errors}",
+            )
+        return self._parse_disease_drugs(result.data["data"])
+
+    def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:
+        """Parse and deduplicate disease drugs — one entry per drug, highest phase wins."""
+        disease = data.get("disease") or {}
+        rows = disease.get("knownDrugs", {}).get("rows", [])
+
+        by_drug: dict[str, DrugSummary] = {}
+        for row in rows:
+            drug = self._parse_drug_summary(row)
+            if drug.drug_id not in by_drug or drug.phase > by_drug[drug.drug_id].phase:
+                by_drug[drug.drug_id] = drug
+        return list(by_drug.values())
 
     def _ctx(self, method: str) -> RequestContext:
         return RequestContext(source=self._source_name, method=method)
