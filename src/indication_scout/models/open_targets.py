@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 
 class TargetNotFoundError(Exception):
-    """Raised when a target_id is not found in DrugEvaluation.targets."""
+    """Raised when a target_id is not found."""
 
     def __init__(self, target_id: str):
         self.target_id = target_id
@@ -157,7 +157,7 @@ class KnownDrug(BaseModel):
 
 
 class TargetData(BaseModel):
-    """Everything Open Targets knows about a target. Populated once by load()."""
+    """Everything Open Targets knows about a target. Populated once by get_target()."""
 
     target_id: str
     symbol: str
@@ -207,7 +207,7 @@ class Indication(BaseModel):
 
 
 class DrugData(BaseModel):
-    """Everything Open Targets knows about a drug. Populated once by load()."""
+    """Everything Open Targets knows about a drug. Populated once by get_drug()."""
 
     chembl_id: str
     name: str
@@ -223,53 +223,14 @@ class DrugData(BaseModel):
     adverse_events: list[AdverseEvent] = []
     adverse_events_critical_value: float = 0.0
 
-
-# ------------------------------------------------------------------
-# Safety rollup (convenience wrapper)
-# ------------------------------------------------------------------
-
-
-class TargetSafety(BaseModel):
-    """Combined safety data: target safety liabilities + genetic constraint."""
-
-    safety_liabilities: list[SafetyLiability] = []
-    genetic_constraint: list[GeneticConstraint] = []
-
-
-# ------------------------------------------------------------------
-# Top-level evaluation blob
-# ------------------------------------------------------------------
-
-
-class DrugEvaluation(BaseModel):
-    """
-    The complete prefetched data for a drug evaluation.
-    One drug, one or more targets, everything cached together.
-    Built by OpenTargetsClient.load(), consumed by all agents.
-    """
-
-    drug: DrugData
-    targets: dict[str, TargetData]  # keyed by Ensembl ID
-
-    def get_target(self, target_id: str) -> TargetData:
-        if target_id not in self.targets:
-            raise TargetNotFoundError(target_id)
-        return self.targets[target_id]
-
-    @property
-    def primary_target(self) -> TargetData | None:
-        """First target — most drugs have one main target. Returns None if no targets."""
-        if not self.drug.targets:
-            return None
-        first_id = self.drug.targets[0].target_id
-        return self.targets.get(first_id)
-
     @property
     def approved_disease_ids(self) -> set[str]:
         """Disease IDs with phase 4 / approved status — for filtering."""
-        return {i.disease_id for i in self.drug.indications if i.max_phase >= 4}
+        return {i.disease_id for i in self.indications if i.max_phase >= 4}
 
     @property
     def investigated_disease_ids(self) -> set[str]:
         """All disease IDs being actively investigated (any phase)."""
-        return {i.disease_id for i in self.drug.indications}
+        return {i.disease_id for i in self.indications}
+
+

@@ -13,14 +13,12 @@ from indication_scout.models.open_targets import (
     KnownDrug,
     TissueExpression,
     MousePhenotype,
-    TargetSafety,
     TargetData,
     GeneticConstraint,
     AdverseEvent,
     CellTypeExpression,
     RNAExpression,
     BiologicalModel,
-    DrugEvaluation,
     DrugData,
     DrugTarget,
     ProteinExpression,
@@ -45,104 +43,115 @@ class OpenTargetsClient(BaseClient):
 
     def __init__(self, config: ClientConfig | None = None):
         super().__init__(config)
-        self._cache: dict[str, DrugEvaluation] = {}  # keyed by chembl_id
+        self._drug_cache: dict[str, DrugData] = {}  # keyed by chembl_id
+        self._target_data_cache: dict[str, TargetData] = {}  # keyed by target_id
 
     @property
     def _source_name(self) -> str:
         return "open_targets"
 
     # ------------------------------------------------------------------
-    # Load: the only method that hits the network
+    # Public: get_drug and get_target
     # ------------------------------------------------------------------
 
-    async def load(self, drug_name: str) -> DrugEvaluation:
+    async def get_drug(self, drug_name: str) -> DrugData:
+        """Fetch drug data by name. Returns cached data if available."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
-        if chembl_id in self._cache:
-            return self._cache[chembl_id]
+        if chembl_id in self._drug_cache:
+            return self._drug_cache[chembl_id]
 
-        disk_hit = await self.cache.get("drug_eval", {"chembl_id": chembl_id})
+        disk_hit = await self.cache.get("drug", {"chembl_id": chembl_id})
         if disk_hit:
-            evaluation = DrugEvaluation.model_validate(disk_hit)
-            self._cache[chembl_id] = evaluation
-            return evaluation
+            drug_data = DrugData.model_validate(disk_hit)
+            self._drug_cache[chembl_id] = drug_data
+            return drug_data
 
         drug_data = await self._fetch_drug(chembl_id)
 
-        targets = {}
-        for dt in drug_data.targets:
-            target_data = await self._fetch_target(dt.target_id)
-            targets[dt.target_id] = target_data
-
-        evaluation = DrugEvaluation(drug=drug_data, targets=targets)
-
-        self._cache[chembl_id] = evaluation
+        self._drug_cache[chembl_id] = drug_data
         await self.cache.set(
-            "drug_eval",
+            "drug",
             {"chembl_id": chembl_id},
-            evaluation.model_dump(),
+            drug_data.model_dump(),
             ttl=self.CACHE_TTL,
         )
 
-        return evaluation
-
-    # ------------------------------------------------------------------
-    # Public accessors — all read from cached DrugEvaluation
-    # ------------------------------------------------------------------
-
-    async def resolve_drug(self, drug_name: str) -> DrugData:
-        evaluation = await self.load(drug_name)
-        return evaluation.drug
-
-    async def get_target_associations(
-        self, drug_name: str, target_id: str, min_score: float = 0.1
-    ) -> list[Association]:
-        evaluation = await self.load(drug_name)
-        target = evaluation.get_target(target_id)
-        return [a for a in target.associations if a.overall_score >= min_score]
-
-    async def get_target_pathways(
-        self, drug_name: str, target_id: str
-    ) -> list[Pathway]:
-        evaluation = await self.load(drug_name)
-        return evaluation.get_target(target_id).pathways
-
-    async def get_target_interactions(
-        self, drug_name: str, target_id: str
-    ) -> list[Interaction]:
-        evaluation = await self.load(drug_name)
-        return evaluation.get_target(target_id).interactions
-
-    async def get_known_drugs(self, drug_name: str, target_id: str) -> list[KnownDrug]:
-        evaluation = await self.load(drug_name)
-        return evaluation.get_target(target_id).known_drugs
-
-    async def get_target_expression(
-        self, drug_name: str, target_id: str
-    ) -> list[TissueExpression]:
-        evaluation = await self.load(drug_name)
-        return evaluation.get_target(target_id).expressions
-
-    async def get_target_phenotypes(
-        self, drug_name: str, target_id: str
-    ) -> list[MousePhenotype]:
-        evaluation = await self.load(drug_name)
-        return evaluation.get_target(target_id).mouse_phenotypes
-
-    async def get_target_safety(self, drug_name: str, target_id: str) -> TargetSafety:
-        evaluation = await self.load(drug_name)
-        target = evaluation.get_target(target_id)
-        return TargetSafety(
-            safety_liabilities=target.safety_liabilities,
-            genetic_constraint=target.genetic_constraint,
-        )
+        return drug_data
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
-        evaluation = await self.load(drug_name)
-        return evaluation.drug.indications
+        drug = await self.get_drug(drug_name)
+        return drug.indications
+
+    async def get_target_data(self, target_id: str) -> TargetData:
+        """Fetch target data by ID. Returns cached data if available."""
+        if target_id in self._target_data_cache:
+            return self._target_data_cache[target_id]
+
+        disk_hit = await self.cache.get("target", {"target_id": target_id})
+        if disk_hit:
+            target_data = TargetData.model_validate(disk_hit)
+            self._target_data_cache[target_id] = target_data
+            return target_data
+
+        target_data = await self._fetch_target(target_id)
+
+        self._target_data_cache[target_id] = target_data
+        await self.cache.set(
+            "target",
+            {"target_id": target_id},
+            target_data.model_dump(),
+            ttl=self.CACHE_TTL,
+        )
+
+        return target_data
 
     # ------------------------------------------------------------------
-    # Private: network calls to build the DrugEvaluation
+    # Public accessors — convenience methods using get_drug/get_target
+    # ------------------------------------------------------------------
+
+    async def get_target_data_associations(
+        self, target_id: str, min_score: float = 0.1
+    ) -> list[Association]:
+        target = await self.get_target_data(target_id)
+        return [a for a in target.associations if a.overall_score >= min_score]
+
+    async def get_target_data_pathways(self, target_id: str) -> list[Pathway]:
+        target = await self.get_target_data(target_id)
+        return target.pathways
+
+    async def get_target_data_interactions(self, target_id: str) -> list[Interaction]:
+        target = await self.get_target_data(target_id)
+        return target.interactions
+
+    async def get_target_data_known_drugs(self, target_id: str) -> list[KnownDrug]:
+        target = await self.get_target_data(target_id)
+        return target.known_drugs
+
+    async def get_target_data_tissue_expression(self, target_id: str) -> list[TissueExpression]:
+        target = await self.get_target_data(target_id)
+        return target.expressions
+
+    async def get_target_data_mouse_phenotypes(self, target_id: str) -> list[MousePhenotype]:
+        target = await self.get_target_data(target_id)
+        return target.mouse_phenotypes
+
+    async def get_target_data_safety_liabilities(
+        self, target_id: str
+    ) -> list[SafetyLiability]:
+        target = await self.get_target_data(target_id)
+        return target.safety_liabilities
+
+    async def get_target_data_genetic_constraints(
+        self, target_id: str
+    ) -> list[GeneticConstraint]:
+        target = await self.get_target_data(target_id)
+        return target.genetic_constraint
+
+
+
+    # ------------------------------------------------------------------
+    # Private: network calls
     # ------------------------------------------------------------------
 
     async def _resolve_drug_name(self, name: str) -> str:

@@ -5,7 +5,7 @@ import unittest
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
 
-class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
+class TestOpenTargetsAccessors(unittest.IsolatedAsyncioTestCase):
     """Integration tests for OpenTargetsClient accessor methods."""
 
     async def asyncSetUp(self):
@@ -14,20 +14,10 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
 
-    async def test_resolve_drug_aspirin(self):
-        """Test resolve_drug returns DrugData directly."""
-        drug = await self.client.resolve_drug("aspirin")
-
-        self.assertEqual(drug.chembl_id, "CHEMBL25")
-        self.assertEqual(drug.name, "ASPIRIN")
-        self.assertEqual(drug.drug_type, "Small molecule")
-        self.assertTrue(drug.is_approved)
-        self.assertEqual(drug.max_clinical_phase, 4.0)
-
     async def test_get_target_associations(self):
         """Test get_target_associations returns filtered associations."""
-        associations = await self.client.get_target_associations(
-            "semaglutide", "ENSG00000112164", min_score=0.1
+        associations = await self.client.get_target_data_associations(
+            "ENSG00000112164", min_score=0.1
         )
 
         self.assertGreater(len(associations), 10)
@@ -37,19 +27,16 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_target_pathways(self):
         """Test get_target_pathways returns pathway data."""
-        pathways = await self.client.get_target_pathways("imatinib", "ENSG00000113721")
+        pathways = await self.client.get_target_data_pathways("ENSG00000113721")
 
         self.assertGreater(len(pathways), 5)
         [pdgf] = [p for p in pathways if p.pathway_name == "Signaling by PDGF"]
         self.assertEqual(pdgf.pathway_id, "R-HSA-186797")
         self.assertEqual(pdgf.top_level_pathway, "Signal Transduction")
 
-
     async def test_get_target_interactions(self):
         """Test get_target_interactions returns interaction data."""
-        interactions = await self.client.get_target_interactions(
-            "imatinib", "ENSG00000113721"
-        )
+        interactions = await self.client.get_target_data_interactions("ENSG00000113721")
 
         self.assertGreater(len(interactions), 10)
         plcg1 = next(
@@ -63,9 +50,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_interaction_type_string_is_functional(self):
         """Test that STRING database interactions have interaction_type='functional'."""
-        interactions = await self.client.get_target_interactions(
-            "imatinib", "ENSG00000113721"
-        )
+        interactions = await self.client.get_target_data_interactions("ENSG00000113721")
 
         string_interactions = [i for i in interactions if i.source_database == "string"]
         self.assertGreater(len(string_interactions), 0)
@@ -74,9 +59,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_interaction_type_intact_is_physical(self):
         """Test that IntAct database interactions have interaction_type='physical'."""
-        interactions = await self.client.get_target_interactions(
-            "imatinib", "ENSG00000113721"
-        )
+        interactions = await self.client.get_target_data_interactions("ENSG00000113721")
 
         intact_interactions = [i for i in interactions if i.source_database == "intact"]
         self.assertGreater(len(intact_interactions), 0)
@@ -89,9 +72,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
         Note: Signor data may not be currently available in Open Targets API.
         This test validates the mapping if Signor interactions are present.
         """
-        interactions = await self.client.get_target_interactions(
-            "imatinib", "ENSG00000113721"
-        )
+        interactions = await self.client.get_target_data_interactions("ENSG00000113721")
 
         signor_interactions = [i for i in interactions if i.source_database == "signor"]
         # Signor may not be available - test the mapping only if data exists
@@ -104,9 +85,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
         Note: Reactome data may not be currently available in Open Targets API.
         This test validates the mapping if Reactome interactions are present.
         """
-        interactions = await self.client.get_target_interactions(
-            "imatinib", "ENSG00000113721"
-        )
+        interactions = await self.client.get_target_data_interactions("ENSG00000113721")
 
         reactome_interactions = [
             i for i in interactions if i.source_database == "reactome"
@@ -117,9 +96,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_known_drugs(self):
         """Test get_known_drugs returns drugs targeting the same protein."""
-        known_drugs = await self.client.get_known_drugs(
-            "semaglutide", "ENSG00000112164"
-        )
+        known_drugs = await self.client.get_target_data_known_drugs("ENSG00000112164")
 
         self.assertGreater(len(known_drugs), 5)
         liraglutide = next(
@@ -136,9 +113,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_target_expression(self):
         """Test get_target_expression returns tissue expression data."""
-        expressions = await self.client.get_target_expression(
-            "digoxin", "ENSG00000163399"
-        )
+        expressions = await self.client.get_target_data_tissue_expression("ENSG00000163399")
 
         self.assertGreater(len(expressions), 10)
         liver = next(e for e in expressions if e.tissue_name == "liver")
@@ -148,9 +123,7 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_target_phenotypes(self):
         """Test get_target_phenotypes returns mouse phenotype data."""
-        phenotypes = await self.client.get_target_phenotypes(
-            "semaglutide", "ENSG00000112164"
-        )
+        phenotypes = await self.client.get_target_data_mouse_phenotypes("ENSG00000112164")
 
         self.assertGreater(len(phenotypes), 5)
         glucose = next(p for p in phenotypes if p.phenotype_id == "MP:0013279")
@@ -159,19 +132,33 @@ class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("homeostasis/metabolism phenotype", glucose.phenotype_categories)
 
-    async def test_get_target_safety(self):
-        """Test get_target_safety returns safety liabilities and genetic constraint."""
-        safety = await self.client.get_target_safety("digoxin", "ENSG00000163399")
+    async def test_get_target_safety_liabilities(self):
+        """Test get_target_data_safety_liabilities returns safety liability data."""
+        liabilities = await self.client.get_target_data_safety_liabilities(
+            "ENSG00000163399"
+        )
 
-        self.assertGreater(len(safety.safety_liabilities), 5)
-        self.assertGreater(len(safety.genetic_constraint), 0)
+        self.assertGreater(len(liabilities), 5)
 
         arrhythmia = next(
             sl
-            for sl in safety.safety_liabilities
+            for sl in liabilities
             if sl.event == "cardiac arrhythmia" and sl.event_id == "EFO_0004269"
         )
         self.assertEqual(arrhythmia.datasource, "Lynch et al. (2017)")
+
+    async def test_get_target_genetic_constraints(self):
+        """Test get_target_data_genetic_constraints returns genetic constraint data."""
+        constraints = await self.client.get_target_data_genetic_constraints(
+            "ENSG00000141736"
+        )
+
+        self.assertGreater(len(constraints), 0)
+        lof_constraint = next(
+            gc for gc in constraints if gc.constraint_type == "lof"
+        )
+        self.assertEqual(lof_constraint.constraint_type, "lof")
+        self.assertTrue(0.41 < lof_constraint.oe < 0.42)
 
     async def test_get_drug_indications(self):
         """Test get_drug_indications returns indication data."""
