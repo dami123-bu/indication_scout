@@ -2,30 +2,27 @@
 
 ## Open Targets Data Structure
 
-The `DrugEvaluation` object is the main data container fetched by `OpenTargetsClient.load()`. It contains everything needed for indication discovery.
+The `OpenTargetsClient` provides two independent data objects: `DrugData` and `TargetData`. These are fetched separately via `get_drug()` and `get_target_data()` methods, each with their own cache.
 
 ```
-DrugData
- |-- list[DrugWarning]
- |-- list[Indication]
- |-- list[AdverseEvent]           (FAERS drug-level adverse events)
- +-- list[DrugTarget]
-      |
-      +-- TargetData (fetched separately, keyed by target_id)
-           |-- list[Association]
-           |-- list[Pathway]
-           |-- list[Interaction]
-           |-- list[KnownDrug]
-           |-- list[TissueExpression]
-           |    |-- RNAExpression
-           |    +-- ProteinExpression
-           |         +-- list[CellTypeExpression]
-           |-- list[MousePhenotype]
-           |    +-- list[BiologicalModel]
-           |-- list[SafetyLiability]
-           |    +-- list[SafetyEffect]
-           +-- list[GeneticConstraint]
+DrugData                                  TargetData
+ |                                         |
+ |-- list[DrugWarning]                     |-- list[Association]
+ |-- list[Indication]                      |-- list[Pathway]
+ |-- list[AdverseEvent]                    |-- list[Interaction]
+ +-- list[DrugTarget]                      |-- list[KnownDrug]
+      |                                    |-- list[TissueExpression]
+      +-- target_id  ──────────────────────|    |-- RNAExpression
+          (lightweight reference)          |    +-- ProteinExpression
+                                           |         +-- list[CellTypeExpression]
+                                           |-- list[MousePhenotype]
+                                           |    +-- list[BiologicalModel]
+                                           |-- list[SafetyLiability]
+                                           |    +-- list[SafetyEffect]
+                                           +-- list[GeneticConstraint]
 ```
+
+**Key design**: `DrugTarget` (inside `DrugData`) only holds lightweight reference data (`target_id`, `target_symbol`, `mechanism_of_action`, `action_type`). To get the full target data, call `get_target_data(target_id)` separately. This allows targets to be cached independently and shared across drugs.
 
 ---
 
@@ -122,6 +119,7 @@ DrugData
 | source_database | str | IntAct, STRING, Signor, Reactome |
 | biological_role | str | e.g. "enzyme target" |
 | evidence_count | int | Number of supporting experiments |
+| interaction_type | str or None | "physical", "functional", "signalling", "enzymatic" |
 
 ### KnownDrug
 
@@ -251,11 +249,36 @@ Example: If GLP1R has a high association score with NASH, but semaglutide's `ind
 
 ---
 
-## Helper Properties on DrugEvaluation
+## Helper Properties on DrugData
 
 ```python
-evaluation.get_target(target_id)      # Returns TargetData, raises TargetNotFoundError
-evaluation.primary_target             # First target (or None if no targets)
-evaluation.approved_disease_ids       # set[str] of phase 4+ disease IDs
-evaluation.investigated_disease_ids   # set[str] of all disease IDs being pursued
+drug.approved_disease_ids  # set[str] of phase 4+ disease IDs
+drug.investigated_disease_ids  # set[str] of all disease IDs being pursued
+```
+
+---
+
+## Client API
+
+```python
+client = OpenTargetsClient()
+
+# Fetch drug data (cached)
+drug = await client.get_drug("semaglutide")
+
+# Fetch target data separately (cached independently)
+target = await client.get_target_data("ENSG00000112164")
+
+# Accessor methods for specific target data
+associations = await client.get_target_data_associations(target_id, min_score=0.1)
+pathways = await client.get_target_data_pathways(target_id)
+interactions = await client.get_target_data_interactions(target_id)
+known_drugs = await client.get_target_data_known_drugs(target_id)
+expressions = await client.get_target_data_tissue_expression(target_id)
+phenotypes = await client.get_target_data_mouse_phenotypes(target_id)
+safety = await client.get_target_data_safety_liabilities(target_id)
+constraints = await client.get_target_data_genetic_constraints(target_id)
+
+# Drug-specific accessor
+indications = await client.get_drug_indications(drug_name)
 ```
