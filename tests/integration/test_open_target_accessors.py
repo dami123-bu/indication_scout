@@ -1,0 +1,129 @@
+"""Integration tests for OpenTargetsClient accessor methods."""
+
+import unittest
+
+from indication_scout.data_sources.open_targets import OpenTargetsClient
+
+
+class TestDrugEvaluation(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for OpenTargetsClient accessor methods."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_resolve_drug_aspirin(self):
+        """Test resolve_drug returns DrugData directly."""
+        drug = await self.client.resolve_drug("aspirin")
+
+        self.assertEqual(drug.chembl_id, "CHEMBL25")
+        self.assertEqual(drug.name, "ASPIRIN")
+        self.assertEqual(drug.drug_type, "Small molecule")
+        self.assertTrue(drug.is_approved)
+        self.assertEqual(drug.max_clinical_phase, 4.0)
+
+    async def test_get_target_associations(self):
+        """Test get_target_associations returns filtered associations."""
+        associations = await self.client.get_target_associations(
+            "semaglutide", "ENSG00000112164", min_score=0.1
+        )
+
+        self.assertGreater(len(associations), 10)
+        [gastroparesis] = [a for a in associations if a.disease_name == "gastroparesis"]
+        self.assertGreater(gastroparesis.overall_score, 0.2)
+        self.assertIn("gastrointestinal disease", gastroparesis.therapeutic_areas)
+
+    async def test_get_target_pathways(self):
+        """Test get_target_pathways returns pathway data."""
+        pathways = await self.client.get_target_pathways("imatinib", "ENSG00000113721")
+
+        self.assertGreater(len(pathways), 5)
+        [pdgf] = [p for p in pathways if p.pathway_name == "Signaling by PDGF"]
+        self.assertEqual(pdgf.pathway_id, "R-HSA-186797")
+        self.assertEqual(pdgf.top_level_pathway, "Signal Transduction")
+
+    async def test_get_target_interactions(self):
+        """Test get_target_interactions returns interaction data."""
+        interactions = await self.client.get_target_interactions(
+            "imatinib", "ENSG00000113721"
+        )
+
+        self.assertGreater(len(interactions), 10)
+        plcg1 = next(
+            i
+            for i in interactions
+            if i.interacting_target_symbol == "PLCG1" and i.source_database == "string"
+        )
+        self.assertEqual(plcg1.interacting_target_id, "ENSG00000124181")
+        self.assertGreater(plcg1.interaction_score, 0.99)
+        self.assertEqual(plcg1.evidence_count, 4)
+
+    async def test_get_known_drugs(self):
+        """Test get_known_drugs returns drugs targeting the same protein."""
+        known_drugs = await self.client.get_known_drugs(
+            "semaglutide", "ENSG00000112164"
+        )
+
+        self.assertGreater(len(known_drugs), 5)
+        liraglutide = next(
+            d
+            for d in known_drugs
+            if d.drug_name == "LIRAGLUTIDE"
+            and d.disease_name == "type 2 diabetes mellitus"
+        )
+        self.assertEqual(liraglutide.drug_id, "CHEMBL4084119")
+        self.assertEqual(liraglutide.phase, 4.0)
+        self.assertEqual(
+            liraglutide.mechanism_of_action, "Glucagon-like peptide 1 receptor agonist"
+        )
+
+    async def test_get_target_expression(self):
+        """Test get_target_expression returns tissue expression data."""
+        expressions = await self.client.get_target_expression(
+            "digoxin", "ENSG00000163399"
+        )
+
+        self.assertGreater(len(expressions), 10)
+        liver = next(e for e in expressions if e.tissue_name == "liver")
+        self.assertEqual(liver.tissue_id, "UBERON_0002107")
+        self.assertEqual(liver.rna.value, 11819.0)
+        self.assertEqual(liver.protein.level, 2)
+
+    async def test_get_target_phenotypes(self):
+        """Test get_target_phenotypes returns mouse phenotype data."""
+        phenotypes = await self.client.get_target_phenotypes(
+            "semaglutide", "ENSG00000112164"
+        )
+
+        self.assertGreater(len(phenotypes), 5)
+        glucose = next(p for p in phenotypes if p.phenotype_id == "MP:0013279")
+        self.assertEqual(
+            glucose.phenotype_label, "increased fasting circulating glucose level"
+        )
+        self.assertIn("homeostasis/metabolism phenotype", glucose.phenotype_categories)
+
+    async def test_get_target_safety(self):
+        """Test get_target_safety returns safety liabilities and genetic constraint."""
+        safety = await self.client.get_target_safety("digoxin", "ENSG00000163399")
+
+        self.assertGreater(len(safety.safety_liabilities), 5)
+        self.assertGreater(len(safety.genetic_constraint), 0)
+
+        arrhythmia = next(
+            sl
+            for sl in safety.safety_liabilities
+            if sl.event == "cardiac arrhythmia" and sl.event_id == "EFO_0004269"
+        )
+        self.assertEqual(arrhythmia.datasource, "Lynch et al. (2017)")
+
+    async def test_get_drug_indications(self):
+        """Test get_drug_indications returns indication data."""
+        indications = await self.client.get_drug_indications("semaglutide")
+
+        self.assertGreater(len(indications), 5)
+        [t2d] = [i for i in indications if i.disease_name == "type 2 diabetes mellitus"]
+        self.assertEqual(t2d.disease_id, "MONDO_0005148")
+        self.assertEqual(t2d.max_phase, 4.0)
+        self.assertEqual(len(t2d.references), 4)
