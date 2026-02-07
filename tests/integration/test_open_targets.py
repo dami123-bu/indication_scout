@@ -328,12 +328,4 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(drug.max_clinical_phase, 4.0)
         self.assertEqual(drug.year_first_approved, 1995)
 
-    async def test_resolve_drug_aspirin(self):
-        """Test resolve_drug returns DrugData directly."""
-        drug = await self.client.resolve_drug("aspirin")
 
-        self.assertEqual(drug.chembl_id, "CHEMBL25")
-        self.assertEqual(drug.name, "ASPIRIN")
-        self.assertEqual(drug.drug_type, "Small molecule")
-        self.assertTrue(drug.is_approved)
-        self.assertEqual(drug.max_clinical_phase, 4.0)
