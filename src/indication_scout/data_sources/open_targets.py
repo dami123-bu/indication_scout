@@ -6,7 +6,7 @@ from indication_scout.data_sources.base_client import (
 )
 
 
-from indication_scout.models.open_targets import (
+from indication_scout.models.model_open_targets import (
     Association,
     Pathway,
     Interaction,

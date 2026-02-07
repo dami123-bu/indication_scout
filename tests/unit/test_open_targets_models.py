@@ -2,11 +2,10 @@
 
 import pytest
 
-from indication_scout.models.open_targets import (
+from indication_scout.models.model_open_targets import (
     DrugData,
     DrugTarget,
     Indication,
-    TargetData,
     TargetNotFoundError,
 )
 
