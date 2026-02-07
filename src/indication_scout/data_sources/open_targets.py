@@ -28,7 +28,6 @@ from indication_scout.models.open_targets import (
     SafetyEffect,
 )
 
-
 INTERACTION_TYPE_MAP = {
     "intact": "physical",
     "signor": "signalling",
@@ -128,11 +127,15 @@ class OpenTargetsClient(BaseClient):
         target = await self.get_target_data(target_id)
         return target.known_drugs
 
-    async def get_target_data_tissue_expression(self, target_id: str) -> list[TissueExpression]:
+    async def get_target_data_tissue_expression(
+        self, target_id: str
+    ) -> list[TissueExpression]:
         target = await self.get_target_data(target_id)
         return target.expressions
 
-    async def get_target_data_mouse_phenotypes(self, target_id: str) -> list[MousePhenotype]:
+    async def get_target_data_mouse_phenotypes(
+        self, target_id: str
+    ) -> list[MousePhenotype]:
         target = await self.get_target_data(target_id)
         return target.mouse_phenotypes
 
@@ -147,8 +150,6 @@ class OpenTargetsClient(BaseClient):
     ) -> list[GeneticConstraint]:
         target = await self.get_target_data(target_id)
         return target.genetic_constraint
-
-
 
     # ------------------------------------------------------------------
     # Private: network calls

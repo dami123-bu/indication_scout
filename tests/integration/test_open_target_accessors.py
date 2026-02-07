@@ -113,7 +113,9 @@ class TestOpenTargetsAccessors(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_target_expression(self):
         """Test get_target_expression returns tissue expression data."""
-        expressions = await self.client.get_target_data_tissue_expression("ENSG00000163399")
+        expressions = await self.client.get_target_data_tissue_expression(
+            "ENSG00000163399"
+        )
 
         self.assertGreater(len(expressions), 10)
         liver = next(e for e in expressions if e.tissue_name == "liver")
@@ -123,7 +125,9 @@ class TestOpenTargetsAccessors(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_target_phenotypes(self):
         """Test get_target_phenotypes returns mouse phenotype data."""
-        phenotypes = await self.client.get_target_data_mouse_phenotypes("ENSG00000112164")
+        phenotypes = await self.client.get_target_data_mouse_phenotypes(
+            "ENSG00000112164"
+        )
 
         self.assertGreater(len(phenotypes), 5)
         glucose = next(p for p in phenotypes if p.phenotype_id == "MP:0013279")
@@ -154,9 +158,7 @@ class TestOpenTargetsAccessors(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertGreater(len(constraints), 0)
-        lof_constraint = next(
-            gc for gc in constraints if gc.constraint_type == "lof"
-        )
+        lof_constraint = next(gc for gc in constraints if gc.constraint_type == "lof")
         self.assertEqual(lof_constraint.constraint_type, "lof")
         self.assertTrue(0.41 < lof_constraint.oe < 0.42)
 

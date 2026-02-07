@@ -232,5 +232,3 @@ class DrugData(BaseModel):
     def investigated_disease_ids(self) -> set[str]:
         """All disease IDs being actively investigated (any phase)."""
         return {i.disease_id for i in self.indications}
-
-

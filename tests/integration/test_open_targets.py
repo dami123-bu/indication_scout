@@ -99,9 +99,7 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         """Test Indication fields for semaglutide's type 2 diabetes indication."""
         drug = await self.client.get_drug("semaglutide")
         [t2d] = [
-            i
-            for i in drug.indications
-            if i.disease_name == "type 2 diabetes mellitus"
+            i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus"
         ]
 
         self.assertEqual(t2d.disease_id, "MONDO_0005148")
@@ -320,3 +318,42 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         [effect] = liability.effects
         self.assertEqual(effect.direction, "Inhibition/Decrease/Downregulation")
         self.assertEqual(effect.dosing, "acute")
+
+
+class TestTargetDataCache(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for target data in-memory caching."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_target_data_cache_returns_same_instance(self):
+        """Test that get_target_data returns the same cached instance on repeated calls."""
+        target_id = "ENSG00000112164"
+
+        target1 = await self.client.get_target_data(target_id)
+        target2 = await self.client.get_target_data(target_id)
+
+        self.assertIs(target1, target2)
+
+    async def test_target_data_cache_keyed_by_target_id(self):
+        """Test that different target IDs return different cached instances."""
+        target1 = await self.client.get_target_data("ENSG00000112164")
+        target2 = await self.client.get_target_data("ENSG00000113721")
+
+        self.assertIsNot(target1, target2)
+        self.assertEqual(target1.target_id, "ENSG00000112164")
+        self.assertEqual(target2.target_id, "ENSG00000113721")
+
+    async def test_target_data_cache_populated_after_fetch(self):
+        """Test that _target_data_cache is populated after fetching."""
+        target_id = "ENSG00000112164"
+
+        self.assertNotIn(target_id, self.client._target_data_cache)
+
+        await self.client.get_target_data(target_id)
+
+        self.assertIn(target_id, self.client._target_data_cache)
+        self.assertEqual(self.client._target_data_cache[target_id].target_id, target_id)

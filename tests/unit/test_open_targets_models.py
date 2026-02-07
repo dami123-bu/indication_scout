@@ -63,13 +63,18 @@ class TestDrugData:
         # First target
         assert sample_drug_data.targets[0].target_id == "ENSG00000112164"
         assert sample_drug_data.targets[0].target_symbol == "GLP1R"
-        assert sample_drug_data.targets[0].mechanism_of_action == "GLP-1 receptor agonist"
+        assert (
+            sample_drug_data.targets[0].mechanism_of_action == "GLP-1 receptor agonist"
+        )
         assert sample_drug_data.targets[0].action_type == "AGONIST"
 
         # Second target
         assert sample_drug_data.targets[1].target_id == "ENSG00000171016"
         assert sample_drug_data.targets[1].target_symbol == "PYGO1"
-        assert sample_drug_data.targets[1].mechanism_of_action == "Pygo homolog 1 inhibitor"
+        assert (
+            sample_drug_data.targets[1].mechanism_of_action
+            == "Pygo homolog 1 inhibitor"
+        )
         assert sample_drug_data.targets[1].action_type == "INHIBITOR"
 
     def test_drug_target_action_type_optional(self):
