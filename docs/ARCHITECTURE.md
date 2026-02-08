@@ -357,3 +357,126 @@ constraints = await client.get_target_data_genetic_constraints(target_id)
 # Drug-specific accessor
 indications = await client.get_drug_indications(drug_name)
 ```
+
+---
+
+## ClinicalTrials.gov Data Structure
+
+The `ClinicalTrialsClient` provides four public methods for clinical trial data:
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| `search_trials(drug, condition)` | Find trials for a drug-condition pair | `list[Trial]` |
+| `detect_whitespace(drug, condition)` | Is this pair unexplored? | `WhitespaceResult` |
+| `get_landscape(condition)` | Competitive landscape for a condition | `ConditionLandscape` |
+| `get_terminated(query)` | Failed trials for a drug/condition | `list[TerminatedTrial]` |
+
+### Trial
+
+Core trial record parsed from ClinicalTrials.gov API `protocolSection`:
+
+```
+Trial
+ |-- nct_id: str                    # NCT identifier (e.g. "NCT04375669")
+ |-- title: str                     # Brief title of the study
+ |-- brief_summary: str | None      # Study description
+ |-- phase: str                     # "Phase 1", "Phase 2", "Phase 1/Phase 2", etc.
+ |-- overall_status: str            # "Recruiting", "Completed", "Terminated", etc.
+ |-- why_stopped: str | None        # Free text reason (only for Terminated/Withdrawn/Suspended)
+ |-- conditions: list[str]          # Disease/conditions being studied
+ |-- interventions: list[Intervention]
+ |        |-- intervention_type: str    # "Drug", "Biological", "Device", "Procedure", etc.
+ |        |-- intervention_name: str    # e.g. "Semaglutide"
+ |        +-- description: str | None   # Dosing, administration details
+ |-- sponsor: str                   # Lead sponsor organization (e.g. "Novo Nordisk")
+ |-- collaborators: list[str]       # Partner organizations
+ |-- enrollment: int | None         # Number of participants
+ |-- start_date: str | None         # Study start date
+ |-- completion_date: str | None    # Primary completion date
+ |-- study_type: str                # "Interventional" or "Observational"
+ |-- primary_outcomes: list[PrimaryOutcome]
+ |        |-- measure: str              # What's being measured
+ |        +-- time_frame: str | None    # e.g. "72 weeks"
+ |-- results_posted: bool           # Whether results are available
+ +-- references: list[str]          # PubMed IDs (PMIDs)
+```
+
+### WhitespaceResult
+
+Result of whitespace detection — is this drug-condition pair unexplored?
+
+```
+WhitespaceResult
+ |-- is_whitespace: bool            # True if no exact matches found
+ |-- exact_match_count: int         # Trials with both drug AND condition
+ |-- drug_only_trials: int          # Trials with drug (any condition)
+ |-- condition_only_trials: int     # Trials with condition (any drug)
+ +-- condition_drugs: list[ConditionDrug]  # Other drugs tested for this condition (up to 20)
+          |-- nct_id: str
+          |-- drug_name: str
+          |-- condition: str
+          |-- phase: str
+          +-- status: str
+```
+
+### ConditionLandscape
+
+Competitive landscape for a condition — all drug/biologic trials grouped by sponsor + drug:
+
+```
+ConditionLandscape
+ |-- total_trial_count: int         # All trials fetched for condition
+ |-- competitors: list[CompetitorEntry]   # Ranked by phase, then enrollment (top_n)
+ |        |-- sponsor: str              # Lead sponsor organization
+ |        |-- drug_name: str            # Primary drug intervention
+ |        |-- drug_type: str | None     # "Drug" or "Biological"
+ |        |-- max_phase: str            # Highest phase reached
+ |        |-- trial_count: int          # Number of trials for this sponsor+drug
+ |        |-- statuses: set[str]        # All statuses seen (Recruiting, Completed, etc.)
+ |        |-- total_enrollment: int     # Sum of enrollment across trials
+ |        +-- most_recent_start: str | None  # Latest start date
+ |-- phase_distribution: dict[str, int]  # Count of trials per phase
+ +-- recent_starts: list[dict]      # Trials started in last 2 years
+```
+
+### TerminatedTrial
+
+A terminated, withdrawn, or suspended trial with stop classification:
+
+```
+TerminatedTrial
+ |-- nct_id: str
+ |-- title: str
+ |-- drug_name: str | None          # Primary drug intervention
+ |-- condition: str | None          # First condition listed
+ |-- phase: str | None
+ |-- why_stopped: str | None        # Free text reason from sponsor
+ |-- stop_category: str             # Classified: safety, efficacy, business, enrollment, other, unknown
+ |-- enrollment: int | None
+ |-- sponsor: str | None
+ |-- start_date: str | None
+ |-- termination_date: str | None
+ +-- references: list[str]          # PMIDs
+```
+
+### Stop Category Classification
+
+The `stop_category` is derived from `why_stopped` using keyword matching:
+
+| Keywords | Category |
+|----------|----------|
+| efficacy, futility, lack of efficacy, no benefit | `efficacy` |
+| safety, adverse, toxicity, side effect | `safety` |
+| enrollment, accrual, recruitment | `enrollment` |
+| business, strategic, funding, commercial | `business` |
+| (no match) | `other` |
+| (no why_stopped text) | `unknown` |
+
+### Filtering
+
+`get_landscape` filters to drug/biologic interventions only:
+1. Fetches all trials for the condition (no API-level filter)
+2. Skips trials without Drug or Biological intervention type
+3. Groups remaining by sponsor + drug
+4. Ranks by phase (descending), then enrollment (descending)
+5. Returns top N competitors (default 50)
