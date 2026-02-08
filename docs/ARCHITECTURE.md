@@ -411,7 +411,7 @@ WhitespaceResult
  |-- exact_match_count: int         # Trials with both drug AND condition
  |-- drug_only_trials: int          # Trials with drug (any condition)
  |-- condition_only_trials: int     # Trials with condition (any drug)
- +-- near_misses: list[NearMiss]    # Similar trials (up to 20)
+ +-- condition_drugs: list[ConditionDrug]  # Other drugs tested for this condition (up to 20)
           |-- nct_id: str
           |-- drug_name: str
           |-- condition: str

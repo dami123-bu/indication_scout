@@ -10,6 +10,7 @@ Four methods:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Any
 
@@ -22,9 +23,9 @@ from indication_scout.data_sources.base_client import (
 
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
+    ConditionDrug,
     ConditionLandscape,
     Intervention,
-    NearMiss,
     PrimaryOutcome,
     TerminatedTrial,
     Trial,
@@ -83,6 +84,7 @@ class ClinicalTrialsClient(BaseClient):
         drug: str,
         condition: str | None = None,
         date_before: date | None = None,
+        phase_filter: str | None = None,
         max_results: int = 200,
     ) -> list[Trial]:
         """Search for trials matching drug and optional condition."""
@@ -94,6 +96,7 @@ class ClinicalTrialsClient(BaseClient):
                 drug=drug,
                 condition=condition,
                 date_before=date_before,
+                phase_filter=phase_filter,
                 page_token=page_token,
             )
             cache_ns = f"trials:{drug}:{condition or 'any'}"
@@ -133,33 +136,56 @@ class ClinicalTrialsClient(BaseClient):
         condition: str,
         date_before: date | None = None,
     ) -> WhitespaceResult:
-        """Is this drug-condition pair being explored in clinical trials?"""
-        # Three parallel-ish searches: exact, drug-only, condition-only
-        exact_trials = await self.search_trials(
+        """Is this drug-condition pair being explored in clinical trials?
+
+        Runs three concurrent queries:
+          - Exact match: trials with both drug AND condition (max 50)
+          - Drug-only count: total trials with this drug (any condition)
+          - Condition-only count: total trials with this condition (any drug)
+
+        If no exact matches (whitespace exists), fetches condition trials and
+        populates condition_drugs with other drugs being tested for this condition:
+          - Filters to Phase 2+ trials only (excludes noisy Phase 1 data)
+          - Ranks by phase (descending) then active status (recruiting preferred)
+          - Deduplicates by drug_name, keeping the highest-ranked trial per drug
+          - Returns top 50 unique drugs
+
+        This tells the Trial Agent what competitors exist in the condition space
+        when the queried drug has no trials there.
+        """
+        # All three are independent — run concurrently
+        exact_task = self.search_trials(
             drug=drug, condition=condition, date_before=date_before, max_results=50
         )
-        drug_count = await self._count_trials(
+        drug_count_task = self._count_trials(
             drug=drug, condition=None, date_before=date_before
         )
-        condition_count = await self._count_trials(
+        condition_count_task = self._count_trials(
             drug=None, condition=condition, date_before=date_before
         )
 
-        # Near misses: drug/biologic trials for this condition
-        near_misses: list[NearMiss] = []
+        exact_trials, drug_count, condition_count = await asyncio.gather(
+            exact_task, drug_count_task, condition_count_task
+        )
+
+        # Condition drugs: only populated when whitespace exists
+        # Restrict to Phase 2+ for meaningful efficacy signal
+        condition_drugs: list[ConditionDrug] = []
         if not exact_trials:
             condition_trials = await self._fetch_all_condition_trials(
                 condition,
                 date_before=date_before,
-                max_results=100,
+                max_results=500,
+                phase_filter="(PHASE2 OR PHASE3 OR PHASE4)",
             )
+
+            # Collect drug/biologic trials as candidates
+            candidates: list[ConditionDrug] = []
             for t in condition_trials:
-                if len(near_misses) >= 20:
-                    break
                 for interv in t.interventions:
                     if interv.intervention_type in ("Drug", "Biological"):
-                        near_misses.append(
-                            NearMiss(
+                        candidates.append(
+                            ConditionDrug(
                                 nct_id=t.nct_id,
                                 drug_name=interv.intervention_name,
                                 condition=t.conditions[0] if t.conditions else "",
@@ -167,14 +193,38 @@ class ClinicalTrialsClient(BaseClient):
                                 status=t.overall_status,
                             )
                         )
-                        break  # one near miss per trial
+                        break  # one per trial
+
+            # Rank: most advanced phase first, then by active status
+            active_statuses = {
+                "RECRUITING",
+                "ACTIVE_NOT_RECRUITING",
+                "ENROLLING_BY_INVITATION",
+            }
+            candidates.sort(
+                key=lambda cd: (
+                    self._phase_rank(cd.phase),
+                    cd.status in active_statuses,
+                ),
+                reverse=True,
+            )
+
+            # Deduplicate by drug_name, keeping highest-ranked entry
+            seen_drugs: set[str] = set()
+            unique_candidates: list[ConditionDrug] = []
+            for cd in candidates:
+                if cd.drug_name not in seen_drugs:
+                    seen_drugs.add(cd.drug_name)
+                    unique_candidates.append(cd)
+
+            condition_drugs = unique_candidates[:50]
 
         return WhitespaceResult(
             is_whitespace=len(exact_trials) == 0,
             exact_match_count=len(exact_trials),
             drug_only_trials=drug_count,
             condition_only_trials=condition_count,
-            near_misses=near_misses,
+            condition_drugs=condition_drugs,
         )
 
     # ------------------------------------------------------------------
@@ -193,7 +243,11 @@ class ClinicalTrialsClient(BaseClient):
         intervention_type in ("Drug", "Biological") only. Ranks competitors
         by phase then enrollment. Returns top_n competitors.
         """
-        trials = await self._fetch_all_condition_trials(condition, date_before)
+        trials = await self._fetch_all_condition_trials(
+            condition,
+            date_before=date_before,
+            phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
+        )
 
         return self._aggregate_landscape(trials, top_n=top_n)
 
@@ -240,6 +294,7 @@ class ClinicalTrialsClient(BaseClient):
         condition: str,
         date_before: date | None = None,
         max_results: int | None = None,
+        phase_filter: str | None = None,
     ) -> list[Trial]:
         """Fetch all trials for a condition.
 
@@ -253,6 +308,7 @@ class ClinicalTrialsClient(BaseClient):
                 condition=condition,
                 date_before=date_before,
                 page_token=page_token,
+                phase_filter=phase_filter,
             )
             cache_ns = f"condition_trials:{condition}"
             if page_token:
@@ -291,6 +347,7 @@ class ClinicalTrialsClient(BaseClient):
         page_token: str | None = None,
         extra_term: str | None = None,
         status_filter: str | None = None,
+        phase_filter: str | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "format": "json",
@@ -316,6 +373,14 @@ class ClinicalTrialsClient(BaseClient):
 
         if status_filter:
             params["filter.overallStatus"] = status_filter
+
+        if phase_filter:
+            # Phase filter uses AREA[Phase] syntax in query.term
+            term = params.get("query.term", "")
+            phase_term = f"AREA[Phase]{phase_filter}"
+            params["query.term"] = (
+                f"{term} {phase_term}".strip() if term else phase_term
+            )
 
         if page_token:
             params["pageToken"] = page_token

@@ -54,8 +54,8 @@ class Trial(BaseModel):
 # ------------------------------------------------------------------
 
 
-class NearMiss(BaseModel):
-    """A trial that's close but not an exact match for the drug-condition pair."""
+class ConditionDrug(BaseModel):
+    """A drug being tested for the same condition (when whitespace exists)."""
 
     nct_id: str
     drug_name: str
@@ -71,7 +71,7 @@ class WhitespaceResult(BaseModel):
     exact_match_count: int
     drug_only_trials: int
     condition_only_trials: int
-    near_misses: list[NearMiss] = []
+    condition_drugs: list[ConditionDrug] = []
 
 
 # ------------------------------------------------------------------

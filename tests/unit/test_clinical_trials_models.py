@@ -5,9 +5,9 @@ from pydantic import ValidationError
 
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
+    ConditionDrug,
     ConditionLandscape,
     Intervention,
-    NearMiss,
     PrimaryOutcome,
     TerminatedTrial,
     Trial,
@@ -229,13 +229,13 @@ class TestTrial:
         assert trial.overall_status == status
 
 
-class TestNearMissAndWhitespaceResult:
-    """Tests for NearMiss and WhitespaceResult models."""
+class TestConditionDrugAndWhitespaceResult:
+    """Tests for ConditionDrug and WhitespaceResult models."""
 
     @pytest.fixture
-    def sample_near_miss(self):
-        """Create a sample NearMiss."""
-        return NearMiss(
+    def sample_condition_drug(self):
+        """Create a sample ConditionDrug."""
+        return ConditionDrug(
             nct_id="NCT04375669",
             drug_name="Semaglutide",
             condition="NASH",
@@ -243,18 +243,18 @@ class TestNearMissAndWhitespaceResult:
             status="Active, not recruiting",
         )
 
-    def test_near_miss_all_fields(self, sample_near_miss):
-        """NearMiss should store all fields correctly."""
-        assert sample_near_miss.nct_id == "NCT04375669"
-        assert sample_near_miss.drug_name == "Semaglutide"
-        assert sample_near_miss.condition == "NASH"
-        assert sample_near_miss.phase == "Phase 3"
-        assert sample_near_miss.status == "Active, not recruiting"
+    def test_condition_drug_all_fields(self, sample_condition_drug):
+        """ConditionDrug should store all fields correctly."""
+        assert sample_condition_drug.nct_id == "NCT04375669"
+        assert sample_condition_drug.drug_name == "Semaglutide"
+        assert sample_condition_drug.condition == "NASH"
+        assert sample_condition_drug.phase == "Phase 3"
+        assert sample_condition_drug.status == "Active, not recruiting"
 
-    def test_near_miss_requires_all_fields(self):
-        """NearMiss should require all fields."""
+    def test_condition_drug_requires_all_fields(self):
+        """ConditionDrug should require all fields."""
         with pytest.raises(ValidationError):
-            NearMiss(
+            ConditionDrug(
                 nct_id="NCT04375669",
                 drug_name="Semaglutide",
                 condition="NASH",
@@ -269,45 +269,45 @@ class TestNearMissAndWhitespaceResult:
             exact_match_count=0,
             drug_only_trials=15,
             condition_only_trials=42,
-            near_misses=[],
+            condition_drugs=[],
         )
         assert result.is_whitespace is True
         assert result.exact_match_count == 0
         assert result.drug_only_trials == 15
         assert result.condition_only_trials == 42
-        assert result.near_misses == []
+        assert result.condition_drugs == []
 
-    def test_whitespace_result_is_whitespace_false_with_near_misses(self):
-        """WhitespaceResult should store near_misses when not whitespace."""
-        near_miss = NearMiss(
+    def test_whitespace_result_with_condition_drugs(self):
+        """WhitespaceResult should store condition_drugs when whitespace exists."""
+        condition_drug = ConditionDrug(
             nct_id="NCT04375669",
             drug_name="Semaglutide",
-            condition="NAFLD",  # close to NASH
+            condition="NASH",
             phase="Phase 2",
             status="Completed",
         )
         result = WhitespaceResult(
-            is_whitespace=False,
-            exact_match_count=3,
+            is_whitespace=True,
+            exact_match_count=0,
             drug_only_trials=10,
             condition_only_trials=25,
-            near_misses=[near_miss],
+            condition_drugs=[condition_drug],
         )
-        assert result.is_whitespace is False
-        assert result.exact_match_count == 3
-        assert len(result.near_misses) == 1
-        assert result.near_misses[0].nct_id == "NCT04375669"
-        assert result.near_misses[0].condition == "NAFLD"
+        assert result.is_whitespace is True
+        assert result.exact_match_count == 0
+        assert len(result.condition_drugs) == 1
+        assert result.condition_drugs[0].nct_id == "NCT04375669"
+        assert result.condition_drugs[0].condition == "NASH"
 
-    def test_whitespace_result_defaults_near_misses_to_empty(self):
-        """WhitespaceResult should default near_misses to empty list."""
+    def test_whitespace_result_defaults_condition_drugs_to_empty(self):
+        """WhitespaceResult should default condition_drugs to empty list."""
         result = WhitespaceResult(
             is_whitespace=True,
             exact_match_count=0,
             drug_only_trials=5,
             condition_only_trials=10,
         )
-        assert result.near_misses == []
+        assert result.condition_drugs == []
 
 
 class TestCompetitorEntryAndConditionLandscape:
