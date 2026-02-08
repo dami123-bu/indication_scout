@@ -19,3 +19,12 @@ class Publication(BaseModel):
     publication_types: list[str]  # NLM controlled vocabulary
     mesh_terms: list[str]  # MeSH descriptor names only
     doi: str | None = None
+
+
+class RAGResult(BaseModel):
+    """A single chunk from vector search over PubMed content."""
+
+    pmid: str
+    chunk_text: str  # the matched section of the abstract
+    similarity_score: float  # cosine similarity from BioLinkBERT
+    publication: Publication  # full metadata — no second fetch needed
