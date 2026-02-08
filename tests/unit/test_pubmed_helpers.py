@@ -1,4 +1,5 @@
 """Unit tests for PubMedClient helper functions."""
+
 import os
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from indication_scout.data_sources.pubmed import PubMedClient
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 ncbi_api_key = os.getenv("NCBI_API_KEY")
@@ -292,14 +294,25 @@ class TestParseEfetchXml:
         assert pub.journal == "N Engl J Med"
         assert pub.year == 2024
         assert pub.doi == "10.1056/NEJMoa2312345"
-        assert pub.publication_types == ["Clinical Trial, Phase III", "Randomized Controlled Trial"]
-        assert pub.mesh_terms == ["Non-alcoholic Fatty Liver Disease", "Glucagon-Like Peptide-1 Receptor"]
+        assert pub.publication_types == [
+            "Clinical Trial, Phase III",
+            "Randomized Controlled Trial",
+        ]
+        assert pub.mesh_terms == [
+            "Non-alcoholic Fatty Liver Disease",
+            "Glucagon-Like Peptide-1 Receptor",
+        ]
 
         # Structured abstract should be joined with labels
-        assert "BACKGROUND: Nonalcoholic steatohepatitis is a growing concern." in pub.abstract
+        assert (
+            "BACKGROUND: Nonalcoholic steatohepatitis is a growing concern."
+            in pub.abstract
+        )
         assert "METHODS: We randomly assigned 320 patients." in pub.abstract
         assert "RESULTS: Resolution occurred in 59% of patients." in pub.abstract
-        assert "CONCLUSIONS: Semaglutide significantly improved outcomes." in pub.abstract
+        assert (
+            "CONCLUSIONS: Semaglutide significantly improved outcomes." in pub.abstract
+        )
 
     def test_parse_unstructured_abstract(self):
         """Should parse article with unstructured abstract (no labels)."""
@@ -309,7 +322,9 @@ class TestParseEfetchXml:
         pub = publications[0]
 
         assert pub.pmid == "12345678"
-        assert pub.abstract == "This is a simple unstructured abstract without any labels."
+        assert (
+            pub.abstract == "This is a simple unstructured abstract without any labels."
+        )
 
     def test_parse_no_abstract(self):
         """Should return empty string for articles without abstract."""
@@ -523,6 +538,76 @@ class TestFetchByPmidsEdgeCases:
         pass
 
 
+class TestBuildPubmedQuery:
+    """Tests for _build_pubmed_query method."""
+
+    def setup_method(self):
+        self.client = PubMedClient()
+
+    def test_drug_only(self):
+        """Should build query with drug in title/abstract."""
+        query = self.client._build_pubmed_query(
+            drug="semaglutide",
+            condition=None,
+            date_before=None,
+        )
+        assert query == "semaglutide[tiab]"
+
+    def test_condition_only(self):
+        """Should build query with condition in title/abstract."""
+        query = self.client._build_pubmed_query(
+            drug=None,
+            condition="NASH",
+            date_before=None,
+        )
+        assert query == "NASH[tiab]"
+
+    def test_drug_and_condition(self):
+        """Should build query with both drug and condition."""
+        query = self.client._build_pubmed_query(
+            drug="semaglutide",
+            condition="NASH",
+            date_before=None,
+        )
+        assert query == "semaglutide[tiab] AND NASH[tiab]"
+
+    def test_with_date_before(self):
+        """Should include date range filter when date_before is provided."""
+        from datetime import date
+
+        query = self.client._build_pubmed_query(
+            drug="semaglutide",
+            condition="obesity",
+            date_before=date(2023, 6, 15),
+        )
+        assert (
+            query
+            == 'semaglutide[tiab] AND obesity[tiab] AND "1900/01/01":"2023/06/15"[pdat]'
+        )
+
+    def test_drug_only_with_date(self):
+        """Should work with drug only and date filter."""
+        from datetime import date
+
+        query = self.client._build_pubmed_query(
+            drug="tirzepatide",
+            condition=None,
+            date_before=date(2022, 1, 1),
+        )
+        assert query == 'tirzepatide[tiab] AND "1900/01/01":"2022/01/01"[pdat]'
+
+    def test_neither_drug_nor_condition_raises(self):
+        """Should raise ValueError if neither drug nor condition provided."""
+        with pytest.raises(
+            ValueError, match="At least one of drug or condition is required"
+        ):
+            self.client._build_pubmed_query(
+                drug=None,
+                condition=None,
+                date_before=None,
+            )
+
+
 class TestClientConfiguration:
     """Tests for PubMedClient configuration."""
 
@@ -547,7 +632,9 @@ class TestClientConfiguration:
 
     def test_base_params_with_api_key(self):
         """Should include api_key in base params when provided."""
-        client = PubMedClient(api_key=ncbi_api_key, email="test@example.com", tool="testapp")
+        client = PubMedClient(
+            api_key=ncbi_api_key, email="test@example.com", tool="testapp"
+        )
         params = client._base_params()
 
         assert params["tool"] == "testapp"

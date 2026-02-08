@@ -12,11 +12,13 @@ from indication_scout.data_sources.base_client import (
     BaseClient,
     ClientConfig,
     DataSourceError,
+    PartialResult,
     RateLimitConfig,
     RequestContext,
 )
 from indication_scout.models.model_pubmed import Publication
 from dotenv import load_dotenv
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -107,7 +109,89 @@ class PubMedClient(BaseClient):
         ValueError
             If neither drug nor condition is provided.
         """
-        raise NotImplementedError("get_key_publications not yet implemented")
+        # Build query string
+        query = self._build_pubmed_query(drug, condition, date_before)
+
+        # Step 1: ESearch to get PMIDs and history server keys
+        esearch_params = {
+            **self._base_params(),
+            "db": "pubmed",
+            "term": query,
+            "retmax": max_results,
+            "retmode": "json",
+            "sort": "relevance",
+            "usehistory": "y",
+        }
+
+        context = RequestContext(
+            source=self._source_name,
+            method="get_key_publications.esearch",
+            params={"query": query, "max_results": max_results},
+        )
+
+        esearch_result = await self._rest_get(
+            self.ESEARCH_URL,
+            esearch_params,
+            cache_namespace="pubmed_esearch",
+            cache_ttl=self.SEARCH_CACHE_TTL,
+            context=context,
+        )
+
+        if not esearch_result.is_complete or esearch_result.data is None:
+            raise DataSourceError(
+                self._source_name,
+                f"ESearch failed: {esearch_result.errors}",
+            )
+
+        result = esearch_result.data.get("esearchresult", {})
+
+        count = int(result.get("count", 0))
+        if count == 0:
+            return []
+
+        # Get history server keys for EFetch
+        query_key = result.get("querykey")
+        web_env = result.get("webenv")
+
+        if not query_key or not web_env or esearch_result.cached:
+            # History server keys expire — can't use them from cached results
+            # Fallback: use idlist directly (PMIDs are permanent)
+            id_list = result.get("idlist", [])
+            if not id_list:
+                return []
+            return await self.fetch_by_pmids(id_list)
+
+        # Step 2: EFetch using history server (maintains relevance order)
+        efetch_params = {
+            **self._base_params(),
+            "db": "pubmed",
+            "query_key": query_key,
+            "WebEnv": web_env,
+            "rettype": "xml",
+            "retmode": "xml",
+            "retmax": max_results,
+        }
+
+        efetch_context = RequestContext(
+            source=self._source_name,
+            method="get_key_publications.efetch",
+            params={"count": count, "max_results": max_results},
+        )
+
+        # Note: Don't cache EFetch with history server keys - they expire
+        efetch_result = await self._rest_get_text(
+            self.EFETCH_URL,
+            efetch_params,
+            context=efetch_context,
+        )
+
+        if not efetch_result.is_complete or efetch_result.data is None:
+            raise DataSourceError(
+                self._source_name,
+                f"EFetch failed: {efetch_result.errors}",
+            )
+
+        return self._parse_efetch_xml(efetch_result.data)
 
     async def fetch_by_pmids(
         self,
@@ -184,27 +268,30 @@ class PubMedClient(BaseClient):
             params={"pmid_count": len(pmids)},
         )
 
-        # EFetch returns XML, not JSON - need to handle differently
-        await self.rate_limiter.acquire()
-        session = await self._get_session()
+        # Cache key uses sorted PMIDs for consistency
+        cache_params = {
+            **self._base_params(),
+            "db": "pubmed",
+            "id": ",".join(sorted(pmids)),
+            "rettype": "xml",
+            "retmode": "xml",
+        }
 
-        logger.info(
-            "EFetch request for %d PMIDs",
-            len(pmids),
+        result = await self._rest_get_text(
+            self.EFETCH_URL,
+            params,
+            cache_namespace="pubmed_efetch",
+            cache_ttl=self.FETCH_CACHE_TTL,
+            context=context,
         )
 
-        resp = await session.get(self.EFETCH_URL, params=params)
-
-        if resp.status >= 400:
-            body = await resp.text()
+        if not result.is_complete or result.data is None:
             raise DataSourceError(
                 self._source_name,
-                f"EFetch HTTP {resp.status}: {body[:500]}",
-                status_code=resp.status,
+                f"EFetch failed: {result.errors}",
             )
 
-        xml_text = await resp.text()
-        return self._parse_efetch_xml(xml_text)
+        return self._parse_efetch_xml(result.data)
 
     def _build_pubmed_query(
         self,
@@ -239,7 +326,22 @@ class PubMedClient(BaseClient):
         ValueError
             If neither drug nor condition is provided.
         """
-        raise NotImplementedError("_build_pubmed_query not yet implemented")
+        if not drug and not condition:
+            raise ValueError("At least one of drug or condition is required")
+
+        parts: list[str] = []
+
+        if drug:
+            parts.append(f"{drug}[tiab]")
+
+        if condition:
+            parts.append(f"{condition}[tiab]")
+
+        if date_before:
+            date_str = date_before.strftime("%Y/%m/%d")
+            parts.append(f'"1900/01/01":"{date_str}"[pdat]')
+
+        return " AND ".join(parts)
 
     def _parse_efetch_xml(self, xml_text: str) -> list[Publication]:
         """

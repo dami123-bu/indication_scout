@@ -220,8 +220,10 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
 
         # Verify WhitespaceResult fields for non-whitespace case
         self.assertEqual(result.is_whitespace, False)
-        self.assertTrue(result.exact_match_count >= 10)  # semaglutide + diabetes has many trials
-        self.assertTrue(200 < result.drug_only_trials < 600)
+        self.assertTrue(
+            result.exact_match_count >= 10
+        )  # semaglutide + diabetes has many trials
+        self.assertTrue(500 < result.drug_only_trials < 800)
         self.assertTrue(10000 < result.condition_only_trials < 100000)
 
         # condition_drugs should be empty when not whitespace

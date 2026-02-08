@@ -17,18 +17,33 @@ class TestPublication:
             abstract="BACKGROUND: Nonalcoholic steatohepatitis... RESULTS: Resolution occurred in 59%...",
             journal="N Engl J Med",
             year=2024,
-            publication_types=["Clinical Trial, Phase III", "Randomized Controlled Trial"],
-            mesh_terms=["Non-alcoholic Fatty Liver Disease", "Glucagon-Like Peptide-1 Receptor"],
+            publication_types=[
+                "Clinical Trial, Phase III",
+                "Randomized Controlled Trial",
+            ],
+            mesh_terms=[
+                "Non-alcoholic Fatty Liver Disease",
+                "Glucagon-Like Peptide-1 Receptor",
+            ],
             doi="10.1056/NEJMoa2312345",
         )
 
         assert pub.pmid == "38472913"
         assert pub.title == "Semaglutide for NASH: Phase 3 Results"
-        assert pub.abstract == "BACKGROUND: Nonalcoholic steatohepatitis... RESULTS: Resolution occurred in 59%..."
+        assert (
+            pub.abstract
+            == "BACKGROUND: Nonalcoholic steatohepatitis... RESULTS: Resolution occurred in 59%..."
+        )
         assert pub.journal == "N Engl J Med"
         assert pub.year == 2024
-        assert pub.publication_types == ["Clinical Trial, Phase III", "Randomized Controlled Trial"]
-        assert pub.mesh_terms == ["Non-alcoholic Fatty Liver Disease", "Glucagon-Like Peptide-1 Receptor"]
+        assert pub.publication_types == [
+            "Clinical Trial, Phase III",
+            "Randomized Controlled Trial",
+        ]
+        assert pub.mesh_terms == [
+            "Non-alcoholic Fatty Liver Disease",
+            "Glucagon-Like Peptide-1 Receptor",
+        ]
         assert pub.doi == "10.1056/NEJMoa2312345"
 
     def test_publication_optional_fields_defaults(self):
@@ -119,7 +134,11 @@ class TestPublication:
             abstract="A randomized controlled phase 3 trial.",
             journal="Lancet",
             year=2024,
-            publication_types=["Clinical Trial, Phase III", "Randomized Controlled Trial", "Multicenter Study"],
+            publication_types=[
+                "Clinical Trial, Phase III",
+                "Randomized Controlled Trial",
+                "Multicenter Study",
+            ],
             mesh_terms=["Diabetes Mellitus, Type 2"],
         )
 

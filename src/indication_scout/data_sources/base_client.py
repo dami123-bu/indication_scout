@@ -473,6 +473,149 @@ class BaseClient(ABC):
             context=context,
         )
 
+    async def _rest_get_text(
+        self,
+        url: str,
+        params: dict[str, Any],
+        *,
+        cache_namespace: str | None = None,
+        cache_ttl: int | None = None,
+        context: RequestContext | None = None,
+    ) -> PartialResult:
+        """
+        Like _rest_get but returns raw text instead of parsing JSON.
+
+        For APIs that return XML (e.g. PubMed EFetch).
+        """
+        ctx = context or RequestContext(source=self._source_name, method="unknown")
+
+        # --- Check cache first ---
+        if cache_namespace:
+            cached = await self.cache.get(cache_namespace, params)
+            if cached is not None:
+                return PartialResult(data=cached, cached=True)
+
+        # --- Retry loop ---
+        last_error: Exception | None = None
+        start = time.monotonic()
+
+        for attempt in range(self.config.retry.max_retries + 1):
+            try:
+                await self.rate_limiter.acquire()
+                session = await self._get_session()
+
+                logger.info(
+                    "Request [%s.%s] attempt=%d url=%s",
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    url,
+                )
+
+                resp = await session.get(url, params=params)
+
+                # --- Handle HTTP errors ---
+                if resp.status in self.config.retry.retryable_status_codes:
+                    body = await resp.text()
+                    logger.warning(
+                        "Retryable %d from %s.%s: %s",
+                        resp.status,
+                        ctx.source,
+                        ctx.method,
+                        body[:200],
+                    )
+                    last_error = DataSourceError(
+                        ctx.source,
+                        f"HTTP {resp.status}: {body[:200]}",
+                        status_code=resp.status,
+                    )
+                    if resp.status == 429:
+                        retry_after = resp.headers.get("Retry-After")
+                        if retry_after:
+                            await asyncio.sleep(float(retry_after))
+                            continue
+
+                    delay = min(
+                        self.config.retry.base_delay
+                        * (self.config.retry.backoff_factor**attempt),
+                        self.config.retry.max_delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                if resp.status >= 400:
+                    body = await resp.text()
+                    raise DataSourceError(
+                        ctx.source,
+                        f"HTTP {resp.status}: {body[:500]}",
+                        status_code=resp.status,
+                    )
+
+                # --- Success: return raw text ---
+                data = await resp.text()
+                elapsed = time.monotonic() - start
+
+                logger.info(
+                    "Success [%s.%s] elapsed=%.2fs cached=False",
+                    ctx.source,
+                    ctx.method,
+                    elapsed,
+                )
+
+                # Store in cache
+                if cache_namespace:
+                    await self.cache.set(cache_namespace, params, data, ttl=cache_ttl)
+
+                return PartialResult(data=data, elapsed_seconds=elapsed)
+
+            except asyncio.TimeoutError:
+                elapsed = time.monotonic() - start
+                last_error = DataSourceError(
+                    ctx.source, f"Timeout after {elapsed:.1f}s"
+                )
+                logger.warning(
+                    "Timeout [%s.%s] attempt=%d elapsed=%.1fs",
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    elapsed,
+                )
+
+            except aiohttp.ClientError as e:
+                last_error = DataSourceError(ctx.source, f"Connection error: {e}")
+                logger.warning(
+                    "Connection error [%s.%s] attempt=%d: %s",
+                    ctx.source,
+                    ctx.method,
+                    attempt + 1,
+                    e,
+                )
+
+            # Exponential backoff before next attempt
+            if attempt < self.config.retry.max_retries:
+                delay = min(
+                    self.config.retry.base_delay
+                    * (self.config.retry.backoff_factor**attempt),
+                    self.config.retry.max_delay,
+                )
+                await asyncio.sleep(delay)
+
+        # --- All retries exhausted: graceful degradation ---
+        elapsed = time.monotonic() - start
+        logger.error(
+            "All retries exhausted [%s.%s] after %.1fs: %s",
+            ctx.source,
+            ctx.method,
+            elapsed,
+            last_error,
+        )
+        return PartialResult(
+            data=None,
+            is_complete=False,
+            errors=[str(last_error)],
+            elapsed_seconds=elapsed,
+        )
+
     async def _graphql(
         self,
         url: str,
