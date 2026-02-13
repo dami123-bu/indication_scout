@@ -1,10 +1,20 @@
-from indication_scout.data_sources.base_client import (
-    DataSourceError,
-    RequestContext,
-    ClientConfig,
-    BaseClient,
-)
+"""
+Open Targets Platform GraphQL client.
 
+Two primary methods:
+  1. get_drug        — Fetch drug data (indications, targets, warnings, adverse events)
+  2. get_target_data — Fetch target data (associations, pathways, interactions, expression)
+
+Plus convenience accessors for specific target data slices.
+"""
+
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_open_targets import (
     Association,
@@ -36,40 +46,80 @@ INTERACTION_TYPE_MAP = {
 }
 
 
+DEFAULT_CACHE_DIR = Path("_cache")
+
+
 class OpenTargetsClient(BaseClient):
     BASE_URL = "https://api.platform.opentargets.org/api/v4/graphql"
     CACHE_TTL = 5 * 86400
+    PAGE_SIZE = 500
 
-    def __init__(self, config: ClientConfig | None = None):
-        super().__init__(config)
-        self._drug_cache: dict[str, DrugData] = {}  # keyed by chembl_id
-        self._target_data_cache: dict[str, TargetData] = {}  # keyed by target_id
+    def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
+        super().__init__()
+        self.cache_dir = cache_dir
+        if cache_dir:
+            cache_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def _source_name(self) -> str:
         return "open_targets"
+
+    # -- Cache ---------------------------------------------------------------
+
+    def _cache_key(self, namespace: str, params: dict[str, Any]) -> str:
+        raw = json.dumps({"ns": namespace, **params}, sort_keys=True, default=str)
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def _cache_path(self, key: str) -> Path:
+        return self.cache_dir / f"{key}.json"
+
+    def _cache_get(self, namespace: str, params: dict[str, Any]) -> Any | None:
+        if not self.cache_dir:
+            return None
+        path = self._cache_path(self._cache_key(namespace, params))
+        if not path.exists():
+            return None
+        try:
+            entry = json.loads(path.read_text())
+            cached_at = datetime.fromisoformat(entry["cached_at"])
+            age = (datetime.now() - cached_at).total_seconds()
+            if age > entry.get("ttl", self.CACHE_TTL):
+                path.unlink(missing_ok=True)
+                return None
+            return entry["data"]
+        except (json.JSONDecodeError, KeyError, ValueError):
+            path.unlink(missing_ok=True)
+            return None
+
+    def _cache_set(
+        self, namespace: str, params: dict[str, Any], data: Any, ttl: int | None = None
+    ) -> None:
+        if not self.cache_dir:
+            return
+        entry = {
+            "data": data,
+            "cached_at": datetime.now().isoformat(),
+            "ttl": ttl or self.CACHE_TTL,
+        }
+        self._cache_path(self._cache_key(namespace, params)).write_text(
+            json.dumps(entry, default=str)
+        )
 
     # ------------------------------------------------------------------
     # Public: get_drug and get_target
     # ------------------------------------------------------------------
 
     async def get_drug(self, drug_name: str) -> DrugData:
-        """Fetch drug data by name. Returns cached data if available."""
+        """Fetch drug data by name."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
-        if chembl_id in self._drug_cache:
-            return self._drug_cache[chembl_id]
-
-        disk_hit = await self.cache.get("drug", {"chembl_id": chembl_id})
-        if disk_hit:
-            drug_data = DrugData.model_validate(disk_hit)
-            self._drug_cache[chembl_id] = drug_data
-            return drug_data
+        cached = self._cache_get("drug", {"chembl_id": chembl_id})
+        if cached:
+            return DrugData.model_validate(cached)
 
         drug_data = await self._fetch_drug(chembl_id)
 
-        self._drug_cache[chembl_id] = drug_data
-        await self.cache.set(
+        self._cache_set(
             "drug",
             {"chembl_id": chembl_id},
             drug_data.model_dump(),
@@ -83,20 +133,14 @@ class OpenTargetsClient(BaseClient):
         return drug.indications
 
     async def get_target_data(self, target_id: str) -> TargetData:
-        """Fetch target data by ID. Returns cached data if available."""
-        if target_id in self._target_data_cache:
-            return self._target_data_cache[target_id]
-
-        disk_hit = await self.cache.get("target", {"target_id": target_id})
-        if disk_hit:
-            target_data = TargetData.model_validate(disk_hit)
-            self._target_data_cache[target_id] = target_data
-            return target_data
+        """Fetch target data by ID."""
+        cached = self._cache_get("target", {"target_id": target_id})
+        if cached:
+            return TargetData.model_validate(cached)
 
         target_data = await self._fetch_target(target_id)
 
-        self._target_data_cache[target_id] = target_data
-        await self.cache.set(
+        self._cache_set(
             "target",
             {"target_id": target_id},
             target_data.model_dump(),
@@ -157,20 +201,8 @@ class OpenTargetsClient(BaseClient):
 
     async def _resolve_drug_name(self, name: str) -> str:
         """Search by name → return ChEMBL ID."""
-        result = await self._graphql(
-            self.BASE_URL,
-            SEARCH_QUERY,
-            variables={"q": name},
-            cache_namespace="drug_name_resolve",
-            cache_ttl=self.CACHE_TTL,
-            context=self._ctx("resolve_drug_name"),
-        )
-        if not result.is_complete:
-            raise DataSourceError(
-                self._source_name,
-                f"Failed to resolve drug name '{name}': {result.errors}",
-            )
-        hits = result.data["data"]["search"]["hits"]
+        data = await self._graphql(self.BASE_URL, SEARCH_QUERY, {"q": name})
+        hits = data["data"]["search"]["hits"]
         drug_hits = [h for h in hits if h["entity"] == "drug"]
         if not drug_hits:
             raise DataSourceError(
@@ -181,36 +213,36 @@ class OpenTargetsClient(BaseClient):
 
     async def _fetch_drug(self, chembl_id: str) -> DrugData:
         """Fetch full drug node from Open Targets."""
-        result = await self._graphql(
+        data = await self._graphql(
             self.BASE_URL,
             DRUG_QUERY,
             variables={"id": chembl_id},
-            context=self._ctx("fetch_drug"),
         )
-        if not result.is_complete:
+        raw_drug = data["data"]["drug"]
+        if raw_drug is None:
             raise DataSourceError(
                 self._source_name,
-                f"Failed to fetch drug {chembl_id}: {result.errors}",
+                f"No drug found for ChEMBL ID '{chembl_id}'",
             )
-        return self._parse_drug_data(result.data["data"]["drug"])
+        return self._parse_drug_data(raw_drug)
 
     async def _fetch_target(self, target_id: str) -> TargetData:
         """Fetch full target node. Paginates associations if needed."""
-        result = await self._graphql(
+        data = await self._graphql(
             self.BASE_URL,
             TARGET_QUERY,
             variables={"id": target_id},
-            context=self._ctx("fetch_target"),
         )
-        if not result.is_complete:
+        raw_target = data["data"]["target"]
+        if raw_target is None:
             raise DataSourceError(
                 self._source_name,
-                f"Failed to fetch target {target_id}: {result.errors}",
+                f"No target found for '{target_id}'",
             )
-        target_data = self._parse_target_data(result.data["data"]["target"])
+        target_data = self._parse_target_data(raw_target)
 
         # Paginate if we hit the association page limit
-        if len(target_data.associations) >= 500:
+        if len(target_data.associations) >= self.PAGE_SIZE:
             target_data.associations = await self._paginate_associations(target_id)
 
         return target_data
@@ -219,26 +251,22 @@ class OpenTargetsClient(BaseClient):
         """Fetch all associations when count exceeds single page."""
         all_associations = []
         page_index = 0
-        page_size = 500
 
         while True:
-            result = await self._graphql(
+            data = await self._graphql(
                 self.BASE_URL,
                 ASSOCIATIONS_PAGE_QUERY,
                 variables={
                     "id": target_id,
                     "index": page_index,
-                    "size": page_size,
+                    "size": self.PAGE_SIZE,
                 },
-                context=self._ctx("paginate_associations"),
             )
-            if not result.is_complete:
-                break
 
-            rows = result.data["data"]["target"]["associatedDiseases"]["rows"]
+            rows = data["data"]["target"]["associatedDiseases"]["rows"]
             all_associations.extend(self._parse_association(r) for r in rows)
 
-            if len(rows) < page_size:
+            if len(rows) < self.PAGE_SIZE:
                 break
             page_index += 1
 
@@ -467,20 +495,10 @@ class OpenTargetsClient(BaseClient):
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
-        result = await self._graphql(
-            self.BASE_URL,
-            DISEASE_DRUGS_QUERY,
-            variables={"id": disease_id, "size": 200},
-            cache_namespace=f"disease_drugs:{disease_id}",
-            cache_ttl=self.CACHE_TTL,
-            context=self._ctx("get_disease_drugs"),
+        data = await self._graphql(
+            self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
         )
-        if not result.is_complete:
-            raise DataSourceError(
-                self._source_name,
-                f"Failed to fetch drugs for disease {disease_id}: {result.errors}",
-            )
-        return self._parse_disease_drugs(result.data["data"])
+        return self._parse_disease_drugs(data["data"])
 
     def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:
         """Parse and deduplicate disease drugs — one entry per drug, highest phase wins."""
@@ -493,9 +511,6 @@ class OpenTargetsClient(BaseClient):
             if drug.drug_id not in by_drug or drug.phase > by_drug[drug.drug_id].phase:
                 by_drug[drug.drug_id] = drug
         return list(by_drug.values())
-
-    def _ctx(self, method: str) -> RequestContext:
-        return RequestContext(source=self._source_name, method=method)
 
 
 # ------------------------------------------------------------------

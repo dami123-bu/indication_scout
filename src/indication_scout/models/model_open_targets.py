@@ -7,15 +7,6 @@ Agents receive these models — they never see raw GraphQL responses.
 
 from pydantic import BaseModel
 
-
-class TargetNotFoundError(Exception):
-    """Raised when a target_id is not found."""
-
-    def __init__(self, target_id: str):
-        self.target_id = target_id
-        super().__init__(f"Target '{target_id}' not found")
-
-
 # ------------------------------------------------------------------
 # Target-level models
 # ------------------------------------------------------------------

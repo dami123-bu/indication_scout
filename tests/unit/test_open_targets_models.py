@@ -6,7 +6,6 @@ from indication_scout.models.model_open_targets import (
     DrugData,
     DrugTarget,
     Indication,
-    TargetNotFoundError,
 )
 
 
@@ -146,17 +145,3 @@ class TestDrugData:
             indications=[],
         )
         assert drug.investigated_disease_ids == set()
-
-
-class TestTargetNotFoundError:
-    """Tests for TargetNotFoundError exception."""
-
-    def test_error_stores_target_id(self):
-        """Error should store the target_id that was not found."""
-        error = TargetNotFoundError("ENSG00000112164")
-        assert error.target_id == "ENSG00000112164"
-
-    def test_error_message_includes_target_id(self):
-        """Error message should include the target_id."""
-        error = TargetNotFoundError("ENSG00000112164")
-        assert "ENSG00000112164" in str(error)
