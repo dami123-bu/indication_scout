@@ -14,12 +14,7 @@ import asyncio
 from datetime import date
 from typing import Any
 
-from indication_scout.data_sources.base_client import (
-    BaseClient,
-    ClientConfig,
-    DataSourceError,
-    RequestContext,
-)
+from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
@@ -68,7 +63,6 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
 
 class ClinicalTrialsClient(BaseClient):
     BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
-    CACHE_TTL = 2 * 86400  # 2 days — CT.gov updates weekly
     PAGE_SIZE = 100
 
     @property
@@ -99,24 +93,7 @@ class ClinicalTrialsClient(BaseClient):
                 phase_filter=phase_filter,
                 page_token=page_token,
             )
-            cache_ns = f"trials:{drug}:{condition or 'any'}"
-            if page_token:
-                cache_ns += f":{page_token}"
-
-            result = await self._rest_get(
-                self.BASE_URL,
-                params,
-                cache_namespace=cache_ns,
-                cache_ttl=self.CACHE_TTL,
-                context=self._ctx("search_trials"),
-            )
-            if not result.is_complete:
-                raise DataSourceError(
-                    self._source_name,
-                    f"Failed to search trials for '{drug}' + '{condition}': {result.errors}",
-                )
-
-            data = result.data
+            data = await self._rest_get(self.BASE_URL, params)
             studies = data.get("studies", [])
             trials.extend(self._parse_trial(s) for s in studies)
 
@@ -269,20 +246,8 @@ class ClinicalTrialsClient(BaseClient):
             extra_term=query,
             status_filter="TERMINATED,WITHDRAWN,SUSPENDED",
         )
-        result = await self._rest_get(
-            self.BASE_URL,
-            params,
-            cache_namespace=f"terminated:{query}",
-            cache_ttl=self.CACHE_TTL,
-            context=self._ctx("get_terminated"),
-        )
-        if not result.is_complete:
-            raise DataSourceError(
-                self._source_name,
-                f"Failed to fetch terminated trials for '{query}': {result.errors}",
-            )
-
-        studies = result.data.get("studies", [])
+        data = await self._rest_get(self.BASE_URL, params)
+        studies = data.get("studies", [])
         return [self._parse_terminated_trial(s) for s in studies[:max_results]]
 
     # ------------------------------------------------------------------
@@ -310,21 +275,8 @@ class ClinicalTrialsClient(BaseClient):
                 page_token=page_token,
                 phase_filter=phase_filter,
             )
-            cache_ns = f"condition_trials:{condition}"
-            if page_token:
-                cache_ns += f":{page_token}"
+            data = await self._rest_get(self.BASE_URL, params)
 
-            result = await self._rest_get(
-                self.BASE_URL,
-                params,
-                cache_namespace=cache_ns,
-                cache_ttl=self.CACHE_TTL,
-                context=self._ctx("fetch_condition_trials"),
-            )
-            if not result.is_complete:
-                break
-
-            data = result.data
             studies = data.get("studies", [])
             trials.extend(self._parse_trial(s) for s in studies)
 
@@ -401,16 +353,8 @@ class ClinicalTrialsClient(BaseClient):
         )
         params["pageSize"] = 1  # we only need the count
 
-        result = await self._rest_get(
-            self.BASE_URL,
-            params,
-            cache_namespace=f"count:{drug or ''}:{condition or ''}",
-            cache_ttl=self.CACHE_TTL,
-            context=self._ctx("count_trials"),
-        )
-        if not result.is_complete:
-            return 0
-        return result.data.get("totalCount", 0)
+        data = await self._rest_get(self.BASE_URL, params)
+        return data.get("totalCount", 0)
 
     # ------------------------------------------------------------------
     # Parsers: v2 API response → Pydantic models
@@ -645,6 +589,3 @@ class ClinicalTrialsClient(BaseClient):
             "Phase 4": 8,
         }
         return ranks.get(phase, 0)
-
-    def _ctx(self, method: str) -> RequestContext:
-        return RequestContext(source=self._source_name, method=method)

@@ -226,3 +226,88 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
 
         # condition_drugs should be empty when not whitespace
         self.assertEqual(result.condition_drugs, [])
+
+
+class TestClinicalTrialsClientEdgeCases(unittest.IsolatedAsyncioTestCase):
+    """Tests for edge cases and weird inputs."""
+
+    async def asyncSetUp(self):
+        self.client = ClinicalTrialsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_search_trials_nonexistent_drug_returns_empty(self):
+        """Test that a nonexistent drug returns empty list (not an error)."""
+        trials = await self.client.search_trials(
+            drug="xyzzy_not_a_real_drug_12345",
+            condition="diabetes",
+            max_results=10,
+        )
+
+        self.assertEqual(trials, [])
+
+    async def test_search_trials_nonexistent_condition_returns_empty(self):
+        """Test that a nonexistent condition returns empty list."""
+        trials = await self.client.search_trials(
+            drug="semaglutide",
+            condition="xyzzy_fake_disease_99999",
+            max_results=10,
+        )
+
+        self.assertEqual(trials, [])
+
+    async def test_search_trials_empty_drug_returns_empty(self):
+        """Test that empty drug string returns empty list."""
+        trials = await self.client.search_trials(
+            drug="",
+            condition="diabetes",
+            max_results=10,
+        )
+
+        # Empty drug acts as no filter, so may return results
+        # Just verify it doesn't raise an error
+        self.assertIsInstance(trials, list)
+
+    async def test_get_landscape_nonexistent_condition_returns_empty(self):
+        """Test that nonexistent condition returns empty landscape."""
+        landscape = await self.client.get_landscape(
+            "xyzzy_fake_condition_99999", top_n=10
+        )
+
+        self.assertEqual(landscape.total_trial_count, 0)
+        self.assertEqual(landscape.competitors, [])
+        self.assertEqual(landscape.phase_distribution, {})
+
+    async def test_get_terminated_nonexistent_query_returns_empty(self):
+        """Test that nonexistent query returns empty list."""
+        trials = await self.client.get_terminated(
+            "xyzzy_not_a_real_term_12345", max_results=10
+        )
+
+        self.assertEqual(trials, [])
+
+    async def test_detect_whitespace_nonexistent_drug_is_whitespace(self):
+        """Test that nonexistent drug returns is_whitespace=True."""
+        result = await self.client.detect_whitespace(
+            "xyzzy_fake_drug_99999", "diabetes"
+        )
+
+        self.assertEqual(result.is_whitespace, True)
+        self.assertEqual(result.exact_match_count, 0)
+        self.assertEqual(result.drug_only_trials, 0)
+        # Condition-only trials should still exist for a real condition
+        self.assertGreater(result.condition_only_trials, 0)
+
+    async def test_detect_whitespace_nonexistent_condition_is_whitespace(self):
+        """Test that nonexistent condition returns is_whitespace=True."""
+        result = await self.client.detect_whitespace(
+            "semaglutide", "xyzzy_fake_disease_99999"
+        )
+
+        self.assertEqual(result.is_whitespace, True)
+        self.assertEqual(result.exact_match_count, 0)
+        # Drug-only trials should still exist for a real drug
+        self.assertGreater(result.drug_only_trials, 0)
+        self.assertEqual(result.condition_only_trials, 0)
+        self.assertEqual(result.condition_drugs, [])

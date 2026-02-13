@@ -2,12 +2,6 @@
 
 import unittest
 
-from indication_scout.data_sources.base_client import (
-    CacheConfig,
-    ClientConfig,
-    RateLimitConfig,
-    RetryConfig,
-)
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
 
@@ -15,31 +9,12 @@ class TestOpenTargetsClientConfig:
     """Tests for OpenTargetsClient configuration."""
 
     def test_default_config(self):
-        """Test that client uses default config when none provided."""
+        """Test that client uses default settings."""
         client = OpenTargetsClient()
 
-        assert client.config is not None
-        assert client.config.timeout_seconds == 30.0
-        assert client.config.retry.max_retries == 3
-        assert client.config.rate_limit.requests_per_second == 5.0
-        assert client.config.cache.enabled is True
-
-    def test_custom_config(self):
-        """Test that custom config is applied correctly."""
-        custom_config = ClientConfig(
-            timeout_seconds=60.0,
-            retry=RetryConfig(max_retries=5, base_delay=2.0),
-            rate_limit=RateLimitConfig(requests_per_second=10.0, burst=20),
-            cache=CacheConfig(enabled=False),
-        )
-        client = OpenTargetsClient(config=custom_config)
-
-        assert client.config.timeout_seconds == 60.0
-        assert client.config.retry.max_retries == 5
-        assert client.config.retry.base_delay == 2.0
-        assert client.config.rate_limit.requests_per_second == 10.0
-        assert client.config.rate_limit.burst == 20
-        assert client.config.cache.enabled is False
+        assert client.timeout == 30.0
+        assert client.max_retries == 3
+        assert client.cache_dir is not None
 
 
 class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
@@ -155,6 +130,81 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(drug.is_approved)
         self.assertEqual(drug.max_clinical_phase, 4.0)
         self.assertEqual(drug.year_first_approved, 1995)
+
+
+class TestGetDrugDataErrors(unittest.IsolatedAsyncioTestCase):
+    """Tests for error handling in get_drug method."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_nonexistent_drug_raises_error(self):
+        """Test that a nonexistent drug raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_drug("xyzzy_not_a_real_drug_12345")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+        self.assertIn("No drug found", str(ctx.exception))
+
+    async def test_empty_drug_name_raises_error(self):
+        """Test that empty drug name raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_drug("")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+
+    async def test_special_characters_drug_name_raises_error(self):
+        """Test that special characters in drug name raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_drug("!!!@@@###$$$")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+
+
+class TestGetTargetDataErrors(unittest.IsolatedAsyncioTestCase):
+    """Tests for error handling in get_target_data method."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_nonexistent_target_raises_error(self):
+        """Test that a nonexistent target ID raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_target_data("ENSG99999999999")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+
+    async def test_invalid_target_format_raises_error(self):
+        """Test that invalid target format raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_target_data("not_an_ensembl_id")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+
+    async def test_empty_target_id_raises_error(self):
+        """Test that empty target ID raises DataSourceError."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_target_data("")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
 
 
 class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
@@ -320,40 +370,3 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(effect.dosing, "acute")
 
 
-class TestTargetDataCache(unittest.IsolatedAsyncioTestCase):
-    """Integration tests for target data in-memory caching."""
-
-    async def asyncSetUp(self):
-        self.client = OpenTargetsClient()
-
-    async def asyncTearDown(self):
-        await self.client.close()
-
-    async def test_target_data_cache_returns_same_instance(self):
-        """Test that get_target_data returns the same cached instance on repeated calls."""
-        target_id = "ENSG00000112164"
-
-        target1 = await self.client.get_target_data(target_id)
-        target2 = await self.client.get_target_data(target_id)
-
-        self.assertIs(target1, target2)
-
-    async def test_target_data_cache_keyed_by_target_id(self):
-        """Test that different target IDs return different cached instances."""
-        target1 = await self.client.get_target_data("ENSG00000112164")
-        target2 = await self.client.get_target_data("ENSG00000113721")
-
-        self.assertIsNot(target1, target2)
-        self.assertEqual(target1.target_id, "ENSG00000112164")
-        self.assertEqual(target2.target_id, "ENSG00000113721")
-
-    async def test_target_data_cache_populated_after_fetch(self):
-        """Test that _target_data_cache is populated after fetching."""
-        target_id = "ENSG00000112164"
-
-        self.assertNotIn(target_id, self.client._target_data_cache)
-
-        await self.client.get_target_data(target_id)
-
-        self.assertIn(target_id, self.client._target_data_cache)
-        self.assertEqual(self.client._target_data_cache[target_id].target_id, target_id)
