@@ -13,6 +13,15 @@ IndicationScout uses multiple AI agents to analyze drugs and identify potential 
 
 ## Installation
 
+### Clone the Repository
+
+```bash
+git clone https://github.com/dgupta/IndicationScout.git
+cd IndicationScout/indication_scout
+```
+
+### Install Dependencies
+
 ```bash
 pip install -e .
 ```
