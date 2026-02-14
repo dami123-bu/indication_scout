@@ -15,6 +15,7 @@ import asyncio
 from datetime import date
 from typing import Any
 
+from indication_scout.constants import STOP_KEYWORDS
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_clinical_trials import (
@@ -28,35 +29,13 @@ from indication_scout.models.model_clinical_trials import (
     WhitespaceResult,
 )
 
-# ------------------------------------------------------------------
-# Stop-reason keywords → category mapping (fallback before LLM)
-# ------------------------------------------------------------------
-
-_STOP_KEYWORDS: dict[str, str] = {
-    "efficacy": "efficacy",
-    "futility": "efficacy",
-    "lack of efficacy": "efficacy",
-    "no benefit": "efficacy",
-    "safety": "safety",
-    "adverse": "safety",
-    "toxicity": "safety",
-    "side effect": "safety",
-    "enrollment": "enrollment",
-    "accrual": "enrollment",
-    "recruitment": "enrollment",
-    "business": "business",
-    "strategic": "business",
-    "funding": "business",
-    "commercial": "business",
-}
-
 
 def _classify_stop_reason(why_stopped: str | None) -> str:
     """Keyword-based stop classification. LLM refinement happens at the agent layer."""
     if not why_stopped:
         return "unknown"
     lower = why_stopped.lower()
-    for keyword, category in _STOP_KEYWORDS.items():
+    for keyword, category in STOP_KEYWORDS.items():
         if keyword in lower:
             return category
     return "other"

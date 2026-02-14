@@ -33,7 +33,9 @@ class TestPubMedClient(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_articles_parses_correctly(self):
         """Test fetch_articles returns parsed PubMedArticle objects."""
         # First search for a known article
-        pmids = await self.client.search("semaglutide obesity clinical trial", max_results=5)
+        pmids = await self.client.search(
+            "semaglutide obesity clinical trial", max_results=5
+        )
         articles = await self.client.fetch_articles(pmids)
 
         self.assertEqual(len(articles), 5)

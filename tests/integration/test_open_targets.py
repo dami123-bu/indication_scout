@@ -17,11 +17,10 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
     async def test_sildenafil_drug_data(self):
         """Test fetching drug data and indications for semaglutide."""
         drug = await self.client.get_drug("Semaglutide")
-        indications=drug.indications
-        match = [i for i in indications if 'kidney' in i.disease_name.lower()]
-        approved=[a for a in match if a.disease_id in drug.approved_disease_ids]
+        indications = drug.indications
+        match = [i for i in indications if "kidney" in i.disease_name.lower()]
+        approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
         print(drug.indications)
-
 
     async def test_semaglutide_drug_data(self):
         """Test fetching drug data and indications for semaglutide."""
@@ -365,5 +364,3 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         [effect] = liability.effects
         self.assertEqual(effect.direction, "Inhibition/Decrease/Downregulation")
         self.assertEqual(effect.dosing, "acute")
-
-

@@ -14,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from indication_scout.constants import (
+    CACHE_TTL,
+    DEFAULT_CACHE_DIR,
+    INTERACTION_TYPE_MAP,
+)
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_open_targets import (
@@ -38,20 +43,9 @@ from indication_scout.models.model_open_targets import (
     SafetyEffect,
 )
 
-INTERACTION_TYPE_MAP = {
-    "intact": "physical",
-    "signor": "signalling",
-    "reactome": "enzymatic",
-    "string": "functional",
-}
-
-
-DEFAULT_CACHE_DIR = Path("_cache")
-
 
 class OpenTargetsClient(BaseClient):
     BASE_URL = "https://api.platform.opentargets.org/api/v4/graphql"
-    CACHE_TTL = 5 * 86400
     PAGE_SIZE = 500
 
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
@@ -83,7 +77,7 @@ class OpenTargetsClient(BaseClient):
             entry = json.loads(path.read_text())
             cached_at = datetime.fromisoformat(entry["cached_at"])
             age = (datetime.now() - cached_at).total_seconds()
-            if age > entry.get("ttl", self.CACHE_TTL):
+            if age > entry.get("ttl", CACHE_TTL):
                 path.unlink(missing_ok=True)
                 return None
             return entry["data"]
@@ -99,7 +93,7 @@ class OpenTargetsClient(BaseClient):
         entry = {
             "data": data,
             "cached_at": datetime.now().isoformat(),
-            "ttl": ttl or self.CACHE_TTL,
+            "ttl": ttl or CACHE_TTL,
         }
         self._cache_path(self._cache_key(namespace, params)).write_text(
             json.dumps(entry, default=str)
@@ -123,7 +117,7 @@ class OpenTargetsClient(BaseClient):
             "drug",
             {"chembl_id": chembl_id},
             drug_data.model_dump(),
-            ttl=self.CACHE_TTL,
+            ttl=CACHE_TTL,
         )
 
         return drug_data
@@ -144,7 +138,7 @@ class OpenTargetsClient(BaseClient):
             "target",
             {"target_id": target_id},
             target_data.model_dump(),
-            ttl=self.CACHE_TTL,
+            ttl=CACHE_TTL,
         )
 
         return target_data
