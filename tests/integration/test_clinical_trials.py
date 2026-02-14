@@ -1,9 +1,12 @@
 """Integration tests for ClinicalTrialsClient."""
 
+import logging
 import unittest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
+
+logger = logging.getLogger(__name__)
 
 
 class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
@@ -35,10 +38,17 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(5 < landscape.phase_distribution["Phase 3"] < 50)
         self.assertTrue(5 < landscape.phase_distribution["Phase 4"] < 30)
 
-        # Verify ConditionLandscape.recent_starts - check dict structure
+        # Verify ConditionLandscape.recent_starts - find a known 2024+ trial
         self.assertTrue(len(landscape.recent_starts) >= 1)
-        recent = landscape.recent_starts[0]
-        self.assertEqual(set(recent.keys()), {"nct_id", "sponsor", "drug", "phase"})
+        [tradipitant] = [
+            rs
+            for rs in landscape.recent_starts
+            if rs.nct_id == "NCT06836557"
+        ]
+        self.assertEqual(tradipitant.nct_id, "NCT06836557")
+        self.assertEqual(tradipitant.sponsor, "Vanda Pharmaceuticals")
+        self.assertEqual(tradipitant.drug, "Tradipitant")
+        self.assertEqual(tradipitant.phase, "Phase 3")
 
         # Find Chinese University of Hong Kong with Esomeprazole - top ranked competitor
         [cuhk] = [
@@ -62,7 +72,7 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         """Test get_trial returns a single trial by NCT ID."""
         # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
         trial = await self.client.get_trial("NCT03819153")
-        print(trial)
+        logger.info(trial)
 
     async def test_get_trial(self):
         """Test get_trial returns a single trial by NCT ID."""
@@ -382,7 +392,9 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
 
         # Verify WhitespaceResult fields for non-whitespace case
         self.assertEqual(result.is_whitespace, False)
-        self.assertTrue(result.exact_match_count >= 10)  # semaglutide + diabetes has many trials
+        self.assertTrue(
+            result.exact_match_count >= 10
+        )  # semaglutide + diabetes has many trials
         self.assertTrue(400 < result.drug_only_trials < 800)
         self.assertTrue(10000 < result.condition_only_trials < 100000)
 

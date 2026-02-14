@@ -9,6 +9,7 @@ from indication_scout.models.model_clinical_trials import (
     ConditionLandscape,
     Intervention,
     PrimaryOutcome,
+    RecentStart,
     TerminatedTrial,
     Trial,
     WhitespaceResult,
@@ -359,11 +360,12 @@ class TestCompetitorEntryAndConditionLandscape:
 
     def test_condition_landscape_all_fields(self, sample_competitor):
         """ConditionLandscape should store all fields correctly."""
-        recent_trial = {
-            "nct_id": "NCT05000001",
-            "title": "Recent Trial",
-            "start_date": "2023-09-01",
-        }
+        recent_trial = RecentStart(
+            nct_id="NCT05000001",
+            sponsor="Novo Nordisk",
+            drug="Semaglutide",
+            phase="Phase 3",
+        )
         landscape = ConditionLandscape(
             total_trial_count=150,
             competitors=[sample_competitor],
@@ -385,7 +387,10 @@ class TestCompetitorEntryAndConditionLandscape:
             "Phase 4": 15,
         }
         assert len(landscape.recent_starts) == 1
-        assert landscape.recent_starts[0]["nct_id"] == "NCT05000001"
+        assert landscape.recent_starts[0].nct_id == "NCT05000001"
+        assert landscape.recent_starts[0].sponsor == "Novo Nordisk"
+        assert landscape.recent_starts[0].drug == "Semaglutide"
+        assert landscape.recent_starts[0].phase == "Phase 3"
 
     def test_condition_landscape_empty_competitors(self):
         """ConditionLandscape should accept empty competitors list."""

@@ -1,11 +1,15 @@
 """Seed the database with initial data."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     """Run database seeding."""
-    print("Seeding database...")
+    logger.info("Seeding database...")
     # TODO: Implement database seeding
-    print("Done.")
+    logger.info("Done.")
 
 
 if __name__ == "__main__":

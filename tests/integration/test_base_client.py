@@ -2,6 +2,7 @@
 
 import pytest
 
+from indication_scout.constants import OPEN_TARGETS_BASE_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 pytestmark = pytest.mark.asyncio
@@ -41,6 +42,61 @@ class TestBaseClient:
 
             assert result is not None
             assert result["json"]["key"] == "value"
+
+    async def test_graphql_successful_query(self):
+        """Test _graphql with Open Targets GraphQL endpoint."""
+        query = """
+        query($q: String!) {
+            search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
+                hits { id entity }
+            }
+        }
+        """
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._graphql(
+                OPEN_TARGETS_BASE_URL,
+                query,
+                variables={"q": "imatinib"},
+            )
+
+            hits = result["data"]["search"]["hits"]
+            assert len(hits) == 1
+            assert hits[0]["id"] == "CHEMBL941"
+            assert hits[0]["entity"] == "drug"
+
+    async def test_graphql_invalid_query_raises_datasource_error(self):
+        """Test _graphql raises DataSourceError for an invalid query.
+
+        Open Targets returns HTTP 400 for malformed queries, so the error
+        is raised by _request before _graphql's own error handling.
+        """
+        invalid_query = "{ invalidField }"
+        async with ConcreteTestClient(timeout=30.0) as client:
+            with pytest.raises(DataSourceError, match="HTTP 400") as exc_info:
+                await client._graphql(
+                    OPEN_TARGETS_BASE_URL,
+                    invalid_query,
+                    variables={},
+                )
+            assert exc_info.value.status_code == 400
+
+    async def test_rest_get_xml_returns_xml_string(self):
+        """Test _rest_get_xml with PubMed efetch endpoint."""
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._rest_get_xml(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "id": "33914610",
+                    "retmode": "xml",
+                    "rettype": "abstract",
+                },
+            )
+
+            assert isinstance(result, str)
+            assert "<PubmedArticleSet>" in result
+            assert "<PMID" in result
+            assert "33914610" in result
 
     async def test_timeout_raises_error(self):
         """Test that timeouts raise DataSourceError."""

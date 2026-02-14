@@ -1,11 +1,15 @@
 """Run model evaluation."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     """Run evaluation pipeline."""
-    print("Running evaluation...")
+    logger.info("Running evaluation...")
     # TODO: Implement evaluation pipeline
-    print("Done.")
+    logger.info("Done.")
 
 
 if __name__ == "__main__":

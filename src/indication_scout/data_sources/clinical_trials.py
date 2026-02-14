@@ -15,6 +15,7 @@ import asyncio
 from datetime import date
 from typing import Any
 
+from indication_scout.constants import STOP_KEYWORDS
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_clinical_trials import (
@@ -23,32 +24,11 @@ from indication_scout.models.model_clinical_trials import (
     ConditionLandscape,
     Intervention,
     PrimaryOutcome,
+    RecentStart,
     TerminatedTrial,
     Trial,
     WhitespaceResult,
 )
-
-# ------------------------------------------------------------------
-# Stop-reason keywords → category mapping (fallback before LLM)
-# ------------------------------------------------------------------
-
-_STOP_KEYWORDS: dict[str, str] = {
-    "efficacy": "efficacy",
-    "futility": "efficacy",
-    "lack of efficacy": "efficacy",
-    "no benefit": "efficacy",
-    "safety": "safety",
-    "adverse": "safety",
-    "toxicity": "safety",
-    "side effect": "safety",
-    "enrollment": "enrollment",
-    "accrual": "enrollment",
-    "recruitment": "enrollment",
-    "business": "business",
-    "strategic": "business",
-    "funding": "business",
-    "commercial": "business",
-}
 
 
 def _classify_stop_reason(why_stopped: str | None) -> str:
@@ -56,7 +36,7 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
     if not why_stopped:
         return "unknown"
     lower = why_stopped.lower()
-    for keyword, category in _STOP_KEYWORDS.items():
+    for keyword, category in STOP_KEYWORDS.items():
         if keyword in lower:
             return category
     return "other"
@@ -491,7 +471,7 @@ class ClinicalTrialsClient(BaseClient):
         by max phase (descending), then total enrollment (descending).
         """
         phase_dist: dict[str, int] = {}
-        recent_starts: list[dict] = []
+        recent_starts: list[RecentStart] = []
         competitors: dict[str, CompetitorEntry] = {}  # key: "sponsor|drug"
 
         for t in trials:
@@ -506,12 +486,12 @@ class ClinicalTrialsClient(BaseClient):
             # Recent starts (last 2 years)
             if t.start_date and t.start_date >= "2024":
                 recent_starts.append(
-                    {
-                        "nct_id": t.nct_id,
-                        "sponsor": t.sponsor,
-                        "drug": drug_name,
-                        "phase": t.phase,
-                    }
+                    RecentStart(
+                        nct_id=t.nct_id,
+                        sponsor=t.sponsor,
+                        drug=drug_name,
+                        phase=t.phase,
+                    )
                 )
 
             # Group by sponsor + drug

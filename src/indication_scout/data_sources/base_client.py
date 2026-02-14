@@ -11,11 +11,9 @@ from typing import Any
 
 import aiohttp
 
-logger = logging.getLogger("indication_scout.data_sources")
+from indication_scout.constants import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT
 
-# Default settings
-DEFAULT_TIMEOUT = 30.0
-DEFAULT_MAX_RETRIES = 3
+logger = logging.getLogger("indication_scout.data_sources")
 
 
 class DataSourceError(Exception):
