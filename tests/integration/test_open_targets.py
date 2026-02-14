@@ -34,9 +34,9 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(drug.year_first_approved, 1998)
         self.assertEqual(len(drug.warnings), 0)
         self.assertEqual(len(drug.trade_names), 0)
-        self.assertGreater(len(drug.synonyms), 0)
-        self.assertGreater(len(drug.indications), 5)
-        self.assertGreater(len(drug.adverse_events), 5)
+        self.assertTrue(3 <= len(drug.synonyms) <= 10)
+        self.assertTrue(80 <= len(drug.indications) <= 120)
+        self.assertTrue(20 <= len(drug.adverse_events) <= 50)
 
         # Target - PDE5A
         self.assertEqual(len(drug.targets), 1)
@@ -156,11 +156,11 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(drug.max_clinical_phase, 4.0)
         self.assertEqual(drug.year_first_approved, 1995)
         self.assertEqual(len(drug.trade_names), 0)
-        self.assertGreater(len(drug.synonyms), 0)
+        self.assertTrue(3 <= len(drug.synonyms) <= 10)
         self.assertEqual(len(drug.warnings), 4)
-        self.assertGreater(len(drug.indications), 50)
-        self.assertGreater(len(drug.targets), 10)
-        self.assertGreater(len(drug.adverse_events), 5)
+        self.assertTrue(150 <= len(drug.indications) <= 300)
+        self.assertTrue(40 <= len(drug.targets) <= 70)
+        self.assertTrue(20 <= len(drug.adverse_events) <= 50)
 
         # Target - MT-ND6
         mt_nd6 = next(t for t in drug.targets if t.target_symbol == "MT-ND6")
@@ -298,19 +298,19 @@ class TestFetchTarget(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(target.target_id, "ENSG00000141736")
         self.assertEqual(target.symbol, "ERBB2")
         self.assertEqual(target.name, "erb-b2 receptor tyrosine kinase 2")
-        self.assertGreater(len(target.associations), 100)
-        self.assertGreater(len(target.pathways), 10)
-        self.assertGreater(len(target.interactions), 50)
-        self.assertGreater(len(target.drug_summaries), 50)
-        self.assertGreater(len(target.expressions), 50)
-        self.assertGreater(len(target.mouse_phenotypes), 10)
+        self.assertTrue(1000 <= len(target.associations) <= 2000)
+        self.assertTrue(25 <= len(target.pathways) <= 50)
+        self.assertTrue(150 <= len(target.interactions) <= 250)
+        self.assertTrue(150 <= len(target.drug_summaries) <= 250)
+        self.assertTrue(100 <= len(target.expressions) <= 150)
+        self.assertTrue(40 <= len(target.mouse_phenotypes) <= 70)
         self.assertEqual(len(target.safety_liabilities), 3)
         self.assertEqual(len(target.genetic_constraint), 3)
 
         # Association - breast carcinoma
         bc_assoc = next(a for a in target.associations if a.disease_name == "breast carcinoma")
         self.assertEqual(bc_assoc.disease_id, "EFO_0000305")
-        self.assertGreater(bc_assoc.overall_score, 0.5)
+        self.assertTrue(0.6 < bc_assoc.overall_score < 0.8)
         self.assertIn("cancer or benign tumor", bc_assoc.therapeutic_areas)
 
         # Pathway
