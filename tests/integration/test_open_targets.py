@@ -1,8 +1,13 @@
 """Integration tests for OpenTargetsClient."""
 
+import json
 import logging
+import tempfile
 import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
 
+from indication_scout.constants import CACHE_TTL
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
 logger = logging.getLogger(__name__)
@@ -367,3 +372,78 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         [effect] = liability.effects
         self.assertEqual(effect.direction, "Inhibition/Decrease/Downregulation")
         self.assertEqual(effect.dosing, "acute")
+
+
+class TestCacheStorage(unittest.TestCase):
+    """Integration test: _cache_set writes a valid JSON file to disk."""
+
+    def test_cache_set_writes_json_file(self) -> None:
+        """Verify _cache_set creates a file with correct structure and data."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            client = OpenTargetsClient(cache_dir=cache_dir)
+
+            namespace = "drug"
+            params = {"chembl_id": "CHEMBL25"}
+            data = {"name": "ASPIRIN", "chembl_id": "CHEMBL25"}
+
+            client._cache_set(namespace, params, data, ttl=CACHE_TTL)
+
+            # Exactly one file should have been created
+            files = list(cache_dir.glob("*.json"))
+            self.assertEqual(len(files), 1)
+
+            # File name should match the cache key
+            expected_filename = client._cache_key(namespace, params) + ".json"
+            self.assertEqual(files[0].name, expected_filename)
+
+            # File contents should be valid JSON with the expected structure
+            entry = json.loads(files[0].read_text())
+            self.assertEqual(entry["data"], data)
+            self.assertEqual(entry["ttl"], CACHE_TTL)
+            # cached_at should be a parseable ISO timestamp within the last minute
+            cached_at = datetime.fromisoformat(entry["cached_at"])
+            self.assertLess((datetime.now() - cached_at).total_seconds(), 60)
+
+
+class TestCacheRetrieval(unittest.TestCase):
+    """Integration test: _cache_get reads back data written by _cache_set."""
+
+    def test_cache_get_returns_stored_data(self) -> None:
+        """Verify _cache_get returns the exact data that _cache_set wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            client = OpenTargetsClient(cache_dir=cache_dir)
+
+            namespace = "target"
+            params = {"target_id": "ENSG00000112164"}
+            data = {"symbol": "GLP1R", "target_id": "ENSG00000112164"}
+
+            client._cache_set(namespace, params, data, ttl=CACHE_TTL)
+            result = client._cache_get(namespace, params)
+
+            self.assertEqual(result, data)
+
+    def test_cache_get_returns_none_for_expired_entry(self) -> None:
+        """Verify _cache_get returns None and deletes the file when TTL is expired."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            client = OpenTargetsClient(cache_dir=cache_dir)
+
+            namespace = "drug"
+            params = {"chembl_id": "CHEMBL1431"}
+            data = {"name": "METFORMIN"}
+
+            # Write the entry, then manually backdate cached_at beyond the TTL
+            client._cache_set(namespace, params, data, ttl=CACHE_TTL)
+            cache_file = cache_dir / (client._cache_key(namespace, params) + ".json")
+            entry = json.loads(cache_file.read_text())
+            entry["cached_at"] = (
+                datetime.now() - timedelta(seconds=CACHE_TTL + 1)
+            ).isoformat()
+            cache_file.write_text(json.dumps(entry))
+
+            result = client._cache_get(namespace, params)
+
+            self.assertIsNone(result)
+            self.assertFalse(cache_file.exists())
