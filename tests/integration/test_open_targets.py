@@ -1,8 +1,11 @@
 """Integration tests for OpenTargetsClient."""
 
+import logging
 import unittest
 
 from indication_scout.data_sources.open_targets import OpenTargetsClient
+
+logger = logging.getLogger(__name__)
 
 
 class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
@@ -20,7 +23,7 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         indications = drug.indications
         match = [i for i in indications if "kidney" in i.disease_name.lower()]
         approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
-        print(drug.indications)
+        logger.info(drug.indications)
 
     async def test_semaglutide_drug_data(self):
         """Test fetching drug data and indications for semaglutide."""

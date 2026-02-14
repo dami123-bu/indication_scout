@@ -1,9 +1,12 @@
 """Integration tests for ClinicalTrialsClient."""
 
+import logging
 import unittest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
+
+logger = logging.getLogger(__name__)
 
 
 class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
@@ -62,7 +65,7 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         """Test get_trial returns a single trial by NCT ID."""
         # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
         trial = await self.client.get_trial("NCT03819153")
-        print(trial)
+        logger.info(trial)
 
     async def test_get_trial(self):
         """Test get_trial returns a single trial by NCT ID."""
