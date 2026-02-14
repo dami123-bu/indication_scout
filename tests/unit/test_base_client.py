@@ -1,5 +1,7 @@
 """Unit tests for base_client module."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
@@ -37,6 +39,39 @@ class TestBaseClient:
 
         assert session1 is session2
         await client.close()
+
+
+@pytest.mark.asyncio
+class TestGraphQL:
+    """Unit tests for _graphql error handling."""
+
+    async def test_graphql_errors_in_response_raises_datasource_error(self):
+        """Test _graphql raises DataSourceError when response contains GraphQL errors.
+
+        Some GraphQL servers return HTTP 200 with an 'errors' key for
+        partial or runtime failures. This path cannot be triggered by
+        Open Targets (which returns HTTP 400 instead), so we mock _request.
+        """
+        client = ConcreteTestClient()
+        mock_response = {
+            "data": None,
+            "errors": [
+                {"message": "Field 'x' not found on type 'Query'"},
+                {"message": "Unauthorized access"},
+            ],
+        }
+
+        with patch.object(client, "_request", new_callable=AsyncMock, return_value=mock_response):
+            with pytest.raises(DataSourceError, match="GraphQL") as exc_info:
+                await client._graphql(
+                    "https://example.com/graphql",
+                    "{ x }",
+                    variables={},
+                )
+
+            assert "Field 'x' not found on type 'Query'" in str(exc_info.value)
+            assert "Unauthorized access" in str(exc_info.value)
+            assert exc_info.value.source == "test_client"
 
 
 class TestDataSourceError:

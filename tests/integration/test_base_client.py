@@ -64,16 +64,21 @@ class TestBaseClient:
             assert hits[0]["id"] == "CHEMBL941"
             assert hits[0]["entity"] == "drug"
 
-    async def test_graphql_error_raises_datasource_error(self):
-        """Test _graphql raises DataSourceError when GraphQL response contains errors."""
+    async def test_graphql_invalid_query_raises_datasource_error(self):
+        """Test _graphql raises DataSourceError for an invalid query.
+
+        Open Targets returns HTTP 400 for malformed queries, so the error
+        is raised by _request before _graphql's own error handling.
+        """
         invalid_query = "{ invalidField }"
         async with ConcreteTestClient(timeout=30.0) as client:
-            with pytest.raises(DataSourceError, match="GraphQL"):
+            with pytest.raises(DataSourceError, match="HTTP 400") as exc_info:
                 await client._graphql(
                     OPEN_TARGETS_BASE_URL,
                     invalid_query,
                     variables={},
                 )
+            assert exc_info.value.status_code == 400
 
     async def test_timeout_raises_error(self):
         """Test that timeouts raise DataSourceError."""
