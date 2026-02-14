@@ -53,7 +53,7 @@ class TestBaseClient:
         }
         """
         async with ConcreteTestClient(timeout=30.0) as client:
-            result = await client._graphql(
+            result = await client._run_graphql_query(
                 OPEN_TARGETS_BASE_URL,
                 query,
                 variables={"q": "imatinib"},
@@ -73,7 +73,7 @@ class TestBaseClient:
         invalid_query = "{ invalidField }"
         async with ConcreteTestClient(timeout=30.0) as client:
             with pytest.raises(DataSourceError, match="HTTP 400") as exc_info:
-                await client._graphql(
+                await client._run_graphql_query(
                     OPEN_TARGETS_BASE_URL,
                     invalid_query,
                     variables={},
@@ -83,7 +83,7 @@ class TestBaseClient:
     async def test_rest_get_xml_returns_xml_string(self):
         """Test _rest_get_xml with PubMed efetch endpoint."""
         async with ConcreteTestClient(timeout=30.0) as client:
-            result = await client._rest_get_xml(
+            result = await client._run_xml_query(
                 PUBMED_FETCH_URL,
                 params={
                     "db": "pubmed",

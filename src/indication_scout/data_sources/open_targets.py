@@ -196,7 +196,7 @@ class OpenTargetsClient(BaseClient):
 
     async def _resolve_drug_name(self, name: str) -> str:
         """Search by name → return ChEMBL ID."""
-        data = await self._graphql(self.BASE_URL, SEARCH_QUERY, {"q": name})
+        data = await self._run_graphql_query(self.BASE_URL, SEARCH_QUERY, {"q": name})
         hits = data["data"]["search"]["hits"]
         drug_hits = [h for h in hits if h["entity"] == "drug"]
         if not drug_hits:
@@ -208,7 +208,7 @@ class OpenTargetsClient(BaseClient):
 
     async def _fetch_drug(self, chembl_id: str) -> DrugData:
         """Fetch full drug node from Open Targets."""
-        data = await self._graphql(
+        data = await self._run_graphql_query(
             self.BASE_URL,
             DRUG_QUERY,
             variables={"id": chembl_id},
@@ -223,7 +223,7 @@ class OpenTargetsClient(BaseClient):
 
     async def _fetch_target(self, target_id: str) -> TargetData:
         """Fetch full target node. Paginates associations if needed."""
-        data = await self._graphql(
+        data = await self._run_graphql_query(
             self.BASE_URL,
             TARGET_QUERY,
             variables={"id": target_id},
@@ -248,7 +248,7 @@ class OpenTargetsClient(BaseClient):
         page_index = 0
 
         while True:
-            data = await self._graphql(
+            data = await self._run_graphql_query(
                 self.BASE_URL,
                 ASSOCIATIONS_PAGE_QUERY,
                 variables={
@@ -490,7 +490,7 @@ class OpenTargetsClient(BaseClient):
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
-        data = await self._graphql(
+        data = await self._run_graphql_query(
             self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
         )
         return self._parse_disease_drugs(data["data"])

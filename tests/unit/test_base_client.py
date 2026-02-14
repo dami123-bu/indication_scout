@@ -62,7 +62,7 @@ class TestGraphQL:
 
         with patch.object(client, "_request", new_callable=AsyncMock, return_value=mock_response):
             with pytest.raises(DataSourceError, match="GraphQL") as exc_info:
-                await client._graphql(
+                await client._run_graphql_query(
                     "https://example.com/graphql",
                     "{ x }",
                     variables={},
@@ -89,7 +89,7 @@ class TestRestGetXml:
 
         client = ConcreteTestClient()
         with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
-            result = await client._rest_get_xml("https://example.com/xml", params={"id": "1"})
+            result = await client._run_xml_query("https://example.com/xml", params={"id": "1"})
 
         assert result == xml_body
 
@@ -105,7 +105,7 @@ class TestRestGetXml:
         client = ConcreteTestClient(max_retries=0)
         with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
             with pytest.raises(DataSourceError, match="HTTP 404") as exc_info:
-                await client._rest_get_xml("https://example.com/xml", params={})
+                await client._run_xml_query("https://example.com/xml", params={})
 
         assert exc_info.value.status_code == 404
         assert exc_info.value.source == "test_client"
@@ -127,7 +127,7 @@ class TestRestGetXml:
         client = ConcreteTestClient(max_retries=1)
         with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
             with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
-                result = await client._rest_get_xml("https://example.com/xml", params={})
+                result = await client._run_xml_query("https://example.com/xml", params={})
 
         assert result == xml_body
         assert mock_session.get.call_count == 2
@@ -144,7 +144,7 @@ class TestRestGetXml:
         with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
             with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
                 with pytest.raises(DataSourceError, match="HTTP 503") as exc_info:
-                    await client._rest_get_xml("https://example.com/xml", params={})
+                    await client._run_xml_query("https://example.com/xml", params={})
 
         assert exc_info.value.status_code == 503
         assert mock_session.get.call_count == 3

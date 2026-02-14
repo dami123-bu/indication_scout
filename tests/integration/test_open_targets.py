@@ -22,13 +22,34 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
 
-    async def test_sildenafil_drug_data(self):
-        """Test fetching drug data and indications for semaglutide."""
-        drug = await self.client.get_drug("Semaglutide")
-        indications = drug.indications
-        match = [i for i in indications if "kidney" in i.disease_name.lower()]
-        approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
-        logger.info(drug.indications)
+    async def test_sildenafil_fetch_drug(self):
+        """Test _fetch_drug with sildenafil ChEMBL ID."""
+        drug = await self.client._fetch_drug("CHEMBL192")
+
+        self.assertEqual(drug.chembl_id, "CHEMBL192")
+        self.assertEqual(drug.name, "SILDENAFIL")
+        self.assertEqual(drug.drug_type, "Small molecule")
+        self.assertTrue(drug.is_approved)
+        self.assertEqual(drug.max_clinical_phase, 4.0)
+        self.assertEqual(drug.year_first_approved, 1998)
+        self.assertEqual(len(drug.warnings), 0)
+        self.assertEqual(len(drug.trade_names), 0)
+        self.assertGreater(len(drug.synonyms), 0)
+        self.assertGreater(len(drug.indications), 5)
+        self.assertGreater(len(drug.adverse_events), 5)
+
+        # Target - PDE5A
+        self.assertEqual(len(drug.targets), 1)
+        target = drug.targets[0]
+        self.assertEqual(target.target_id, "ENSG00000138735")
+        self.assertEqual(target.target_symbol, "PDE5A")
+        self.assertEqual(target.mechanism_of_action, "Phosphodiesterase 5A inhibitor")
+        self.assertEqual(target.action_type, "INHIBITOR")
+
+        # Indication - pulmonary hypertension (approved)
+        pah = next(i for i in drug.indications if i.disease_name == "pulmonary hypertension")
+        self.assertEqual(pah.disease_id, "MONDO_0005149")
+        self.assertEqual(pah.max_phase, 4.0)
 
     async def test_semaglutide_drug_data(self):
         """Test fetching drug data and indications for semaglutide."""
@@ -124,9 +145,9 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(warning.year, 2004)
         self.assertEqual(warning.efo_id, "EFO:0000612")
 
-    async def test_metformin_drug_data(self):
-        """Simple test for metformin - a different drug than others in the suite."""
-        drug = await self.client.get_drug("metformin")
+    async def test_metformin_fetch_drug(self):
+        """Test _fetch_drug with metformin ChEMBL ID."""
+        drug = await self.client._fetch_drug("CHEMBL1431")
 
         self.assertEqual(drug.chembl_id, "CHEMBL1431")
         self.assertEqual(drug.name, "METFORMIN")
@@ -134,6 +155,55 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(drug.is_approved)
         self.assertEqual(drug.max_clinical_phase, 4.0)
         self.assertEqual(drug.year_first_approved, 1995)
+        self.assertEqual(len(drug.trade_names), 0)
+        self.assertGreater(len(drug.synonyms), 0)
+        self.assertEqual(len(drug.warnings), 4)
+        self.assertGreater(len(drug.indications), 50)
+        self.assertGreater(len(drug.targets), 10)
+        self.assertGreater(len(drug.adverse_events), 5)
+
+        # Target - MT-ND6
+        mt_nd6 = next(t for t in drug.targets if t.target_symbol == "MT-ND6")
+        self.assertEqual(mt_nd6.target_id, "ENSG00000198695")
+        self.assertEqual(mt_nd6.mechanism_of_action, "Mitochondrial complex I (NADH dehydrogenase) inhibitor")
+        self.assertEqual(mt_nd6.action_type, "INHIBITOR")
+
+        # Indication - type 2 diabetes (approved)
+        t2d = next(i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus")
+        self.assertEqual(t2d.disease_id, "MONDO_0005148")
+        self.assertEqual(t2d.max_phase, 4.0)
+        fda_ref = next(r for r in t2d.references if r["source"] == "FDA")
+        self.assertIn("label/2015/020051s021lbl.pdf", fda_ref["ids"])
+
+
+class TestResolveDrugName(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for _resolve_drug_name method."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_resolve_imatinib(self):
+        """Test _resolve_drug_name returns correct ChEMBL ID for imatinib."""
+        chembl_id = await self.client._resolve_drug_name("imatinib")
+        self.assertEqual(chembl_id, "CHEMBL941")
+
+    async def test_resolve_semaglutide(self):
+        """Test _resolve_drug_name returns correct ChEMBL ID for semaglutide."""
+        chembl_id = await self.client._resolve_drug_name("semaglutide")
+        self.assertEqual(chembl_id, "CHEMBL2108724")
+
+    async def test_resolve_nonexistent_drug_raises_error(self):
+        """Test _resolve_drug_name raises DataSourceError for nonexistent drug."""
+        from indication_scout.data_sources.base_client import DataSourceError
+
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client._resolve_drug_name("xyzzy_not_a_real_drug_12345")
+
+        self.assertEqual(ctx.exception.source, "open_targets")
+        self.assertIn("No drug found", str(ctx.exception))
 
 
 class TestGetDrugDataErrors(unittest.IsolatedAsyncioTestCase):
@@ -209,6 +279,54 @@ class TestGetTargetDataErrors(unittest.IsolatedAsyncioTestCase):
             await self.client.get_target_data("")
 
         self.assertEqual(ctx.exception.source, "open_targets")
+
+
+class TestFetchTarget(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for _fetch_target method."""
+
+    async def asyncSetUp(self):
+        self.client = OpenTargetsClient()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_erbb2_fetch_target(self):
+        """Test _fetch_target with ERBB2 target ID."""
+        target = await self.client._fetch_target("ENSG00000141736")
+
+        # TargetData top-level fields
+        self.assertEqual(target.target_id, "ENSG00000141736")
+        self.assertEqual(target.symbol, "ERBB2")
+        self.assertEqual(target.name, "erb-b2 receptor tyrosine kinase 2")
+        self.assertGreater(len(target.associations), 100)
+        self.assertGreater(len(target.pathways), 10)
+        self.assertGreater(len(target.interactions), 50)
+        self.assertGreater(len(target.drug_summaries), 50)
+        self.assertGreater(len(target.expressions), 50)
+        self.assertGreater(len(target.mouse_phenotypes), 10)
+        self.assertEqual(len(target.safety_liabilities), 3)
+        self.assertEqual(len(target.genetic_constraint), 3)
+
+        # Association - breast carcinoma
+        bc_assoc = next(a for a in target.associations if a.disease_name == "breast carcinoma")
+        self.assertEqual(bc_assoc.disease_id, "EFO_0000305")
+        self.assertGreater(bc_assoc.overall_score, 0.5)
+        self.assertIn("cancer or benign tumor", bc_assoc.therapeutic_areas)
+
+        # Pathway
+        pw = next(p for p in target.pathways if p.pathway_name == "Resistance of ERBB2 KD mutants to trastuzumab")
+        self.assertEqual(pw.pathway_id, "R-HSA-9665233")
+        self.assertEqual(pw.top_level_pathway, "Disease")
+
+        # DrugSummary - trastuzumab for breast carcinoma
+        trast = next(
+            d for d in target.drug_summaries
+            if d.drug_name == "TRASTUZUMAB" and d.disease_name == "breast carcinoma"
+        )
+        self.assertEqual(trast.drug_id, "CHEMBL1201585")
+        self.assertEqual(trast.disease_id, "EFO_0000305")
+        self.assertEqual(trast.phase, 4.0)
+        self.assertEqual(trast.mechanism_of_action, "Receptor protein-tyrosine kinase erbB-2 inhibitor")
 
 
 class TestGetTargetData(unittest.IsolatedAsyncioTestCase):

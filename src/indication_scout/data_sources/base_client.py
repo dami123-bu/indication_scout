@@ -126,7 +126,7 @@ class BaseClient(ABC):
         """REST GET request."""
         return await self._request("GET", url, params=params)
 
-    async def _graphql(self, url: str, query: str, variables: dict[str, Any]) -> Any:
+    async def _run_graphql_query(self, url: str, query: str, variables: dict[str, Any]) -> Any:
         """GraphQL POST request."""
         data = await self._request(
             "POST",
@@ -141,7 +141,7 @@ class BaseClient(ABC):
 
         return data
 
-    async def _rest_get_xml(self, url: str, params: dict[str, Any]) -> str:
+    async def _run_xml_query(self, url: str, params: dict[str, Any]) -> str:
         """REST GET that returns XML text instead of JSON."""
         last_error: Exception | None = None
 
