@@ -2,6 +2,7 @@
 
 import unittest
 
+from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 
 
@@ -56,6 +57,50 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cuhk.statuses, {"COMPLETED"})
         self.assertEqual(cuhk.total_enrollment, 155)
         self.assertEqual(cuhk.most_recent_start, "2009-12-03")
+
+    async def test_get_trial(self):
+        """Test get_trial returns a single trial by NCT ID."""
+        # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
+        trial = await self.client.get_trial("NCT00127933")
+
+        # Verify all Trial fields with exact values
+        self.assertEqual(trial.nct_id, "NCT00127933")
+        self.assertEqual(
+            trial.title,
+            "XeNA Study - A Study of Xeloda (Capecitabine) in Patients With Invasive Breast Cancer",
+        )
+        self.assertEqual(trial.phase, "Phase 4")
+        self.assertEqual(trial.overall_status, "COMPLETED")
+        self.assertIsNone(trial.why_stopped)
+        self.assertEqual(trial.conditions, ["Breast Cancer"])
+        self.assertEqual(trial.sponsor, "Hoffmann-La Roche")
+        self.assertEqual(trial.collaborators, [])
+        self.assertEqual(trial.enrollment, 157)
+        self.assertEqual(trial.start_date, "2005-08")
+        self.assertEqual(trial.completion_date, "2009-04")
+        self.assertEqual(trial.study_type, "INTERVENTIONAL")
+        self.assertEqual(trial.results_posted, True)
+        self.assertEqual(trial.references, [])
+
+        # Verify interventions - trial has 5 drug interventions
+        self.assertEqual(len(trial.interventions), 5)
+        [herceptin] = [
+            i
+            for i in trial.interventions
+            if i.intervention_name == "Herceptin (HER2-neu positive patients only)"
+        ]
+        self.assertEqual(herceptin.intervention_type, "Drug")
+
+        # Verify primary_outcomes
+        self.assertEqual(len(trial.primary_outcomes), 1)
+        self.assertEqual(
+            trial.primary_outcomes[0].measure,
+            "Percentage of Participants Assessed for Pathological Complete Response (pCR) Plus Near Complete (npCR) in Primary Breast Tumor at Time of Definitive Surgery",
+        )
+        self.assertEqual(
+            trial.primary_outcomes[0].time_frame,
+            "at the time of definitive surgery; after four 3-week cycles (3-4 months)",
+        )
 
     async def test_search_trials(self):
         """Test search_trials returns trials for a drug-condition pair."""
@@ -293,6 +338,14 @@ class TestClinicalTrialsClientEdgeCases(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.close()
+
+    async def test_get_trial_nonexistent_nct_id_raises_error(self):
+        """Test that a nonexistent NCT ID raises DataSourceError."""
+        with self.assertRaises(DataSourceError) as ctx:
+            await self.client.get_trial("NCT99999999")
+
+        self.assertIn("404", str(ctx.exception))
+        self.assertIn("NCT99999999", str(ctx.exception))
 
     async def test_search_trials_nonexistent_drug_returns_empty(self):
         """Test that a nonexistent drug returns empty list (not an error)."""

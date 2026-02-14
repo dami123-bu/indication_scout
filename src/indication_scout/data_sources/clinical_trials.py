@@ -1,11 +1,12 @@
 """
 ClinicalTrials.gov REST API v2 client.
 
-Four methods:
-  1. search_trials     — Trial Agent: drug + condition → trial records
-  2. detect_whitespace — Trial Agent: is this drug-condition pair unexplored?
-  3. get_landscape     — Landscape Agent: competitive map for a condition
-  4. get_terminated    — Critique Agent: what has failed in this space?
+Five methods:
+  1. get_trial         — Fetch a single trial by NCT ID
+  2. search_trials     — Trial Agent: drug + condition → trial records
+  3. detect_whitespace — Trial Agent: is this drug-condition pair unexplored?
+  4. get_landscape     — Landscape Agent: competitive map for a condition
+  5. get_terminated    — Critique Agent: what has failed in this space?
 """
 
 from __future__ import annotations
@@ -68,6 +69,31 @@ class ClinicalTrialsClient(BaseClient):
     @property
     def _source_name(self) -> str:
         return "clinical_trials"
+
+    # ------------------------------------------------------------------
+    # Public: get_trial
+    # ------------------------------------------------------------------
+
+    async def get_trial(self, nct_id: str) -> Trial:
+        """Fetch a single trial by NCT ID.
+
+        Args:
+            nct_id: The NCT identifier (e.g., "NCT04971785")
+
+        Returns:
+            Trial object with all available data
+
+        Raises:
+            DataSourceError: If the trial is not found
+        """
+        url = f"{self.BASE_URL}/{nct_id}"
+        params = {"format": "json"}
+        data = await self._rest_get(url, params)
+
+        if not data:
+            raise DataSourceError(self._source_name, f"No trial found for '{nct_id}'")
+
+        return self._parse_trial(data)
 
     # ------------------------------------------------------------------
     # Public: search_trials
