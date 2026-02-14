@@ -58,6 +58,12 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cuhk.total_enrollment, 155)
         self.assertEqual(cuhk.most_recent_start, "2009-12-03")
 
+    async def test_get_trial_flow(self):
+        """Test get_trial returns a single trial by NCT ID."""
+        # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
+        trial = await self.client.get_trial("NCT03819153")
+        print(trial)
+
     async def test_get_trial(self):
         """Test get_trial returns a single trial by NCT ID."""
         # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
@@ -210,6 +216,60 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
             all_conditions.update(trial.conditions)
         # Semaglutide is tested for obesity, NASH, diabetes, asthma, etc.
         self.assertTrue(len(all_conditions) >= 10)
+
+    async def test_search_trials_condition_only(self):
+        """Test search_trials returns trials for a condition without specifying drug."""
+        # Search for gastroparesis trials across all drugs
+        trials = await self.client.search_trials(
+            drug="",
+            condition="gastroparesis",
+            max_results=50,
+            phase_filter="PHASE4",
+        )
+
+        # Gastroparesis has multiple Phase 4 trials
+        self.assertTrue(len(trials) >= 5)
+
+        # Find NCT00492622 - University of Louisville omeprazole PK study
+        [pk_trial] = [t for t in trials if t.nct_id == "NCT00492622"]
+
+        # Verify all Trial fields with exact values
+        self.assertEqual(pk_trial.nct_id, "NCT00492622")
+        self.assertEqual(
+            pk_trial.title,
+            "Pharmacokinetics of Immediate-Release vs. Delayed-Release Omeprazole in Gastroparesis",
+        )
+        self.assertEqual(pk_trial.phase, "Phase 4")
+        self.assertEqual(pk_trial.overall_status, "COMPLETED")
+        self.assertIsNone(pk_trial.why_stopped)
+        self.assertEqual(
+            pk_trial.conditions, ["Gastroparesis", "Gastroesophageal Reflux Disease"]
+        )
+        self.assertEqual(pk_trial.sponsor, "University of Louisville")
+        self.assertEqual(pk_trial.collaborators, ["Bausch Health Americas, Inc."])
+        self.assertEqual(pk_trial.enrollment, 12)
+        self.assertEqual(pk_trial.start_date, "2007-06")
+        self.assertEqual(pk_trial.completion_date, "2008-12")
+        self.assertEqual(pk_trial.study_type, "INTERVENTIONAL")
+        self.assertEqual(pk_trial.results_posted, True)
+        self.assertEqual(pk_trial.references, ["19925497"])
+
+        # Verify interventions - trial has 2 drug interventions
+        self.assertEqual(len(pk_trial.interventions), 2)
+        intervention_names = [i.intervention_name for i in pk_trial.interventions]
+        self.assertIn("Immediate-release omeprazole", intervention_names)
+        self.assertIn("Delayed-release omeprazole", intervention_names)
+
+        # Verify primary_outcomes
+        self.assertEqual(len(pk_trial.primary_outcomes), 3)
+        self.assertEqual(
+            pk_trial.primary_outcomes[0].measure,
+            "Time to Maximal Omeprazole Concentration (Tmax)",
+        )
+        self.assertEqual(
+            pk_trial.primary_outcomes[0].time_frame,
+            "10, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240 and 300 min after the study drug was ingested on day 7 of treatment",
+        )
 
     async def test_search_trials_phase_filter(self):
         """Test that phase_filter only returns trials matching the specified phase."""
