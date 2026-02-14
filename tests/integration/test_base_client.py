@@ -80,6 +80,24 @@ class TestBaseClient:
                 )
             assert exc_info.value.status_code == 400
 
+    async def test_rest_get_xml_returns_xml_string(self):
+        """Test _rest_get_xml with PubMed efetch endpoint."""
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._rest_get_xml(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "id": "33914610",
+                    "retmode": "xml",
+                    "rettype": "abstract",
+                },
+            )
+
+            assert isinstance(result, str)
+            assert "<PubmedArticleSet>" in result
+            assert "<PMID" in result
+            assert "33914610" in result
+
     async def test_timeout_raises_error(self):
         """Test that timeouts raise DataSourceError."""
         async with ConcreteTestClient(timeout=0.001, max_retries=0) as client:

@@ -74,6 +74,83 @@ class TestGraphQL:
             assert exc_info.value.source == "test_client"
 
 
+@pytest.mark.asyncio
+class TestRestGetXml:
+    """Unit tests for _rest_get_xml."""
+
+    async def test_returns_xml_text_on_success(self):
+        """Test _rest_get_xml returns raw text for a 200 response."""
+        xml_body = "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.text = AsyncMock(return_value=xml_body)
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+
+        client = ConcreteTestClient()
+        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
+            result = await client._rest_get_xml("https://example.com/xml", params={"id": "1"})
+
+        assert result == xml_body
+
+    async def test_raises_datasource_error_on_4xx(self):
+        """Test _rest_get_xml raises DataSourceError for non-retryable 4xx."""
+        mock_resp = AsyncMock()
+        mock_resp.status = 404
+        mock_resp.text = AsyncMock(return_value="Not Found")
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+
+        client = ConcreteTestClient(max_retries=0)
+        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
+            with pytest.raises(DataSourceError, match="HTTP 404") as exc_info:
+                await client._rest_get_xml("https://example.com/xml", params={})
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.source == "test_client"
+
+    async def test_retries_on_5xx_then_succeeds(self):
+        """Test _rest_get_xml retries on 500 and succeeds on next attempt."""
+        xml_body = "<root>OK</root>"
+
+        error_resp = AsyncMock()
+        error_resp.status = 500
+
+        ok_resp = AsyncMock()
+        ok_resp.status = 200
+        ok_resp.text = AsyncMock(return_value=xml_body)
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(side_effect=[error_resp, ok_resp])
+
+        client = ConcreteTestClient(max_retries=1)
+        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
+            with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
+                result = await client._rest_get_xml("https://example.com/xml", params={})
+
+        assert result == xml_body
+        assert mock_session.get.call_count == 2
+
+    async def test_raises_after_exhausting_retries_on_5xx(self):
+        """Test _rest_get_xml raises DataSourceError after all retries fail with 5xx."""
+        error_resp = AsyncMock()
+        error_resp.status = 503
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=error_resp)
+
+        client = ConcreteTestClient(max_retries=2)
+        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
+            with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(DataSourceError, match="HTTP 503") as exc_info:
+                    await client._rest_get_xml("https://example.com/xml", params={})
+
+        assert exc_info.value.status_code == 503
+        assert mock_session.get.call_count == 3
+
+
 class TestDataSourceError:
     """Tests for DataSourceError."""
 
