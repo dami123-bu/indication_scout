@@ -47,7 +47,9 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(target.action_type, "INHIBITOR")
 
         # Indication - pulmonary hypertension (approved)
-        pah = next(i for i in drug.indications if i.disease_name == "pulmonary hypertension")
+        pah = next(
+            i for i in drug.indications if i.disease_name == "pulmonary hypertension"
+        )
         self.assertEqual(pah.disease_id, "MONDO_0005149")
         self.assertEqual(pah.max_phase, 4.0)
 
@@ -165,11 +167,16 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
         # Target - MT-ND6
         mt_nd6 = next(t for t in drug.targets if t.target_symbol == "MT-ND6")
         self.assertEqual(mt_nd6.target_id, "ENSG00000198695")
-        self.assertEqual(mt_nd6.mechanism_of_action, "Mitochondrial complex I (NADH dehydrogenase) inhibitor")
+        self.assertEqual(
+            mt_nd6.mechanism_of_action,
+            "Mitochondrial complex I (NADH dehydrogenase) inhibitor",
+        )
         self.assertEqual(mt_nd6.action_type, "INHIBITOR")
 
         # Indication - type 2 diabetes (approved)
-        t2d = next(i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus")
+        t2d = next(
+            i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus"
+        )
         self.assertEqual(t2d.disease_id, "MONDO_0005148")
         self.assertEqual(t2d.max_phase, 4.0)
         fda_ref = next(r for r in t2d.references if r["source"] == "FDA")
@@ -308,25 +315,35 @@ class TestFetchTarget(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(target.genetic_constraint), 3)
 
         # Association - breast carcinoma
-        bc_assoc = next(a for a in target.associations if a.disease_name == "breast carcinoma")
+        bc_assoc = next(
+            a for a in target.associations if a.disease_name == "breast carcinoma"
+        )
         self.assertEqual(bc_assoc.disease_id, "EFO_0000305")
         self.assertTrue(0.6 < bc_assoc.overall_score < 0.8)
         self.assertIn("cancer or benign tumor", bc_assoc.therapeutic_areas)
 
         # Pathway
-        pw = next(p for p in target.pathways if p.pathway_name == "Resistance of ERBB2 KD mutants to trastuzumab")
+        pw = next(
+            p
+            for p in target.pathways
+            if p.pathway_name == "Resistance of ERBB2 KD mutants to trastuzumab"
+        )
         self.assertEqual(pw.pathway_id, "R-HSA-9665233")
         self.assertEqual(pw.top_level_pathway, "Disease")
 
         # DrugSummary - trastuzumab for breast carcinoma
         trast = next(
-            d for d in target.drug_summaries
+            d
+            for d in target.drug_summaries
             if d.drug_name == "TRASTUZUMAB" and d.disease_name == "breast carcinoma"
         )
         self.assertEqual(trast.drug_id, "CHEMBL1201585")
         self.assertEqual(trast.disease_id, "EFO_0000305")
         self.assertEqual(trast.phase, 4.0)
-        self.assertEqual(trast.mechanism_of_action, "Receptor protein-tyrosine kinase erbB-2 inhibitor")
+        self.assertEqual(
+            trast.mechanism_of_action,
+            "Receptor protein-tyrosine kinase erbB-2 inhibitor",
+        )
 
 
 class TestGetTargetData(unittest.IsolatedAsyncioTestCase):

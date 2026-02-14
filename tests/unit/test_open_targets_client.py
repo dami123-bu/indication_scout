@@ -126,7 +126,10 @@ class TestParseTargetData:
                     "literature": "28216264",
                     "url": None,
                     "effects": [
-                        {"direction": "Inhibition/Decrease/Downregulation", "dosing": "acute"}
+                        {
+                            "direction": "Inhibition/Decrease/Downregulation",
+                            "dosing": "acute",
+                        }
                     ],
                 }
             ],
@@ -185,7 +188,10 @@ class TestParseTargetData:
         assert ds.disease_name == "breast carcinoma"
         assert ds.phase == 4.0
         assert ds.status is None
-        assert ds.mechanism_of_action == "Receptor protein-tyrosine kinase erbB-2 inhibitor"
+        assert (
+            ds.mechanism_of_action
+            == "Receptor protein-tyrosine kinase erbB-2 inhibitor"
+        )
         assert ds.clinical_trial_ids == ["NCT00001", "NCT00002"]
 
         # Expression

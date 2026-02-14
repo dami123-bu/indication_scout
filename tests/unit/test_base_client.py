@@ -60,7 +60,9 @@ class TestGraphQL:
             ],
         }
 
-        with patch.object(client, "_request", new_callable=AsyncMock, return_value=mock_response):
+        with patch.object(
+            client, "_request", new_callable=AsyncMock, return_value=mock_response
+        ):
             with pytest.raises(DataSourceError, match="GraphQL") as exc_info:
                 await client._run_graphql_query(
                     "https://example.com/graphql",
@@ -79,7 +81,9 @@ class TestRestGetXml:
 
     async def test_returns_xml_text_on_success(self):
         """Test _rest_get_xml returns raw text for a 200 response."""
-        xml_body = "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
+        xml_body = (
+            "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
+        )
         mock_resp = AsyncMock()
         mock_resp.status = 200
         mock_resp.text = AsyncMock(return_value=xml_body)
@@ -88,8 +92,12 @@ class TestRestGetXml:
         mock_session.get = AsyncMock(return_value=mock_resp)
 
         client = ConcreteTestClient()
-        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
-            result = await client._run_xml_query("https://example.com/xml", params={"id": "1"})
+        with patch.object(
+            client, "_get_session", new_callable=AsyncMock, return_value=mock_session
+        ):
+            result = await client._run_xml_query(
+                "https://example.com/xml", params={"id": "1"}
+            )
 
         assert result == xml_body
 
@@ -103,7 +111,9 @@ class TestRestGetXml:
         mock_session.get = AsyncMock(return_value=mock_resp)
 
         client = ConcreteTestClient(max_retries=0)
-        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
+        with patch.object(
+            client, "_get_session", new_callable=AsyncMock, return_value=mock_session
+        ):
             with pytest.raises(DataSourceError, match="HTTP 404") as exc_info:
                 await client._run_xml_query("https://example.com/xml", params={})
 
@@ -125,9 +135,16 @@ class TestRestGetXml:
         mock_session.get = AsyncMock(side_effect=[error_resp, ok_resp])
 
         client = ConcreteTestClient(max_retries=1)
-        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
-            with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
-                result = await client._run_xml_query("https://example.com/xml", params={})
+        with patch.object(
+            client, "_get_session", new_callable=AsyncMock, return_value=mock_session
+        ):
+            with patch(
+                "indication_scout.data_sources.base_client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ):
+                result = await client._run_xml_query(
+                    "https://example.com/xml", params={}
+                )
 
         assert result == xml_body
         assert mock_session.get.call_count == 2
@@ -141,8 +158,13 @@ class TestRestGetXml:
         mock_session.get = AsyncMock(return_value=error_resp)
 
         client = ConcreteTestClient(max_retries=2)
-        with patch.object(client, "_get_session", new_callable=AsyncMock, return_value=mock_session):
-            with patch("indication_scout.data_sources.base_client.asyncio.sleep", new_callable=AsyncMock):
+        with patch.object(
+            client, "_get_session", new_callable=AsyncMock, return_value=mock_session
+        ):
+            with patch(
+                "indication_scout.data_sources.base_client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ):
                 with pytest.raises(DataSourceError, match="HTTP 503") as exc_info:
                     await client._run_xml_query("https://example.com/xml", params={})
 

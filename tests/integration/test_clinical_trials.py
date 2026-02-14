@@ -41,9 +41,7 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         # Verify ConditionLandscape.recent_starts - find a known 2024+ trial
         self.assertTrue(len(landscape.recent_starts) >= 1)
         [tradipitant] = [
-            rs
-            for rs in landscape.recent_starts
-            if rs.nct_id == "NCT06836557"
+            rs for rs in landscape.recent_starts if rs.nct_id == "NCT06836557"
         ]
         self.assertEqual(tradipitant.nct_id, "NCT06836557")
         self.assertEqual(tradipitant.sponsor, "Vanda Pharmaceuticals")

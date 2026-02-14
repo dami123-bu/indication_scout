@@ -126,7 +126,9 @@ class BaseClient(ABC):
         """REST GET request."""
         return await self._request("GET", url, params=params)
 
-    async def _run_graphql_query(self, url: str, query: str, variables: dict[str, Any]) -> Any:
+    async def _run_graphql_query(
+        self, url: str, query: str, variables: dict[str, Any]
+    ) -> Any:
         """GraphQL POST request."""
         data = await self._request(
             "POST",
