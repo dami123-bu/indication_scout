@@ -2,7 +2,7 @@
 
 import pytest
 
-from indication_scout.constants import OPEN_TARGETS_BASE_URL
+from indication_scout.constants import OPEN_TARGETS_BASE_URL, PUBMED_FETCH_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 pytestmark = pytest.mark.asyncio
@@ -84,7 +84,7 @@ class TestBaseClient:
         """Test _rest_get_xml with PubMed efetch endpoint."""
         async with ConcreteTestClient(timeout=30.0) as client:
             result = await client._rest_get_xml(
-                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                PUBMED_FETCH_URL,
                 params={
                     "db": "pubmed",
                     "id": "33914610",

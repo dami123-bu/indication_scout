@@ -21,6 +21,10 @@ INTERACTION_TYPE_MAP: dict[str, str] = {
     "string": "functional",
 }
 
+# -- PubMed (NCBI E-utilities) ----------------------------------------------
+PUBMED_SEARCH_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_FETCH_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+
 # -- Stop-reason keywords → category (ClinicalTrials.gov) ------------------
 STOP_KEYWORDS: dict[str, str] = {
     "efficacy": "efficacy",

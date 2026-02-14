@@ -12,6 +12,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from datetime import date
 
+from indication_scout.constants import PUBMED_FETCH_URL, PUBMED_SEARCH_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.models.model_pubmed import PubMedArticle
 
@@ -19,8 +20,8 @@ from indication_scout.models.model_pubmed import PubMedArticle
 class PubMedClient(BaseClient):
     """Client for querying PubMed/NCBI APIs."""
 
-    SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    SEARCH_URL = PUBMED_SEARCH_URL
+    FETCH_URL = PUBMED_FETCH_URL
 
     @property
     def _source_name(self) -> str:
