@@ -109,6 +109,63 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
             "at the time of definitive surgery; after four 3-week cycles (3-4 months)",
         )
 
+    async def test_search_trials_drug_only(self):
+        """Test search_trials returns trials for a drug without specifying condition."""
+        # Search for semaglutide trials across all conditions
+        trials = await self.client.search_trials(
+            drug="semaglutide",
+            max_results=50,
+        )
+
+        # Semaglutide has many trials across diabetes, obesity, NASH, etc.
+        self.assertTrue(len(trials) >= 20)
+
+        # Find NCT04971785 - Gilead NASH trial with semaglutide
+        [nash_trial] = [t for t in trials if t.nct_id == "NCT04971785"]
+
+        # Verify all Trial fields with exact values
+        self.assertEqual(nash_trial.nct_id, "NCT04971785")
+        self.assertEqual(
+            nash_trial.title,
+            "Study of Semaglutide, and Cilofexor/Firsocostat, Alone and in Combination, in Adults With Cirrhosis Due to Nonalcoholic Steatohepatitis (NASH)",
+        )
+        self.assertEqual(nash_trial.phase, "Phase 2")
+        self.assertEqual(nash_trial.overall_status, "COMPLETED")
+        self.assertIsNone(nash_trial.why_stopped)
+        self.assertEqual(nash_trial.conditions, ["Nonalcoholic Steatohepatitis"])
+        self.assertEqual(nash_trial.sponsor, "Gilead Sciences")
+        self.assertEqual(nash_trial.collaborators, ["Novo Nordisk A/S"])
+        self.assertEqual(nash_trial.enrollment, 457)
+        self.assertEqual(nash_trial.start_date, "2021-08-09")
+        self.assertEqual(nash_trial.completion_date, "2024-11-12")
+        self.assertEqual(nash_trial.study_type, "INTERVENTIONAL")
+        self.assertEqual(nash_trial.results_posted, True)
+        self.assertEqual(nash_trial.references, [])
+
+        # Verify interventions - trial has 4 drug interventions including Semaglutide
+        self.assertEqual(len(nash_trial.interventions), 4)
+        [sema] = [
+            i
+            for i in nash_trial.interventions
+            if i.intervention_name == "Semaglutide (SEMA)"
+        ]
+        self.assertEqual(sema.intervention_type, "Drug")
+
+        # Verify primary_outcomes
+        self.assertEqual(len(nash_trial.primary_outcomes), 1)
+        self.assertTrue(
+            nash_trial.primary_outcomes[0].measure.startswith(
+                "Percentage of Participants Who Achieved"
+            )
+        )
+
+        # Verify trials span multiple conditions (not just one indication)
+        all_conditions = set()
+        for trial in trials:
+            all_conditions.update(trial.conditions)
+        # Semaglutide is tested for obesity, NASH, diabetes, asthma, etc.
+        self.assertTrue(len(all_conditions) >= 10)
+
     async def test_search_trials_phase_filter(self):
         """Test that phase_filter only returns trials matching the specified phase."""
         # Search for Phase 3 trials only

@@ -1,5 +1,46 @@
 # Architecture
 
+## Project Overview
+
+IndicationScout is a clinical genomics tool for drug indication discovery and repurposing analysis. It integrates data from multiple external sources (Open Targets, ClinicalTrials.gov, PubMed) to identify potential new therapeutic indications for existing drugs.
+
+### Directory Structure
+
+```
+indication_scout/
+├── src/indication_scout/          # Main source code
+│   ├── __init__.py                # Package initialization
+│   ├── config.py                  # Application settings (pydantic-settings)
+│   ├── agents/                    # AI agent layer (stubs)
+│   ├── api/                       # FastAPI application (minimal)
+│   ├── data_sources/              # External API clients
+│   ├── models/                    # Pydantic data models
+│   └── services/                  # Business logic layer (placeholder)
+├── tests/                         # Test suite
+│   ├── unit/                      # Unit tests
+│   ├── integration/               # Integration tests
+│   ├── fixtures/                  # Test fixtures
+│   └── conftest.py               # Pytest configuration
+├── docs/                          # Documentation
+├── scripts/                       # Utility scripts
+├── _cache/                        # Disk cache for API responses
+└── pyproject.toml                 # Project metadata & dependencies
+```
+
+### Current State
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| Data Sources | **Complete** | OpenTargetsClient, ClinicalTrialsClient, PubMedClient |
+| Data Models | **Complete** | Pydantic models for all data contracts |
+| BaseClient | **Complete** | Retry, rate limiting, caching infrastructure |
+| Agents | Stub | Orchestrator, LiteratureAgent, ClinicalTrialsAgent, etc. |
+| API | Minimal | FastAPI with `/health` endpoint only |
+| Services | Placeholder | Business logic layer not yet implemented |
+| CLI | Referenced | Defined in pyproject.toml but not implemented |
+
+---
+
 ## BaseClient Infrastructure
 
 All data source clients inherit from `BaseClient`, which provides common infrastructure for reliable API communication.
@@ -480,3 +521,89 @@ The `stop_category` is derived from `why_stopped` using keyword matching:
 3. Groups remaining by sponsor + drug
 4. Ranks by phase (descending), then enrollment (descending)
 5. Returns top N competitors (default 50)
+
+---
+
+## PubMed Data Structure
+
+The `PubMedClient` provides access to scientific literature via NCBI E-utilities.
+
+### PubMedArticle
+
+```
+PubMedArticle
+ |-- pmid: str                     # PubMed ID
+ |-- title: str                    # Article title
+ |-- abstract: str | None          # Abstract text
+ |-- authors: list[str]            # Author names
+ |-- journal: str                  # Journal name
+ |-- publication_date: str | None  # Publication date
+ |-- doi: str | None               # Digital Object Identifier
+ |-- pmc_id: str | None            # PubMed Central ID
+ +-- mesh_terms: list[str]         # MeSH keywords
+```
+
+### PubMedClient Data Flow
+
+```
+Input: query (str), max_results (int)
+  ↓
+search(query, max_results, date_before)
+  └─ REST query NCBI E-utilities
+      └─ esearch.fcgi → list[str] (PMIDs)
+  ↓
+fetch_articles(pmids, batch_size)
+  └─ efetch.fcgi → Parse XML → PubMedArticle[]
+  ↓
+Output: list[PubMedArticle]
+
+Alternative:
+  - get_count(query) → quick result count (no parsing)
+```
+
+### Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `search(query, max_results, date_before)` | Search for PMIDs | `list[str]` |
+| `get_count(query, date_before)` | Count results without fetching | `int` |
+| `fetch_articles(pmids, batch_size)` | Fetch article details | `list[PubMedArticle]` |
+
+---
+
+## External Integrations
+
+| Service | Type | Endpoint | Authentication |
+|---------|------|----------|-----------------|
+| Open Targets Platform | GraphQL | https://api.platform.opentargets.org/api/v4/graphql | None |
+| ClinicalTrials.gov | REST v2 | https://clinicaltrials.gov/api/v2/ | None |
+| PubMed/NCBI | REST (E-utilities) | https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ | API key (optional) |
+
+---
+
+## Configuration
+
+Application settings via `pydantic_settings.BaseSettings` (loads from `.env`):
+
+```python
+Settings:
+  database_url: str          # Database connection string
+  openai_api_key: str        # For LLM agents
+  pubmed_api_key: str        # For PubMed E-utilities (optional)
+  llm_model: str             # Default: "gpt-4"
+  embedding_model: str       # Default: "text-embedding-3-small"
+  debug: bool                # Debug mode
+  log_level: str             # Logging level
+```
+
+---
+
+## Design Principles
+
+1. **Separation of Concerns**: Data sources (clients) separate from domain logic (agents/services)
+2. **Async-First**: All I/O operations are async using aiohttp
+3. **Graceful Degradation**: Retry with exponential backoff; `PartialResult` wrapper for partial data
+4. **Two-Level Caching**: In-memory (per instance) + disk cache (5-day TTL)
+5. **Type Safety**: Full Pydantic validation; strict typing throughout
+6. **Model-Driven**: GraphQL/REST responses parsed into typed Pydantic models
+7. **No Fallbacks for Clinical Data**: Missing scientific/clinical values return None, never defaults
