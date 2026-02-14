@@ -1,5 +1,7 @@
 """Unit tests for OpenTargetsClient."""
 
+from pathlib import Path
+
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
 
@@ -12,4 +14,4 @@ class TestOpenTargetsClientConfig:
 
         assert client.timeout == 30.0
         assert client.max_retries == 3
-        assert client.cache_dir is not None
+        assert client.cache_dir == Path("_cache")

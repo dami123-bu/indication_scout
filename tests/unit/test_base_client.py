@@ -24,7 +24,6 @@ class TestBaseClient:
         async with ConcreteTestClient() as client:
             assert client._session is None  # Session created lazily
             session = await client._get_session()
-            assert session is not None
             assert not session.closed
 
         # Session should be closed after exiting context
