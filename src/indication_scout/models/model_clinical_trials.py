@@ -92,13 +92,22 @@ class CompetitorEntry(BaseModel):
     most_recent_start: str | None = None
 
 
+class RecentStart(BaseModel):
+    """A trial that started recently in a condition's landscape."""
+
+    nct_id: str
+    sponsor: str
+    drug: str
+    phase: str
+
+
 class ConditionLandscape(BaseModel):
     """Full competitive landscape for a condition."""
 
     total_trial_count: int
     competitors: list[CompetitorEntry] = []
     phase_distribution: dict[str, int] = {}
-    recent_starts: list[dict] = []
+    recent_starts: list[RecentStart] = []
 
 
 # ------------------------------------------------------------------

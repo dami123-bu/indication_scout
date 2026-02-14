@@ -38,10 +38,17 @@ class TestClinicalTrialsClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(5 < landscape.phase_distribution["Phase 3"] < 50)
         self.assertTrue(5 < landscape.phase_distribution["Phase 4"] < 30)
 
-        # Verify ConditionLandscape.recent_starts - check dict structure
+        # Verify ConditionLandscape.recent_starts - find a known 2024+ trial
         self.assertTrue(len(landscape.recent_starts) >= 1)
-        recent = landscape.recent_starts[0]
-        self.assertEqual(set(recent.keys()), {"nct_id", "sponsor", "drug", "phase"})
+        [tradipitant] = [
+            rs
+            for rs in landscape.recent_starts
+            if rs.nct_id == "NCT06836557"
+        ]
+        self.assertEqual(tradipitant.nct_id, "NCT06836557")
+        self.assertEqual(tradipitant.sponsor, "Vanda Pharmaceuticals")
+        self.assertEqual(tradipitant.drug, "Tradipitant")
+        self.assertEqual(tradipitant.phase, "Phase 3")
 
         # Find Chinese University of Hong Kong with Esomeprazole - top ranked competitor
         [cuhk] = [

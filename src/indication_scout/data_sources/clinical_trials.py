@@ -24,6 +24,7 @@ from indication_scout.models.model_clinical_trials import (
     ConditionLandscape,
     Intervention,
     PrimaryOutcome,
+    RecentStart,
     TerminatedTrial,
     Trial,
     WhitespaceResult,
@@ -470,7 +471,7 @@ class ClinicalTrialsClient(BaseClient):
         by max phase (descending), then total enrollment (descending).
         """
         phase_dist: dict[str, int] = {}
-        recent_starts: list[dict] = []
+        recent_starts: list[RecentStart] = []
         competitors: dict[str, CompetitorEntry] = {}  # key: "sponsor|drug"
 
         for t in trials:
@@ -485,12 +486,12 @@ class ClinicalTrialsClient(BaseClient):
             # Recent starts (last 2 years)
             if t.start_date and t.start_date >= "2024":
                 recent_starts.append(
-                    {
-                        "nct_id": t.nct_id,
-                        "sponsor": t.sponsor,
-                        "drug": drug_name,
-                        "phase": t.phase,
-                    }
+                    RecentStart(
+                        nct_id=t.nct_id,
+                        sponsor=t.sponsor,
+                        drug=drug_name,
+                        phase=t.phase,
+                    )
                 )
 
             # Group by sponsor + drug
