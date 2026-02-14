@@ -2,6 +2,7 @@
 
 import pytest
 
+from indication_scout.constants import OPEN_TARGETS_BASE_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 pytestmark = pytest.mark.asyncio
@@ -41,6 +42,38 @@ class TestBaseClient:
 
             assert result is not None
             assert result["json"]["key"] == "value"
+
+    async def test_graphql_successful_query(self):
+        """Test _graphql with Open Targets GraphQL endpoint."""
+        query = """
+        query($q: String!) {
+            search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
+                hits { id entity }
+            }
+        }
+        """
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._graphql(
+                OPEN_TARGETS_BASE_URL,
+                query,
+                variables={"q": "imatinib"},
+            )
+
+            hits = result["data"]["search"]["hits"]
+            assert len(hits) == 1
+            assert hits[0]["id"] == "CHEMBL941"
+            assert hits[0]["entity"] == "drug"
+
+    async def test_graphql_error_raises_datasource_error(self):
+        """Test _graphql raises DataSourceError when GraphQL response contains errors."""
+        invalid_query = "{ invalidField }"
+        async with ConcreteTestClient(timeout=30.0) as client:
+            with pytest.raises(DataSourceError, match="GraphQL"):
+                await client._graphql(
+                    OPEN_TARGETS_BASE_URL,
+                    invalid_query,
+                    variables={},
+                )
 
     async def test_timeout_raises_error(self):
         """Test that timeouts raise DataSourceError."""

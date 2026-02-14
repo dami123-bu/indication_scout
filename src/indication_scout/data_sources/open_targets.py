@@ -18,6 +18,7 @@ from indication_scout.constants import (
     CACHE_TTL,
     DEFAULT_CACHE_DIR,
     INTERACTION_TYPE_MAP,
+    OPEN_TARGETS_BASE_URL,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
@@ -45,7 +46,7 @@ from indication_scout.models.model_open_targets import (
 
 
 class OpenTargetsClient(BaseClient):
-    BASE_URL = "https://api.platform.opentargets.org/api/v4/graphql"
+    BASE_URL = OPEN_TARGETS_BASE_URL
     PAGE_SIZE = 500
 
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
