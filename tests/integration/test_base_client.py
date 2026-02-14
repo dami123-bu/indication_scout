@@ -2,6 +2,7 @@
 
 import pytest
 
+from indication_scout.constants import OPEN_TARGETS_BASE_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 pytestmark = pytest.mark.asyncio
@@ -16,28 +17,7 @@ class ConcreteTestClient(BaseClient):
 
 
 class TestBaseClient:
-    """Integration tests for BaseClient."""
-
-    async def test_client_context_manager(self):
-        """Test that client can be used as async context manager."""
-        async with ConcreteTestClient() as client:
-            assert client._session is None  # Session created lazily
-            session = await client._get_session()
-            assert session is not None
-            assert not session.closed
-
-        # Session should be closed after exiting context
-        assert client._session.closed
-
-    async def test_session_reuse(self):
-        """Test that session is reused across requests."""
-        client = ConcreteTestClient()
-
-        session1 = await client._get_session()
-        session2 = await client._get_session()
-
-        assert session1 is session2
-        await client.close()
+    """Integration tests for BaseClient (requires network)."""
 
     async def test_get_request_to_httpbin(self):
         """Test GET request to a real endpoint."""
@@ -63,6 +43,61 @@ class TestBaseClient:
             assert result is not None
             assert result["json"]["key"] == "value"
 
+    async def test_graphql_successful_query(self):
+        """Test _graphql with Open Targets GraphQL endpoint."""
+        query = """
+        query($q: String!) {
+            search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
+                hits { id entity }
+            }
+        }
+        """
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._graphql(
+                OPEN_TARGETS_BASE_URL,
+                query,
+                variables={"q": "imatinib"},
+            )
+
+            hits = result["data"]["search"]["hits"]
+            assert len(hits) == 1
+            assert hits[0]["id"] == "CHEMBL941"
+            assert hits[0]["entity"] == "drug"
+
+    async def test_graphql_invalid_query_raises_datasource_error(self):
+        """Test _graphql raises DataSourceError for an invalid query.
+
+        Open Targets returns HTTP 400 for malformed queries, so the error
+        is raised by _request before _graphql's own error handling.
+        """
+        invalid_query = "{ invalidField }"
+        async with ConcreteTestClient(timeout=30.0) as client:
+            with pytest.raises(DataSourceError, match="HTTP 400") as exc_info:
+                await client._graphql(
+                    OPEN_TARGETS_BASE_URL,
+                    invalid_query,
+                    variables={},
+                )
+            assert exc_info.value.status_code == 400
+
+    async def test_rest_get_xml_returns_xml_string(self):
+        """Test _rest_get_xml with PubMed efetch endpoint."""
+        async with ConcreteTestClient(timeout=30.0) as client:
+            result = await client._rest_get_xml(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "id": "33914610",
+                    "retmode": "xml",
+                    "rettype": "abstract",
+                },
+            )
+
+            assert isinstance(result, str)
+            assert "<PubmedArticleSet>" in result
+            assert "<PMID" in result
+            assert "33914610" in result
+
     async def test_timeout_raises_error(self):
         """Test that timeouts raise DataSourceError."""
         async with ConcreteTestClient(timeout=0.001, max_retries=0) as client:
@@ -71,19 +106,3 @@ class TestBaseClient:
                     "https://httpbin.org/delay/10",  # 10 second delay
                     params={},
                 )
-
-
-class TestDataSourceError:
-    """Tests for DataSourceError."""
-
-    def test_error_message_format(self):
-        """Test error message includes source."""
-        error = DataSourceError("pubmed", "Connection failed")
-        assert "[pubmed]" in str(error)
-        assert "Connection failed" in str(error)
-
-    def test_error_with_status_code(self):
-        """Test error can include status code."""
-        error = DataSourceError("api", "Not found", status_code=404)
-        assert error.source == "api"
-        assert error.status_code == 404

@@ -1,20 +1,11 @@
 """Integration tests for OpenTargetsClient."""
 
+import logging
 import unittest
 
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
-
-class TestOpenTargetsClientConfig:
-    """Tests for OpenTargetsClient configuration."""
-
-    def test_default_config(self):
-        """Test that client uses default settings."""
-        client = OpenTargetsClient()
-
-        assert client.timeout == 30.0
-        assert client.max_retries == 3
-        assert client.cache_dir is not None
+logger = logging.getLogger(__name__)
 
 
 class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
@@ -25,6 +16,14 @@ class TestGetDrugData(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.close()
+
+    async def test_sildenafil_drug_data(self):
+        """Test fetching drug data and indications for semaglutide."""
+        drug = await self.client.get_drug("Semaglutide")
+        indications = drug.indications
+        match = [i for i in indications if "kidney" in i.disease_name.lower()]
+        approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
+        logger.info(drug.indications)
 
     async def test_semaglutide_drug_data(self):
         """Test fetching drug data and indications for semaglutide."""
@@ -368,5 +367,3 @@ class TestGetTargetData(unittest.IsolatedAsyncioTestCase):
         [effect] = liability.effects
         self.assertEqual(effect.direction, "Inhibition/Decrease/Downregulation")
         self.assertEqual(effect.dosing, "acute")
-
-

@@ -101,10 +101,18 @@ class TestClinicalTrialsClientHelpers:
 
     def test_phase_rank_ordering(self):
         """_phase_rank should order phases correctly: Phase 4 > Phase 3 > Phase 2 > Phase 1."""
-        assert ClinicalTrialsClient._phase_rank("Phase 4") > ClinicalTrialsClient._phase_rank("Phase 3")
-        assert ClinicalTrialsClient._phase_rank("Phase 3") > ClinicalTrialsClient._phase_rank("Phase 2")
-        assert ClinicalTrialsClient._phase_rank("Phase 2") > ClinicalTrialsClient._phase_rank("Phase 1")
-        assert ClinicalTrialsClient._phase_rank("Phase 1") > ClinicalTrialsClient._phase_rank("Early Phase 1")
+        assert ClinicalTrialsClient._phase_rank(
+            "Phase 4"
+        ) > ClinicalTrialsClient._phase_rank("Phase 3")
+        assert ClinicalTrialsClient._phase_rank(
+            "Phase 3"
+        ) > ClinicalTrialsClient._phase_rank("Phase 2")
+        assert ClinicalTrialsClient._phase_rank(
+            "Phase 2"
+        ) > ClinicalTrialsClient._phase_rank("Phase 1")
+        assert ClinicalTrialsClient._phase_rank(
+            "Phase 1"
+        ) > ClinicalTrialsClient._phase_rank("Early Phase 1")
 
     @pytest.mark.parametrize(
         "date_struct,expected",
