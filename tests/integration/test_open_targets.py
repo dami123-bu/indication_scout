@@ -3,7 +3,7 @@
 import logging
 
 import pytest
-
+from itertools import islice
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
@@ -378,3 +378,90 @@ async def test_atp1a1_target_safety_liability(client):
     [effect] = liability.effects
     assert effect.direction == "Inhibition/Decrease/Downregulation"
     assert effect.dosing == "acute"
+
+
+SALT_SUFFIXES = [
+    " hydrochloride", " hydrobromide", " sulfate", " succinate", " chloride",
+    " dimesylate", " tartrate", " citrate", " tosylate", " mesylate", " saccharate",
+]
+
+
+def normalize_drug_name(name: str) -> str:
+    name_lower = name.lower()
+    for suffix in SALT_SUFFIXES:
+        if name_lower.endswith(suffix):
+            return name_lower[: -len(suffix)].strip()
+    return name_lower
+
+
+async def get_bupropion_competitors(client: OpenTargetsClient) -> dict[str, set[str]]:
+    """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
+    name = "bupropion"
+    bup = await client.get_drug(name)
+    targets = bup.targets
+
+    siblings: dict[str, set[str]] = {}
+
+    for t in targets:
+        logger.info(t.mechanism_of_action)
+        summaries = await client.get_target_data_drug_summaries(t.target_id)
+
+        for summary in summaries:
+            if summary.phase == 4:
+                disease = summary.disease_name
+                drug_name = normalize_drug_name(summary.drug_name)
+                if disease in siblings:
+                    siblings[disease].add(drug_name)
+                else:
+                    siblings[disease] = {drug_name}
+
+    for key in list(siblings):
+        val = siblings[key]
+        if name in val or len(val) < 2:
+            del siblings[key]
+
+    sorted_data = dict(
+        sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
+    )
+    top_10 = dict(list(sorted_data.items())[:10])
+    return top_10
+
+
+@pytest.mark.asyncio
+async def test_bupropion_pipeline(client):
+    """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
+    name = "bupropion"
+    top_10 = await get_bupropion_competitors(client)
+
+    for disease in top_10:
+        query = f"{name} {disease}"
+        logger.info(query)
+
+    assert len(top_10) > 0
+
+@pytest.mark.asyncio
+async def test_get_drug_target_competitors(client):
+    """Test get_drug_target_competitors returns drugs grouped by target symbol."""
+    result = await client.get_drug_target_competitors("semaglutide")
+
+    # Semaglutide targets GLP1R (and possibly others)
+    assert "GLP1R" in result
+    assert len(result["GLP1R"]) > 5
+
+    # LIRAGLUTIDE should be among the GLP1R drugs
+    liraglutide = next(
+        d
+        for d in result["GLP1R"]
+        if d.drug_name == "LIRAGLUTIDE"
+        and d.disease_name == "type 2 diabetes mellitus"
+    )
+    assert liraglutide.drug_id == "CHEMBL4084119"
+    assert liraglutide.drug_name == "LIRAGLUTIDE"
+    assert liraglutide.disease_id == "MONDO_0005148"
+    assert liraglutide.disease_name == "type 2 diabetes mellitus"
+    assert liraglutide.phase == 4.0
+    assert liraglutide.status is None
+    assert (
+        liraglutide.mechanism_of_action
+        == "Glucagon-like peptide 1 receptor agonist"
+    )
