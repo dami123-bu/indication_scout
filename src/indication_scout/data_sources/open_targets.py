@@ -127,6 +127,21 @@ class OpenTargetsClient(BaseClient):
         drug = await self.get_drug(drug_name)
         return drug.indications
 
+    async def get_drug_target_competitors(
+        self, drug_name: str
+    ) -> dict[str, list[DrugSummary]]:
+        """For each target of a drug, fetch all drugs acting on that target.
+
+        Returns a dict mapping target symbol (e.g. "GLP1R") to the list of
+        DrugSummary objects from Open Targets' knownDrugs for that target.
+        """
+        drug = await self.get_drug(drug_name)
+        result: dict[str, list[DrugSummary]] = {}
+        for target in drug.targets:
+            drug_summaries = await self.get_target_data_drug_summaries(target.target_id)
+            result[target.target_symbol] = drug_summaries
+        return result
+
     async def get_target_data(self, target_id: str) -> TargetData:
         """Fetch target data by ID."""
         cached = self._cache_get("target", {"target_id": target_id})
