@@ -2,24 +2,14 @@
 
 import pytest
 
-from indication_scout.data_sources.open_targets import OpenTargetsClient
-
-
-@pytest.fixture
-async def client():
-    """Create and tear down an OpenTargetsClient."""
-    c = OpenTargetsClient()
-    yield c
-    await c.close()
-
 
 # --- Target data accessors ---
 
 
 @pytest.mark.asyncio
-async def test_get_target_associations(client):
+async def test_get_target_associations(open_targets_client):
     """Test get_target_associations returns filtered associations with all fields."""
-    associations = await client.get_target_data_associations(
+    associations = await open_targets_client.get_target_data_associations(
         "ENSG00000112164", min_score=0.1
     )
 
@@ -35,9 +25,9 @@ async def test_get_target_associations(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_pathways(client):
+async def test_get_target_pathways(open_targets_client):
     """Test get_target_pathways returns pathway data with all fields."""
-    pathways = await client.get_target_data_pathways("ENSG00000113721")
+    pathways = await open_targets_client.get_target_data_pathways("ENSG00000113721")
 
     assert len(pathways) > 5
     [pdgf] = [p for p in pathways if p.pathway_name == "Signaling by PDGF"]
@@ -48,9 +38,9 @@ async def test_get_target_pathways(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_interactions(client):
+async def test_get_target_interactions(open_targets_client):
     """Test get_target_interactions returns interaction data with all fields."""
-    interactions = await client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
 
     assert len(interactions) > 10
     plcg1 = next(
@@ -69,9 +59,9 @@ async def test_get_target_interactions(client):
 
 
 @pytest.mark.asyncio
-async def test_interaction_type_string_is_functional(client):
+async def test_interaction_type_string_is_functional(open_targets_client):
     """Test STRING interaction with all Interaction fields verified."""
-    interactions = await client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
 
     # Pick PLCG1 interaction from STRING - verify all fields
     plcg1_string = next(
@@ -89,9 +79,9 @@ async def test_interaction_type_string_is_functional(client):
 
 
 @pytest.mark.asyncio
-async def test_interaction_type_intact_is_physical(client):
+async def test_interaction_type_intact_is_physical(open_targets_client):
     """Test IntAct interaction with all Interaction fields verified."""
-    interactions = await client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
 
     # Pick PLCG1 interaction from IntAct - verify all fields
     plcg1_intact = next(
@@ -109,13 +99,13 @@ async def test_interaction_type_intact_is_physical(client):
 
 
 @pytest.mark.asyncio
-async def test_interaction_type_signor_is_signalling(client):
+async def test_interaction_type_signor_is_signalling(open_targets_client):
     """Test Signor interaction with all Interaction fields verified.
 
     Note: Signor data may not be currently available in Open Targets API.
     This test validates the mapping if Signor interactions are present.
     """
-    interactions = await client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
 
     signor_interactions = [i for i in interactions if i.source_database == "signor"]
     for interaction in signor_interactions:
@@ -123,13 +113,13 @@ async def test_interaction_type_signor_is_signalling(client):
 
 
 @pytest.mark.asyncio
-async def test_interaction_type_reactome_is_enzymatic(client):
+async def test_interaction_type_reactome_is_enzymatic(open_targets_client):
     """Test Reactome interaction with all Interaction fields verified.
 
     Note: Reactome data may not be currently available in Open Targets API.
     This test validates the mapping if Reactome interactions are present.
     """
-    interactions = await client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
 
     reactome_interactions = [
         i for i in interactions if i.source_database == "reactome"
@@ -139,9 +129,9 @@ async def test_interaction_type_reactome_is_enzymatic(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_drug_summaries(client):
+async def test_get_target_drug_summaries(open_targets_client):
     """Test get_known_drugs returns drugs with all DrugSummary fields."""
-    drug_summaries = await client.get_target_data_drug_summaries(
+    drug_summaries = await open_targets_client.get_target_data_drug_summaries(
         "ENSG00000112164"
     )
 
@@ -167,9 +157,9 @@ async def test_get_target_drug_summaries(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_expression(client):
+async def test_get_target_expression(open_targets_client):
     """Test get_target_expression returns tissue expression with all fields."""
-    expressions = await client.get_target_data_tissue_expression(
+    expressions = await open_targets_client.get_target_data_tissue_expression(
         "ENSG00000163399"
     )
 
@@ -197,9 +187,9 @@ async def test_get_target_expression(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_phenotypes(client):
+async def test_get_target_phenotypes(open_targets_client):
     """Test get_target_phenotypes returns mouse phenotype with all fields."""
-    phenotypes = await client.get_target_data_mouse_phenotypes(
+    phenotypes = await open_targets_client.get_target_data_mouse_phenotypes(
         "ENSG00000112164"
     )
 
@@ -221,9 +211,9 @@ async def test_get_target_phenotypes(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_safety_liabilities(client):
+async def test_get_target_safety_liabilities(open_targets_client):
     """Test get_target_data_safety_liabilities returns all SafetyLiability fields."""
-    liabilities = await client.get_target_data_safety_liabilities(
+    liabilities = await open_targets_client.get_target_data_safety_liabilities(
         "ENSG00000163399"
     )
 
@@ -248,9 +238,9 @@ async def test_get_target_safety_liabilities(client):
 
 
 @pytest.mark.asyncio
-async def test_get_target_genetic_constraints(client):
+async def test_get_target_genetic_constraints(open_targets_client):
     """Test get_target_data_genetic_constraints returns all GeneticConstraint fields."""
-    constraints = await client.get_target_data_genetic_constraints(
+    constraints = await open_targets_client.get_target_data_genetic_constraints(
         "ENSG00000141736"
     )
 
@@ -266,9 +256,9 @@ async def test_get_target_genetic_constraints(client):
 
 
 @pytest.mark.asyncio
-async def test_get_drug_indications(client):
+async def test_get_drug_indications(open_targets_client):
     """Test get_drug_indications returns indication data."""
-    indications = await client.get_drug_indications("semaglutide")
+    indications = await open_targets_client.get_drug_indications("semaglutide")
 
     assert len(indications) > 5
     [t2d] = [i for i in indications if i.disease_name == "type 2 diabetes mellitus"]
@@ -278,10 +268,10 @@ async def test_get_drug_indications(client):
 
 
 @pytest.mark.asyncio
-async def test_get_disease_drugs(client):
+async def test_get_disease_drugs(open_targets_client):
     """Test get_disease_drugs returns drugs for a disease with all DrugSummary fields."""
     # Type 2 diabetes mellitus - should have semaglutide and other GLP-1 agonists
-    drugs = await client.get_disease_drugs("MONDO_0005148")
+    drugs = await open_targets_client.get_disease_drugs("MONDO_0005148")
 
     assert len(drugs) > 10
     semaglutide = next(

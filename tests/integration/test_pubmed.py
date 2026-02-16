@@ -2,24 +2,14 @@
 
 import pytest
 
-from indication_scout.data_sources.pubmed import PubMedClient
-
-
-@pytest.fixture
-async def client():
-    """Create and tear down a PubMedClient."""
-    c = PubMedClient()
-    yield c
-    await c.close()
-
 
 # --- Main functionality ---
 
 
 @pytest.mark.asyncio
-async def test_search_returns_pmids(client):
+async def test_search_returns_pmids(pubmed_client):
     """Test search returns a list of PMIDs for a query."""
-    pmids = await client.search("semaglutide diabetes", max_results=10)
+    pmids = await pubmed_client.search("semaglutide diabetes", max_results=10)
 
     assert len(pmids) == 10
     # PMIDs are numeric strings
@@ -28,22 +18,22 @@ async def test_search_returns_pmids(client):
 
 
 @pytest.mark.asyncio
-async def test_get_count_returns_total(client):
+async def test_get_count_returns_total(pubmed_client):
     """Test get_count returns total count without fetching articles."""
-    count = await client.get_count("semaglutide diabetes")
+    count = await pubmed_client.get_count("semaglutide diabetes")
 
     # Should be many articles about semaglutide and diabetes
     assert count > 500
 
 
 @pytest.mark.asyncio
-async def test_fetch_articles_parses_correctly(client):
+async def test_fetch_articles_parses_correctly(pubmed_client):
     """Test fetch_articles returns parsed PubMedArticle objects."""
     # First search for a known article
-    pmids = await client.search(
+    pmids = await pubmed_client.search(
         "semaglutide obesity clinical trial", max_results=5
     )
-    articles = await client.fetch_articles(pmids)
+    articles = await pubmed_client.fetch_articles(pmids)
 
     assert len(articles) == 5
 
@@ -55,10 +45,10 @@ async def test_fetch_articles_parses_correctly(client):
 
 
 @pytest.mark.asyncio
-async def test_fetch_specific_article(client):
+async def test_fetch_specific_article(pubmed_client):
     """Test fetching a specific known article by PMID."""
     # PMID 27633186 - SUSTAIN-6 semaglutide cardiovascular trial (NEJM 2016)
-    articles = await client.fetch_articles(["27633186"])
+    articles = await pubmed_client.fetch_articles(["27633186"])
 
     assert len(articles) == 1
     article = articles[0]
@@ -72,9 +62,9 @@ async def test_fetch_specific_article(client):
 
 
 @pytest.mark.asyncio
-async def test_fetch_articles_empty_list_returns_empty(client):
+async def test_fetch_articles_empty_list_returns_empty(pubmed_client):
     """Test that fetching empty list returns empty list."""
-    articles = await client.fetch_articles([])
+    articles = await pubmed_client.fetch_articles([])
 
     assert articles == []
 
@@ -83,9 +73,9 @@ async def test_fetch_articles_empty_list_returns_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_search_nonexistent_term_returns_empty(client):
+async def test_search_nonexistent_term_returns_empty(pubmed_client):
     """Test that a nonexistent search term returns empty list."""
-    pmids = await client.search(
+    pmids = await pubmed_client.search(
         "xyzzy_fake_drug_99999_not_real_term", max_results=10
     )
 
@@ -93,34 +83,34 @@ async def test_search_nonexistent_term_returns_empty(client):
 
 
 @pytest.mark.asyncio
-async def test_get_count_nonexistent_term_returns_zero(client):
+async def test_get_count_nonexistent_term_returns_zero(pubmed_client):
     """Test that a nonexistent term returns zero count."""
-    count = await client.get_count("xyzzy_fake_drug_99999_not_real_term")
+    count = await pubmed_client.get_count("xyzzy_fake_drug_99999_not_real_term")
 
     assert count == 0
 
 
 @pytest.mark.asyncio
-async def test_search_empty_query_returns_empty(client):
+async def test_search_empty_query_returns_empty(pubmed_client):
     """Test that empty query returns empty list."""
-    pmids = await client.search("", max_results=10)
+    pmids = await pubmed_client.search("", max_results=10)
 
     # Empty search returns nothing
     assert pmids == []
 
 
 @pytest.mark.asyncio
-async def test_fetch_articles_invalid_pmid_returns_empty(client):
+async def test_fetch_articles_invalid_pmid_returns_empty(pubmed_client):
     """Test that invalid PMIDs return empty list (no matching articles)."""
-    articles = await client.fetch_articles(["99999999999"])
+    articles = await pubmed_client.fetch_articles(["99999999999"])
 
     # Invalid PMID returns no articles
     assert articles == []
 
 
 @pytest.mark.asyncio
-async def test_search_special_characters_returns_empty(client):
+async def test_search_special_characters_returns_empty(pubmed_client):
     """Test that special characters in query returns empty list."""
-    pmids = await client.search("!!!@@@###$$$", max_results=10)
+    pmids = await pubmed_client.search("!!!@@@###$$$", max_results=10)
 
     assert pmids == []
