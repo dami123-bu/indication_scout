@@ -42,6 +42,7 @@ from indication_scout.models.model_open_targets import (
     Indication,
     SafetyLiability,
     SafetyEffect,
+    DiseaseSynonyms,
 )
 
 
@@ -127,6 +128,21 @@ class OpenTargetsClient(BaseClient):
         drug = await self.get_drug(drug_name)
         return drug.indications
 
+    async def get_drug_target_competitors(
+        self, drug_name: str
+    ) -> dict[str, list[DrugSummary]]:
+        """For each target of a drug, fetch all drugs acting on that target.
+
+        Returns a dict mapping target symbol (e.g. "GLP1R") to the list of
+        DrugSummary objects from Open Targets' knownDrugs for that target.
+        """
+        drug = await self.get_drug(drug_name)
+        result: dict[str, list[DrugSummary]] = {}
+        for target in drug.targets:
+            drug_summaries = await self.get_target_data_drug_summaries(target.target_id)
+            result[target.target_symbol] = drug_summaries
+        return result
+
     async def get_target_data(self, target_id: str) -> TargetData:
         """Fetch target data by ID."""
         cached = self._cache_get("target", {"target_id": target_id})
@@ -205,6 +221,18 @@ class OpenTargetsClient(BaseClient):
                 f"No drug found for '{name}'",
             )
         return drug_hits[0]["id"]
+
+    async def _resolve_disease_name(self, name: str) -> str:
+        """Search by name → return EFO/MONDO disease ID."""
+        data = await self._graphql(self.BASE_URL, DISEASE_SEARCH_QUERY, {"q": name})
+        hits = data["data"]["search"]["hits"]
+        disease_hits = [h for h in hits if h["entity"] == "disease"]
+        if not disease_hits:
+            raise DataSourceError(
+                self._source_name,
+                f"No disease found for '{name}'",
+            )
+        return disease_hits[0]["id"]
 
     async def _fetch_drug(self, chembl_id: str) -> DrugData:
         """Fetch full drug node from Open Targets."""
@@ -308,7 +336,7 @@ class OpenTargetsClient(BaseClient):
 
         adverse_events = [
             self._parse_adverse_event(ae)
-            for ae in raw.get("adverseEvents", {}).get("rows", [])
+            for ae in (raw.get("adverseEvents") or {}).get("rows", [])
         ]
 
         return DrugData(
@@ -324,7 +352,7 @@ class OpenTargetsClient(BaseClient):
             indications=indications,
             targets=targets,
             adverse_events=adverse_events,
-            adverse_events_critical_value=raw.get("adverseEvents", {}).get(
+            adverse_events_critical_value=(raw.get("adverseEvents") or {}).get(
                 "criticalValue", 0.0
             ),
         )
@@ -495,6 +523,39 @@ class OpenTargetsClient(BaseClient):
         )
         return self._parse_disease_drugs(data["data"])
 
+    async def get_disease_synonyms(self, disease_name: str) -> DiseaseSynonyms:
+        """Fetch exact and related synonyms for a disease by name."""
+        disease_id = await self._resolve_disease_name(disease_name)
+        data = await self._graphql(
+            self.BASE_URL, DISEASE_SYNONYMS_QUERY, {"id": disease_id}
+        )
+        raw_disease = data["data"]["disease"]
+        if raw_disease is None:
+            raise DataSourceError(
+                self._source_name,
+                f"No disease found for '{disease_name}'",
+            )
+        relation_map: dict[str, str] = {
+            "hasExactSynonym": "exact",
+            "hasRelatedSynonym": "related",
+            "hasNarrowSynonym": "narrow",
+            "hasBroadSynonym": "broad",
+        }
+        grouped: dict[str, list[str]] = {v: [] for v in relation_map.values()}
+        for entry in raw_disease.get("synonyms", []) or []:
+            field = relation_map.get(entry.get("relation", ""))
+            if field:
+                grouped[field].extend(entry.get("terms", []) or [])
+
+        parent_names = [p["name"] for p in raw_disease.get("parents", []) or []]
+
+        return DiseaseSynonyms(
+            disease_id=raw_disease["id"],
+            disease_name=raw_disease["name"],
+            parent_names=parent_names,
+            **grouped,
+        )
+
     def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:
         """Parse and deduplicate disease drugs — one entry per drug, highest phase wins."""
         disease = data.get("disease") or {}
@@ -515,6 +576,14 @@ class OpenTargetsClient(BaseClient):
 SEARCH_QUERY = """
 query($q: String!) {
     search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
+        hits { id entity }
+    }
+}
+"""
+
+DISEASE_SEARCH_QUERY = """
+query($q: String!) {
+    search(queryString: $q, entityNames: ["disease"], page: {index: 0, size: 1}) {
         hits { id entity }
     }
 }
@@ -652,6 +721,20 @@ query($id: String!, $size: Int!) {
                 diseaseId label phase status
                 mechanismOfAction ctIds
             }
+        }
+    }
+}
+"""
+
+DISEASE_SYNONYMS_QUERY = """
+query($id: String!) {
+    disease(efoId: $id) {
+        id
+        name
+        parents { name }
+        synonyms {
+            relation
+            terms
         }
     }
 }

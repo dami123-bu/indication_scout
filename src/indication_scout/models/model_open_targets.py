@@ -177,6 +177,23 @@ class DrugTarget(BaseModel):
     action_type: str | None = None  # e.g. "AGONIST", "INHIBITOR"
 
 
+class DiseaseSynonyms(BaseModel):
+    """Synonyms for a disease from Open Targets, grouped by relation type."""
+
+    disease_id: str
+    disease_name: str
+    parent_names: list[str] = []
+    exact: list[str] = []
+    related: list[str] = []
+    narrow: list[str] = []
+    broad: list[str] = []
+
+    @property
+    def all_synonyms(self) -> list[str]:
+        """All synonym terms combined with parent names."""
+        return self.exact + self.related + self.parent_names
+
+
 class DiseaseDrug(BaseModel):
     """A drug being developed for a specific disease, from the disease node."""
 

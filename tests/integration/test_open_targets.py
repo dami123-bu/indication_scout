@@ -1,13 +1,13 @@
-"""Integration tests for OpenTargetsClient."""
+"""Integration tests for OpenTargetsopen_targets_client."""
 
 import logging
 
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.data_sources.open_targets import OpenTargetsClient
 
 logger = logging.getLogger(__name__)
+
 
 
 # --- get_drug ---
@@ -169,6 +169,44 @@ async def test_special_characters_drug_name_raises_error(open_targets_client):
         await open_targets_client.get_drug("!!!@@@###$$$")
 
     assert exc_info.value.source == "open_targets"
+
+
+# --- get_disease_synonyms ---
+
+
+
+@pytest.mark.asyncio
+async def test_get_disease_synonyms_nep(open_targets_client):
+
+    result = await open_targets_client.get_disease_synonyms("type 2 diabetes nephropathy")
+    assert result
+
+@pytest.mark.asyncio
+async def test_get_disease_synonyms(open_targets_client):
+    """Test fetching disease synonyms for type 2 diabetes mellitus."""
+    result = await open_targets_client.get_disease_synonyms("type 2 diabetes mellitus")
+
+    assert result.disease_id == "MONDO_0005148"
+    assert result.disease_name == "type 2 diabetes mellitus"
+    assert result.parent_names == ["diabetes mellitus"]
+    assert len(result.exact) == 25
+    assert len(result.related) == 9
+    assert len(result.narrow) == 1
+    assert "T2DM" in result.exact
+    assert "NIDDM" in result.exact
+    assert "type 2 diabetes" in result.exact
+    assert "maturity-onset diabetes" in result.related
+    assert "diabetes mellitus, noninsulin-dependent, 2" in result.narrow
+
+
+@pytest.mark.asyncio
+async def test_get_disease_synonyms_nonexistent(open_targets_client):
+    """Test that a nonexistent disease name raises DataSourceError."""
+    with pytest.raises(DataSourceError) as exc_info:
+        await open_targets_client.get_disease_synonyms("xyzzy_not_a_real_disease_12345")
+
+    assert exc_info.value.source == "open_targets"
+    assert "No disease found" in str(exc_info.value)
 
 
 # --- get_target_data error handling ---
@@ -372,6 +410,81 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
     assert effect.dosing == "acute"
 
 
+SALT_SUFFIXES = [
+    " hydrochloride", " hydrobromide", " sulfate", " succinate", " chloride",
+    " dimesylate", " tartrate", " citrate", " tosylate", " mesylate", " saccharate",
+    " hemihydrate", " maleate", " phosphate", " malate", " esylate", " anhydrous"
+]
+
+
+def normalize_drug_name(name: str) -> str:
+    name_lower = name.lower()
+    for suffix in SALT_SUFFIXES:
+        if name_lower.endswith(suffix):
+            return name_lower[: -len(suffix)].strip()
+    return name_lower
+
+# TODO remove, for testing only
+async def get_drug_competitors(open_targets_client, name) -> dict[str, set[str]]:
+    """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
+    name=name.lower()
+    bup = await open_targets_client.get_drug(name)
+    targets = bup.targets
+
+    siblings: dict[str, set[str]] = {}
+
+    for t in targets:
+        logger.info(t.mechanism_of_action)
+        summaries = await open_targets_client.get_target_data_drug_summaries(t.target_id)
+        drugs=set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
+        diseases = set([s.disease_name.lower() for s in summaries])
+        for summary in summaries:
+            if summary.phase >= 3:
+                disease = summary.disease_name
+                drug_name = normalize_drug_name(summary.drug_name)
+                if disease in siblings:
+                    siblings[disease].add(drug_name)
+                else:
+                    siblings[disease] = {drug_name}
+
+    for key in list(siblings):
+        val = siblings[key]
+        if name in val:
+            del siblings[key]
+
+    sorted_data = dict(
+        sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
+    )
+    top_10 = dict(list(sorted_data.items())[:10])
+    return top_10
+
+# TODO remove just for testing
+def get_pubmed_query(drug_name, disease_name):
+    prompt = f"""Convert this disease name to the best PubMed search query. 
+    Return ONLY the search term, nothing else.
+    Disease: {disease_name}"""
+
+    pubmed_term=disease_name
+    #pubmed_term = llm_call(prompt)  # e.g. "diabetic nephropathy"
+
+    return f"{drug_name} AND {pubmed_term}"
+
+@pytest.mark.asyncio
+async def test_surfacing_pipeline(open_targets_client, pubmed_client):
+    """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
+    drug_name = "Imatinib"
+    top_10 = await get_drug_competitors(open_targets_client, drug_name)
+
+    for disease in top_10:
+        query=get_pubmed_query(drug_name, disease)
+        #query = f"{name} AND {disease}"
+        pmids = await pubmed_client.search(query, max_results=10)
+        articles = await pubmed_client.fetch_articles(pmids)
+
+        assert query
+
+    assert len(top_10) > 0
+
 @pytest.mark.asyncio
 async def test_get_drug_target_competitors(open_targets_client):
     """Test get_drug_target_competitors returns drugs grouped by target symbol."""
@@ -398,4 +511,3 @@ async def test_get_drug_target_competitors(open_targets_client):
         liraglutide.mechanism_of_action
         == "Glucagon-like peptide 1 receptor agonist"
     )
-
