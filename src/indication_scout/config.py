@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str = ""
     pubmed_api_key: str = ""
+    openfda_api_key: str = ""
 
     # LLM Settings
     llm_model: str = "gpt-4"
