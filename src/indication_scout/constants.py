@@ -39,3 +39,7 @@ STOP_KEYWORDS: dict[str, str] = {
     "funding": "business",
     "commercial": "business",
 }
+
+# -- openFDA ----------------------------------------------------------------
+OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/event.json"
+OPENFDA_MAX_LIMIT: int = 1000
