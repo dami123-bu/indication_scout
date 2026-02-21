@@ -336,7 +336,7 @@ class OpenTargetsClient(BaseClient):
 
         adverse_events = [
             self._parse_adverse_event(ae)
-            for ae in raw.get("adverseEvents", {}).get("rows", [])
+            for ae in (raw.get("adverseEvents") or {}).get("rows", [])
         ]
 
         return DrugData(
@@ -352,7 +352,7 @@ class OpenTargetsClient(BaseClient):
             indications=indications,
             targets=targets,
             adverse_events=adverse_events,
-            adverse_events_critical_value=raw.get("adverseEvents", {}).get(
+            adverse_events_critical_value=(raw.get("adverseEvents") or {}).get(
                 "criticalValue", 0.0
             ),
         )
