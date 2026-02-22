@@ -37,7 +37,7 @@ class Interaction(BaseModel):
 
     interacting_target_id: str
     interacting_target_symbol: str
-    interaction_score: float  # null for reactome and signor
+    interaction_score: float | None  # null for reactome and signor
     source_database: str  # IntAct, STRING, Signor, Reactome
     biological_role: str
     evidence_count: int

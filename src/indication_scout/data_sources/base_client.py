@@ -99,6 +99,7 @@ class BaseClient(ABC):
                         delay = min(2**attempt, 30)
                         await asyncio.sleep(delay)
                         continue
+                    raise last_error
 
                 if resp.status >= 400:
                     body = await resp.text()
@@ -157,6 +158,7 @@ class BaseClient(ABC):
                     if attempt < self.max_retries:
                         await asyncio.sleep(min(2**attempt, 30))
                         continue
+                    raise last_error
 
                 if resp.status >= 400:
                     body = await resp.text()

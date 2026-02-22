@@ -104,7 +104,7 @@ class PubMedClient(BaseClient):
             abstract_parts = []
             for abs_elem in article_elem.findall(".//AbstractText"):
                 label = abs_elem.get("Label", "")
-                text = abs_elem.text or ""
+                text = "".join(abs_elem.itertext())
                 if label:
                     abstract_parts.append(f"{label}: {text}")
                 elif text:

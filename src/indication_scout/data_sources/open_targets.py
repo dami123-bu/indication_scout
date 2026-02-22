@@ -413,7 +413,7 @@ class OpenTargetsClient(BaseClient):
         return Interaction(
             interacting_target_id=target_b.get("id", raw.get("intB", "")),
             interacting_target_symbol=target_b.get("approvedSymbol", ""),
-            interaction_score=raw.get("score", 0.0),
+            interaction_score=raw.get("score"),
             source_database=source,
             biological_role=raw.get("intBBiologicalRole", ""),
             evidence_count=raw.get("count", 0),
