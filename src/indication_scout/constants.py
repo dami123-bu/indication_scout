@@ -43,3 +43,13 @@ STOP_KEYWORDS: dict[str, str] = {
 # -- openFDA ----------------------------------------------------------------
 OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/event.json"
 OPENFDA_MAX_LIMIT: int = 1000
+
+# -- Reaction outcome mapping (openFDA FAERS) ------------------------------
+REACTION_OUTCOME_MAP: dict[str, str] = {
+    "1": "Recovered/Resolved",
+    "2": "Not Recovered/Not Resolved",
+    "3": "Recovering/Resolving",
+    "4": "Recovered/Resolved with Sequelae",
+    "5": "Fatal",
+    "6": "Unknown",
+}
