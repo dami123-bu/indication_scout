@@ -5,9 +5,10 @@ import logging
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
+from indication_scout.helpers.drug_helpers import normalize_drug_name
+from tests.integration.conftest import open_targets_client
 
 logger = logging.getLogger(__name__)
-
 
 
 # --- get_drug ---
@@ -46,11 +47,7 @@ async def test_semaglutide_drug_data(open_targets_client):
 
     # Indications - should include type 2 diabetes (approved)
     t2d_indication = next(
-        (
-            i
-            for i in drug.indications
-            if "type 2 diabetes" in i.disease_name.lower()
-        ),
+        (i for i in drug.indications if "type 2 diabetes" in i.disease_name.lower()),
         None,
     )
     assert t2d_indication is not None
@@ -65,9 +62,7 @@ async def test_semaglutide_drug_target(open_targets_client):
 
     assert glp1r.target_id == "ENSG00000112164"
     assert glp1r.target_symbol == "GLP1R"
-    assert (
-        glp1r.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
-    )
+    assert glp1r.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
     assert glp1r.action_type == "AGONIST"
 
 
@@ -174,12 +169,14 @@ async def test_special_characters_drug_name_raises_error(open_targets_client):
 # --- get_disease_synonyms ---
 
 
-
 @pytest.mark.asyncio
 async def test_get_disease_synonyms_nep(open_targets_client):
 
-    result = await open_targets_client.get_disease_synonyms("type 2 diabetes nephropathy")
+    result = await open_targets_client.get_disease_synonyms(
+        "type 2 diabetes nephropathy"
+    )
     assert result
+
 
 @pytest.mark.asyncio
 async def test_get_disease_synonyms(open_targets_client):
@@ -251,9 +248,7 @@ async def test_glp1r_target_associations(open_targets_client):
     [assoc] = [a for a in target.associations if a.disease_name == "gastroparesis"]
 
     assert assoc is not None
-    assert (
-        assoc.disease_id.startswith("EFO_") or assoc.disease_id.startswith("MONDO_")
-    )
+    assert assoc.disease_id.startswith("EFO_") or assoc.disease_id.startswith("MONDO_")
     assert assoc.overall_score > 0.2
     assert 0.4 < assoc.datatype_scores["genetic_association"] < 0.5
     assert 0.2 < assoc.datatype_scores["literature"] < 0.3
@@ -267,8 +262,7 @@ async def test_glp1r_drug_summary(open_targets_client):
     liraglutide = next(
         d
         for d in target.drug_summaries
-        if d.drug_name == "LIRAGLUTIDE"
-        and d.disease_name == "type 2 diabetes mellitus"
+        if d.drug_name == "LIRAGLUTIDE" and d.disease_name == "type 2 diabetes mellitus"
     )
 
     assert liraglutide.drug_id == "CHEMBL4084119"
@@ -277,10 +271,7 @@ async def test_glp1r_drug_summary(open_targets_client):
     assert liraglutide.disease_name == "type 2 diabetes mellitus"
     assert liraglutide.phase == 4.0
     assert liraglutide.status is None
-    assert (
-        liraglutide.mechanism_of_action
-        == "Glucagon-like peptide 1 receptor agonist"
-    )
+    assert liraglutide.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
     assert isinstance(liraglutide.clinical_trial_ids, list)
 
 
@@ -288,9 +279,7 @@ async def test_glp1r_drug_summary(open_targets_client):
 async def test_pdgfrb_target_pathway(open_targets_client):
     """Test Pathway fields for PDGFRB target."""
     target = await open_targets_client.get_target_data("ENSG00000113721")
-    [pathway] = [
-        p for p in target.pathways if p.pathway_name == "Signaling by PDGF"
-    ]
+    [pathway] = [p for p in target.pathways if p.pathway_name == "Signaling by PDGF"]
 
     assert pathway.pathway_id == "R-HSA-186797"
     assert pathway.pathway_name == "Signaling by PDGF"
@@ -355,9 +344,7 @@ async def test_glp1r_target_mouse_phenotype(open_targets_client):
 
     # MousePhenotype fields
     assert phenotype.phenotype_id == "MP:0013279"
-    assert (
-        phenotype.phenotype_label == "increased fasting circulating glucose level"
-    )
+    assert phenotype.phenotype_label == "increased fasting circulating glucose level"
     assert "homeostasis/metabolism phenotype" in phenotype.phenotype_categories
     assert len(phenotype.biological_models) == 1
 
@@ -410,53 +397,54 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
     assert effect.dosing == "acute"
 
 
-SALT_SUFFIXES = [
-    " hydrochloride", " hydrobromide", " sulfate", " succinate", " chloride",
-    " dimesylate", " tartrate", " citrate", " tosylate", " mesylate", " saccharate",
-    " hemihydrate", " maleate", " phosphate", " malate", " esylate", " anhydrous"
-]
-
-
-def normalize_drug_name(name: str) -> str:
-    name_lower = name.lower()
-    for suffix in SALT_SUFFIXES:
-        if name_lower.endswith(suffix):
-            return name_lower[: -len(suffix)].strip()
-    return name_lower
+# SALT_SUFFIXES = [
+#     " hydrochloride", " hydrobromide", " sulfate", " succinate", " chloride",
+#     " dimesylate", " tartrate", " citrate", " tosylate", " mesylate", " saccharate",
+#     " hemihydrate", " maleate", " phosphate", " malate", " esylate", " anhydrous"
+# ]
+#
+#
+# def normalize_drug_name(name: str) -> str:
+#     name_lower = name.lower()
+#     for suffix in SALT_SUFFIXES:
+#         if name_lower.endswith(suffix):
+#             return name_lower[: -len(suffix)].strip()
+#     return name_lower
 
 # TODO remove, for testing only
-async def get_drug_competitors(open_targets_client, name) -> dict[str, set[str]]:
-    """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
-    name=name.lower()
-    bup = await open_targets_client.get_drug(name)
-    targets = bup.targets
+# async def get_drug_competitors(open_targets_client, name) -> dict[str, set[str]]:
+#     """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
+#     name=name.lower()
+#     bup = await open_targets_client.get_drug(name)
+#     targets = bup.targets
+#
+#     siblings: dict[str, set[str]] = {}
+#
+#     for t in targets:
+#         logger.info(t.mechanism_of_action)
+#         summaries = await open_targets_client.get_target_data_drug_summaries(t.target_id)
+#         drugs=set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
+#         diseases = set([s.disease_name.lower() for s in summaries])
+#         for summary in summaries:
+#             if summary.phase >= 3:
+#                 disease = summary.disease_name
+#                 drug_name = normalize_drug_name(summary.drug_name)
+#                 if disease in siblings:
+#                     siblings[disease].add(drug_name)
+#                 else:
+#                     siblings[disease] = {drug_name}
+#
+#     for key in list(siblings):
+#         val = siblings[key]
+#         if name in val:
+#             del siblings[key]
+#
+#     sorted_data = dict(
+#         sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
+#     )
+#     top_10 = dict(list(sorted_data.items())[:10])
+#     return top_10
 
-    siblings: dict[str, set[str]] = {}
-
-    for t in targets:
-        logger.info(t.mechanism_of_action)
-        summaries = await open_targets_client.get_target_data_drug_summaries(t.target_id)
-        drugs=set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
-        diseases = set([s.disease_name.lower() for s in summaries])
-        for summary in summaries:
-            if summary.phase >= 3:
-                disease = summary.disease_name
-                drug_name = normalize_drug_name(summary.drug_name)
-                if disease in siblings:
-                    siblings[disease].add(drug_name)
-                else:
-                    siblings[disease] = {drug_name}
-
-    for key in list(siblings):
-        val = siblings[key]
-        if name in val:
-            del siblings[key]
-
-    sorted_data = dict(
-        sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
-    )
-    top_10 = dict(list(sorted_data.items())[:10])
-    return top_10
 
 # TODO remove just for testing
 def get_pubmed_query(drug_name, disease_name):
@@ -464,8 +452,8 @@ def get_pubmed_query(drug_name, disease_name):
     Return ONLY the search term, nothing else.
     Disease: {disease_name}"""
 
-    pubmed_term=disease_name
-    #pubmed_term = llm_call(prompt)  # e.g. "diabetic nephropathy"
+    pubmed_term = disease_name
+    # pubmed_term = llm_call(prompt)  # e.g. "diabetic nephropathy"
 
     return f"{drug_name} AND {pubmed_term}"
 
@@ -475,11 +463,13 @@ def get_pubmed_query(drug_name, disease_name):
 async def test_surfacing_pipeline(open_targets_client, pubmed_client):
     """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
     drug_name = "Imatinib"
-    top_10 = await get_drug_competitors(open_targets_client, drug_name)
+    top_10 = await open_targets_client.get_drug_competitors(
+        open_targets_client, drug_name
+    )
 
     for disease in top_10:
-        query=get_pubmed_query(drug_name, disease)
-        #query = f"{name} AND {disease}"
+        query = get_pubmed_query(drug_name, disease)
+        # query = f"{name} AND {disease}"
         pmids = await pubmed_client.search(query, max_results=10)
         articles = await pubmed_client.fetch_articles(pmids)
 
@@ -487,9 +477,40 @@ async def test_surfacing_pipeline(open_targets_client, pubmed_client):
 
     assert len(top_10) > 0
 
+
+@pytest.mark.asyncio
+async def test_drug_target_competitors(open_targets_client):
+    """Test get_drug_target_competitors returns DrugSummary lists keyed by target symbol."""
+    result = await open_targets_client.get_drug_target_competitors("semaglutide")
+
+    # Semaglutide targets GLP1R — must be present
+    assert "GLP1R" in result
+    assert len(result["GLP1R"]) > 5
+
+    # All values must be lists of DrugSummary; check the map has no empty lists
+    for symbol, summaries in result.items():
+        assert isinstance(summaries, list)
+        assert len(summaries) > 0
+
+    # Spot-check a known GLP1R competitor: LIRAGLUTIDE for type 2 diabetes
+    liraglutide = next(
+        d
+        for d in result["GLP1R"]
+        if d.drug_name == "LIRAGLUTIDE" and d.disease_name == "type 2 diabetes mellitus"
+    )
+    assert liraglutide.drug_id == "CHEMBL4084119"
+    assert liraglutide.drug_name == "LIRAGLUTIDE"
+    assert liraglutide.disease_id == "MONDO_0005148"
+    assert liraglutide.disease_name == "type 2 diabetes mellitus"
+    assert liraglutide.phase == 4.0
+    assert liraglutide.status is None
+    assert liraglutide.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
+    assert isinstance(liraglutide.clinical_trial_ids, list)
+
+
 # TODO rework
 @pytest.mark.asyncio
-async def test_get_drug_target_competitors(open_targets_client):
+async def test_get_drug_target_competitors_semaglutide(open_targets_client):
     """Test get_drug_target_competitors returns drugs grouped by target symbol."""
     result = await open_targets_client.get_drug_target_competitors("semaglutide")
 
@@ -501,8 +522,7 @@ async def test_get_drug_target_competitors(open_targets_client):
     liraglutide = next(
         d
         for d in result["GLP1R"]
-        if d.drug_name == "LIRAGLUTIDE"
-        and d.disease_name == "type 2 diabetes mellitus"
+        if d.drug_name == "LIRAGLUTIDE" and d.disease_name == "type 2 diabetes mellitus"
     )
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.drug_name == "LIRAGLUTIDE"
@@ -510,7 +530,4 @@ async def test_get_drug_target_competitors(open_targets_client):
     assert liraglutide.disease_name == "type 2 diabetes mellitus"
     assert liraglutide.phase == 4.0
     assert liraglutide.status is None
-    assert (
-        liraglutide.mechanism_of_action
-        == "Glucagon-like peptide 1 receptor agonist"
-    )
+    assert liraglutide.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"

@@ -10,6 +10,7 @@ Plus convenience accessors for specific target data slices.
 
 import hashlib
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from indication_scout.constants import (
     OPEN_TARGETS_BASE_URL,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+from indication_scout.helpers.drug_helpers import normalize_drug_name
 
 from indication_scout.models.model_open_targets import (
     Association,
@@ -44,6 +46,8 @@ from indication_scout.models.model_open_targets import (
     SafetyEffect,
     DiseaseSynonyms,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OpenTargetsClient(BaseClient):
@@ -123,6 +127,40 @@ class OpenTargetsClient(BaseClient):
         )
 
         return drug_data
+
+    # TODO needs rework
+    async def get_drug_competitors(self, name) -> dict[str, set[str]]:
+        """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
+        name = name.lower()
+        drug = await self.get_drug(name)
+        targets = drug.targets
+
+        siblings: dict[str, set[str]] = {}
+
+        for t in targets:
+            logger.info(t.mechanism_of_action)
+            summaries = await self.get_target_data_drug_summaries(t.target_id)
+            # drugs = set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
+            # diseases = set([s.disease_name.lower() for s in summaries])
+            for summary in summaries:
+                if summary.phase >= 3:
+                    disease = summary.disease_name
+                    drug_name = normalize_drug_name(summary.drug_name)
+                    if disease in siblings:
+                        siblings[disease].add(drug_name)
+                    else:
+                        siblings[disease] = {drug_name}
+
+        for key in list(siblings):
+            val = siblings[key]
+            if name in val:
+                del siblings[key]
+
+        sorted_data = dict(
+            sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
+        )
+        top_10 = dict(list(sorted_data.items())[:10])
+        return top_10
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
         drug = await self.get_drug(drug_name)
