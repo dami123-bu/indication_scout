@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-IndicationScout is a clinical genomics tool for drug indication discovery and repurposing analysis. It integrates data from multiple external sources (Open Targets, ClinicalTrials.gov, PubMed) to identify potential new therapeutic indications for existing drugs.
+IndicationScout is a tool for drug indication discovery and repurposing analysis. It integrates data from multiple external sources (Open Targets, ClinicalTrials.gov, PubMed) to identify potential new therapeutic indications for existing drugs.
 
 ### Directory Structure
 
@@ -53,21 +53,14 @@ All data source clients inherit from `BaseClient`, which provides common infrast
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Request Methods                                                             │
-│  ├── _request()   - Low-level HTTP with retry + rate limiting               │
-│  ├── _graphql()   - GraphQL queries with caching                            │
-│  └── _rest_get()  - REST GET requests with caching                          │
-│                                                                              │
-│  Rate Limiting (TokenBucketRateLimiter)                                      │
-│  └── Token bucket algorithm, configurable requests/second and burst         │
+│  ├── _request()   - Low-level HTTP with retry                               │
+│  ├── _graphql()   - GraphQL POST requests                                   │
+│  ├── _rest_get()  - REST GET requests                                       │
+│  └── _rest_get_xml() - REST GET returning XML text                          │
 │                                                                              │
 │  Retry Logic                                                                 │
-│  └── Exponential backoff with jitter, configurable max retries              │
-│                                                                              │
-│  Disk Cache (DiskCache)                                                      │
-│  └── JSON files in _cache/, keyed by namespace + params hash, TTL-based     │
-│                                                                              │
-│  Response Wrapper (PartialResult)                                            │
-│  └── Graceful degradation: is_complete, data, errors                        │
+│  └── Exponential backoff (1s, 2s, 4s, capped at 30s), max 3 retries        │
+│  └── Retries on: 429, 500, 502, 503, 504                                    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -75,45 +68,11 @@ All data source clients inherit from `BaseClient`, which provides common infrast
 ### Configuration
 
 ```python
-ClientConfig(
-    timeout_seconds=30.0,
-    retry=RetryConfig(
-        max_retries=3,
-        base_delay=1.0,
-        max_delay=60.0,
-        exponential_base=2.0,
-    ),
-    rate_limit=RateLimitConfig(
-        requests_per_second=5.0,
-        burst=10,
-    ),
-    cache=CacheConfig(
-        enabled=True,
-        directory=Path("_cache"),
-    ),
+BaseClient(
+    timeout=30.0,        # DEFAULT_TIMEOUT
+    max_retries=3,       # DEFAULT_MAX_RETRIES
 )
 ```
-
-### DiskCache
-
-- Location: `_cache/` relative to working directory
-- File naming: `{namespace}_{hash}.json` where hash is MD5 of sorted params
-- Each file contains: `{"timestamp": epoch, "data": ...}`
-- TTL checked on read; expired entries return cache miss
-
-### PartialResult
-
-Wrapper for API responses enabling graceful degradation:
-
-```python
-PartialResult(
-    is_complete=True,   # False if errors occurred
-    data={...},         # Response data (may be partial)
-    errors=[...],       # List of error messages
-)
-```
-
-Clients check `result.is_complete` before processing; partial data can still be used when appropriate.
 
 ---
 
@@ -280,36 +239,35 @@ Example: If GLP1R has a high association score with NASH, but semaglutide's `ind
   get_drug("semaglutide") │   1. _resolve_drug_name() ──> SEARCH_QUERY     │
            │              │          └─> returns ChEMBL ID                  │
            ▼              │                                                 │
-   ┌───────────────┐      │   2. Check _drug_cache (in-memory)             │
-   │  Drug Name    │──────│          └─> if hit, return cached DrugData    │
+   ┌───────────────┐      │   2. Check disk cache (_cache/<hash>.json)     │
+   │  Drug Name    │──────│          └─> if hit, deserialize & return      │
    │  "semaglutide"│      │                                                 │
-   └───────────────┘      │   3. Check disk cache (DiskCache)              │
-                          │          └─> if hit, deserialize & return      │
-                          │                                                 │
-                          │   4. _fetch_drug() ──> DRUG_QUERY              │
+   └───────────────┘      │   3. _fetch_drug() ──> DRUG_QUERY              │
                           │          └─> parse response ──> DrugData       │
-                          │          └─> store in both caches              │
+                          │          └─> store in disk cache               │
                           └─────────────────────────────────────────────────┘
 
 get_target_data("ENSG...") follows the same pattern with TARGET_QUERY
 ```
 
-### Two-Level Caching
+### Disk Cache
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         Cache Hierarchy                              │
+│                         Disk Cache                                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  Level 1: In-Memory Cache (per client instance)                     │
-│  ├── _drug_cache: dict[str, DrugData]      # keyed by chembl_id     │
-│  └── _target_data_cache: dict[str, TargetData]  # keyed by target_id│
+│  Location: _cache/<sha256>.json  (shared across sessions)           │
 │                                                                      │
-│  Level 2: Disk Cache (shared across sessions)                       │
+│  Key: SHA-256 of {"ns": namespace, **params} (JSON, sorted keys)   │
 │  ├── namespace: "drug"    + params: {"chembl_id": ...}              │
-│  └── namespace: "target"  + params: {"target_id": ...}              │
+│  └── namespace: "target"  + params: {"target_id": ...}             │
+│                                                                      │
+│  Entry: {"data": <model_dump>, "cached_at": <iso>, "ttl": <secs>}  │
 │                                                                      │
 │  TTL: 5 days (CACHE_TTL = 5 * 86400)                                │
+│  Expiry: checked on read; expired/corrupt entries auto-deleted      │
+│  Disable: pass cache_dir=None to OpenTargetsClient()                │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -603,7 +561,7 @@ Settings:
 1. **Separation of Concerns**: Data sources (clients) separate from domain logic (agents/services)
 2. **Async-First**: All I/O operations are async using aiohttp
 3. **Graceful Degradation**: Retry with exponential backoff; `PartialResult` wrapper for partial data
-4. **Two-Level Caching**: In-memory (per instance) + disk cache (5-day TTL)
+4. **Disk Cache**: JSON files in `_cache/` with 5-day TTL (OpenTargetsClient only)
 5. **Type Safety**: Full Pydantic validation; strict typing throughout
 6. **Model-Driven**: GraphQL/REST responses parsed into typed Pydantic models
 7. **No Fallbacks for Clinical Data**: Missing scientific/clinical values return None, never defaults

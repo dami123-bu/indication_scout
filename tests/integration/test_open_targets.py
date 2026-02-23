@@ -469,6 +469,8 @@ def get_pubmed_query(drug_name, disease_name):
 
     return f"{drug_name} AND {pubmed_term}"
 
+
+# TODO rework
 @pytest.mark.asyncio
 async def test_surfacing_pipeline(open_targets_client, pubmed_client):
     """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
@@ -485,6 +487,7 @@ async def test_surfacing_pipeline(open_targets_client, pubmed_client):
 
     assert len(top_10) > 0
 
+# TODO rework
 @pytest.mark.asyncio
 async def test_get_drug_target_competitors(open_targets_client):
     """Test get_drug_target_competitors returns drugs grouped by target symbol."""
