@@ -446,16 +446,7 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-# TODO remove just for testing
-def get_pubmed_query(drug_name, disease_name):
-    prompt = f"""Convert this disease name to the best PubMed search query. 
-    Return ONLY the search term, nothing else.
-    Disease: {disease_name}"""
 
-    pubmed_term = disease_name
-    # pubmed_term = llm_call(prompt)  # e.g. "diabetic nephropathy"
-
-    return f"{drug_name} AND {pubmed_term}"
 
 
 # TODO rework
