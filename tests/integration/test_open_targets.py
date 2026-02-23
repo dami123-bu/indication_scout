@@ -6,6 +6,7 @@ import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.helpers.drug_helpers import normalize_drug_name
+from indication_scout.services.pubmed_query import get_pubmed_query
 from tests.integration.conftest import open_targets_client
 
 logger = logging.getLogger(__name__)
@@ -446,17 +447,12 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-
-
-
 # TODO rework
 @pytest.mark.asyncio
 async def test_surfacing_pipeline(open_targets_client, pubmed_client):
     """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
-    drug_name = "Imatinib"
-    top_10 = await open_targets_client.get_drug_competitors(
-        open_targets_client, drug_name
-    )
+    drug_name = "bupropion"
+    top_10 = await open_targets_client.get_drug_competitors(drug_name)
 
     for disease in top_10:
         query = get_pubmed_query(drug_name, disease)
