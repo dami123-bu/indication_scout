@@ -14,9 +14,13 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str = ""
     pubmed_api_key: str = ""
+    anthropic_api_key: str = ""
+    ncbi_api_key: str = ""
+    openfda_api_key: str = ""
 
     # LLM Settings
-    llm_model: str = "gpt-4"
+    llm_model: str = "claude-sonnet-4-6"
+    small_llm_model: str = "claude-haiku-4-5-20251001"
     embedding_model: str = "text-embedding-3-small"
 
     # App Settings
