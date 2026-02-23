@@ -15,7 +15,6 @@ from indication_scout.models.model_clinical_trials import (
     WhitespaceResult,
 )
 
-
 # --- Intervention and PrimaryOutcome ---
 
 

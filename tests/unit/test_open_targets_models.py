@@ -8,7 +8,6 @@ from indication_scout.models.model_open_targets import (
     Indication,
 )
 
-
 # --- DrugData ---
 
 
@@ -62,18 +61,13 @@ def test_drug_data_contains_drug_targets(sample_drug_data):
     # First target
     assert sample_drug_data.targets[0].target_id == "ENSG00000112164"
     assert sample_drug_data.targets[0].target_symbol == "GLP1R"
-    assert (
-        sample_drug_data.targets[0].mechanism_of_action == "GLP-1 receptor agonist"
-    )
+    assert sample_drug_data.targets[0].mechanism_of_action == "GLP-1 receptor agonist"
     assert sample_drug_data.targets[0].action_type == "AGONIST"
 
     # Second target
     assert sample_drug_data.targets[1].target_id == "ENSG00000171016"
     assert sample_drug_data.targets[1].target_symbol == "PYGO1"
-    assert (
-        sample_drug_data.targets[1].mechanism_of_action
-        == "Pygo homolog 1 inhibitor"
-    )
+    assert sample_drug_data.targets[1].mechanism_of_action == "Pygo homolog 1 inhibitor"
     assert sample_drug_data.targets[1].action_type == "INHIBITOR"
 
 

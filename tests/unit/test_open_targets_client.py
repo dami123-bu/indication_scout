@@ -5,7 +5,6 @@ from pathlib import Path
 
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 
-
 # --- OpenTargetsClient configuration ---
 
 

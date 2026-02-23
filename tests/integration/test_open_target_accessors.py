@@ -2,7 +2,6 @@
 
 import pytest
 
-
 # --- Target data accessors ---
 
 
@@ -40,7 +39,9 @@ async def test_get_target_pathways(open_targets_client):
 @pytest.mark.asyncio
 async def test_get_target_interactions(open_targets_client):
     """Test get_target_interactions returns interaction data with all fields."""
-    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions(
+        "ENSG00000113721"
+    )
 
     assert len(interactions) > 10
     plcg1 = next(
@@ -61,7 +62,9 @@ async def test_get_target_interactions(open_targets_client):
 @pytest.mark.asyncio
 async def test_interaction_type_string_is_functional(open_targets_client):
     """Test STRING interaction with all Interaction fields verified."""
-    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions(
+        "ENSG00000113721"
+    )
 
     # Pick PLCG1 interaction from STRING - verify all fields
     plcg1_string = next(
@@ -81,7 +84,9 @@ async def test_interaction_type_string_is_functional(open_targets_client):
 @pytest.mark.asyncio
 async def test_interaction_type_intact_is_physical(open_targets_client):
     """Test IntAct interaction with all Interaction fields verified."""
-    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions(
+        "ENSG00000113721"
+    )
 
     # Pick PLCG1 interaction from IntAct - verify all fields
     plcg1_intact = next(
@@ -105,7 +110,9 @@ async def test_interaction_type_signor_is_signalling(open_targets_client):
     Note: Signor data may not be currently available in Open Targets API.
     This test validates the mapping if Signor interactions are present.
     """
-    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions(
+        "ENSG00000113721"
+    )
 
     signor_interactions = [i for i in interactions if i.source_database == "signor"]
     for interaction in signor_interactions:
@@ -119,11 +126,11 @@ async def test_interaction_type_reactome_is_enzymatic(open_targets_client):
     Note: Reactome data may not be currently available in Open Targets API.
     This test validates the mapping if Reactome interactions are present.
     """
-    interactions = await open_targets_client.get_target_data_interactions("ENSG00000113721")
+    interactions = await open_targets_client.get_target_data_interactions(
+        "ENSG00000113721"
+    )
 
-    reactome_interactions = [
-        i for i in interactions if i.source_database == "reactome"
-    ]
+    reactome_interactions = [i for i in interactions if i.source_database == "reactome"]
     for interaction in reactome_interactions:
         assert interaction.interaction_type == "enzymatic"
 
@@ -139,8 +146,7 @@ async def test_get_target_drug_summaries(open_targets_client):
     liraglutide = next(
         d
         for d in drug_summaries
-        if d.drug_name == "LIRAGLUTIDE"
-        and d.disease_name == "type 2 diabetes mellitus"
+        if d.drug_name == "LIRAGLUTIDE" and d.disease_name == "type 2 diabetes mellitus"
     )
     # Verify all DrugSummary fields
     assert liraglutide.drug_id == "CHEMBL4084119"
@@ -149,10 +155,7 @@ async def test_get_target_drug_summaries(open_targets_client):
     assert liraglutide.disease_name == "type 2 diabetes mellitus"
     assert liraglutide.phase == 4.0
     assert liraglutide.status is None
-    assert (
-        liraglutide.mechanism_of_action
-        == "Glucagon-like peptide 1 receptor agonist"
-    )
+    assert liraglutide.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
     assert liraglutide.clinical_trial_ids == []
 
 
@@ -197,9 +200,7 @@ async def test_get_target_phenotypes(open_targets_client):
     glucose = next(p for p in phenotypes if p.phenotype_id == "MP:0013279")
     # Verify all MousePhenotype fields
     assert glucose.phenotype_id == "MP:0013279"
-    assert (
-        glucose.phenotype_label == "increased fasting circulating glucose level"
-    )
+    assert glucose.phenotype_label == "increased fasting circulating glucose level"
     assert "homeostasis/metabolism phenotype" in glucose.phenotype_categories
     assert len(glucose.biological_models) == 1
     # Verify BiologicalModel fields
@@ -287,8 +288,5 @@ async def test_get_disease_drugs(open_targets_client):
     assert semaglutide.disease_name == "type 2 diabetes mellitus"
     assert semaglutide.phase == 4.0
     assert semaglutide.status is None
-    assert (
-        semaglutide.mechanism_of_action
-        == "Glucagon-like peptide 1 receptor agonist"
-    )
+    assert semaglutide.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
     assert semaglutide.clinical_trial_ids == []

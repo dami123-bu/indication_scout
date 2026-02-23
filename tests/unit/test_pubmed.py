@@ -5,7 +5,6 @@ import pytest
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.pubmed import PubMedClient
 
-
 # --- _parse_pubmed_xml ---
 
 

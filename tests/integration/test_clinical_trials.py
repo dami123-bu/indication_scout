@@ -35,9 +35,7 @@ async def test_get_landscape(clinical_trials_client):
 
     # Verify ConditionLandscape.recent_starts - find a known 2024+ trial
     assert len(landscape.recent_starts) >= 1
-    [tradipitant] = [
-        rs for rs in landscape.recent_starts if rs.nct_id == "NCT06836557"
-    ]
+    [tradipitant] = [rs for rs in landscape.recent_starts if rs.nct_id == "NCT06836557"]
     assert tradipitant.nct_id == "NCT06836557"
     assert tradipitant.sponsor == "Vanda Pharmaceuticals"
     assert tradipitant.drug == "Tradipitant"
@@ -323,10 +321,7 @@ async def test_get_terminated(clinical_trials_client):
     assert novo_trial.drug_name == "Semaglutide (administered by DV3396 pen)"
     assert novo_trial.condition == "Overweight"
     assert novo_trial.phase == "Phase 1"
-    assert (
-        novo_trial.why_stopped
-        == "The trial was terminated for strategic reasons."
-    )
+    assert novo_trial.why_stopped == "The trial was terminated for strategic reasons."
     assert novo_trial.stop_category == "business"
     assert novo_trial.enrollment == 29
     assert novo_trial.sponsor == "Novo Nordisk A/S"
@@ -345,7 +340,9 @@ async def test_detect_whitespace(clinical_trials_client):
     When is_whitespace=False, condition_drugs is empty.
     """
     # Tirzepatide + Huntington disease = whitespace (no exact matches)
-    result = await clinical_trials_client.detect_whitespace("tirzepatide", "Huntington disease")
+    result = await clinical_trials_client.detect_whitespace(
+        "tirzepatide", "Huntington disease"
+    )
 
     # Verify WhitespaceResult fields
     assert result.is_whitespace is True
@@ -370,9 +367,7 @@ async def test_detect_whitespace(clinical_trials_client):
     assert result.condition_drugs[2].phase == "Phase 4"
 
     # Find Memantine (Phase 4 completed trial) and verify all ConditionDrug fields
-    [memantine] = [
-        cd for cd in result.condition_drugs if cd.drug_name == "Memantine"
-    ]
+    [memantine] = [cd for cd in result.condition_drugs if cd.drug_name == "Memantine"]
     assert memantine.nct_id == "NCT00652457"
     assert memantine.drug_name == "Memantine"
     assert memantine.condition == "Huntington's Disease"
@@ -430,7 +425,9 @@ async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_clie
 
 
 @pytest.mark.asyncio
-async def test_search_trials_nonexistent_condition_returns_empty(clinical_trials_client):
+async def test_search_trials_nonexistent_condition_returns_empty(
+    clinical_trials_client,
+):
     """Test that a nonexistent condition returns empty list."""
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
@@ -456,7 +453,9 @@ async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
 
 
 @pytest.mark.asyncio
-async def test_get_landscape_nonexistent_condition_returns_empty(clinical_trials_client):
+async def test_get_landscape_nonexistent_condition_returns_empty(
+    clinical_trials_client,
+):
     """Test that nonexistent condition returns empty landscape."""
     landscape = await clinical_trials_client.get_landscape(
         "xyzzy_fake_condition_99999", top_n=10
@@ -492,7 +491,9 @@ async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_
 
 
 @pytest.mark.asyncio
-async def test_detect_whitespace_nonexistent_condition_is_whitespace(clinical_trials_client):
+async def test_detect_whitespace_nonexistent_condition_is_whitespace(
+    clinical_trials_client,
+):
     """Test that nonexistent condition returns is_whitespace=True."""
     result = await clinical_trials_client.detect_whitespace(
         "semaglutide", "xyzzy_fake_disease_99999"

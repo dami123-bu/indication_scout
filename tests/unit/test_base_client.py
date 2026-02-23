@@ -86,9 +86,7 @@ async def test_graphql_errors_in_response_raises_datasource_error():
 @pytest.mark.asyncio
 async def test_rest_get_xml_returns_xml_text_on_success():
     """Test _rest_get_xml returns raw text for a 200 response."""
-    xml_body = (
-        "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
-    )
+    xml_body = "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
     mock_resp = AsyncMock()
     mock_resp.status = 200
     mock_resp.text = AsyncMock(return_value=xml_body)
@@ -151,9 +149,7 @@ async def test_rest_get_xml_retries_on_5xx_then_succeeds():
             "indication_scout.data_sources.base_client.asyncio.sleep",
             new_callable=AsyncMock,
         ):
-            result = await client._rest_get_xml(
-                "https://example.com/xml", params={}
-            )
+            result = await client._rest_get_xml("https://example.com/xml", params={})
 
     assert result == xml_body
     assert mock_session.get.call_count == 2

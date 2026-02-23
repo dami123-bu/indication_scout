@@ -7,7 +7,6 @@ from indication_scout.data_sources.clinical_trials import (
     _classify_stop_reason,
 )
 
-
 # --- _classify_stop_reason keyword-based classification ---
 
 
