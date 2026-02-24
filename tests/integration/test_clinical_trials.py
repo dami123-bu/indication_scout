@@ -174,7 +174,7 @@ async def test_search_trials_drug_only(clinical_trials_client):
     # Search for semaglutide trials across all conditions
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
-        max_results=50,
+        max_results=300,
     )
 
     # Semaglutide has many trials across diabetes, obesity, NASH, etc.

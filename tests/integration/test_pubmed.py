@@ -27,12 +27,12 @@ async def test_get_count_returns_total(pubmed_client):
 
 @pytest.mark.asyncio
 async def test_fetch_articles_parses_correctly(pubmed_client):
-    """Test fetch_articles returns parsed PubMedArticle objects."""
+    """Test fetch_articles returns parsed PubmedAbstract objects."""
     # First search for a known article
     pmids = await pubmed_client.search(
         "semaglutide obesity clinical trial", max_results=5
     )
-    articles = await pubmed_client.fetch_articles(pmids)
+    articles = await pubmed_client.fetch_abstracts(pmids)
 
     assert len(articles) == 5
 
@@ -47,7 +47,7 @@ async def test_fetch_articles_parses_correctly(pubmed_client):
 async def test_fetch_specific_article(pubmed_client):
     """Test fetching a specific known article by PMID."""
     # PMID 27633186 - SUSTAIN-6 semaglutide cardiovascular trial (NEJM 2016)
-    articles = await pubmed_client.fetch_articles(["27633186"])
+    articles = await pubmed_client.fetch_abstracts(["27633186"])
 
     assert len(articles) == 1
     article = articles[0]
@@ -63,7 +63,7 @@ async def test_fetch_specific_article(pubmed_client):
 @pytest.mark.asyncio
 async def test_fetch_articles_empty_list_returns_empty(pubmed_client):
     """Test that fetching empty list returns empty list."""
-    articles = await pubmed_client.fetch_articles([])
+    articles = await pubmed_client.fetch_abstracts([])
 
     assert articles == []
 
@@ -101,7 +101,7 @@ async def test_search_empty_query_returns_empty(pubmed_client):
 @pytest.mark.asyncio
 async def test_fetch_articles_invalid_pmid_returns_empty(pubmed_client):
     """Test that invalid PMIDs return empty list (no matching articles)."""
-    articles = await pubmed_client.fetch_articles(["99999999999"])
+    articles = await pubmed_client.fetch_abstracts(["99999999999"])
 
     # Invalid PMID returns no articles
     assert articles == []

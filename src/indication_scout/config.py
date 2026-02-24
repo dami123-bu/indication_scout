@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database
-    database_url: str = "sqlite:///./indication_scout.db"
+    database_url: str
+    db_password: str
 
     # API Keys
     openai_api_key: str = ""

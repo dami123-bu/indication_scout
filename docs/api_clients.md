@@ -174,7 +174,7 @@ from indication_scout.data_sources.pubmed import PubMedClient
 async with PubMedClient() as client:
     # Search and fetch
     pmids = await client.search("semaglutide diabetes", max_results=10)
-    articles = await client.fetch_articles(pmids)
+    articles = await client.fetch_abstracts(pmids)
 
     for article in articles:
         print(f"[{article.pmid}] {article.title}")

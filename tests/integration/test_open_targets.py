@@ -455,10 +455,10 @@ async def test_surfacing_pipeline(open_targets_client, pubmed_client):
     top_10 = await open_targets_client.get_drug_competitors(drug_name)
 
     for disease in top_10:
-        query = get_pubmed_query(drug_name, disease)
+        query = await get_pubmed_query(drug_name, disease)
         # query = f"{name} AND {disease}"
         pmids = await pubmed_client.search(query, max_results=10)
-        articles = await pubmed_client.fetch_articles(pmids)
+        articles = await pubmed_client.fetch_abstracts(pmids)
 
         assert query
 
