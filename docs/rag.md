@@ -2,183 +2,71 @@
 
 ## Why RAG Is Needed
 
-During Path 2 validation testing, we confirmed that PubMed returns ~100 papers per drug-disease query, but many are irrelevant. For example, searching `bupropion AND obesity` returns depression papers that incidentally mention obesity — burying the papers about bupropion as an actual *treatment* for obesity.
+PubMed keyword search returns many irrelevant papers. Searching `bupropion AND obesity` returns depression
+papers that incidentally mention obesity — burying the papers about bupropion as an actual *treatment* for
+obesity.
 
-The RAG pipeline solves this by embedding and reranking retrieved abstracts so the Literature Agent receives the most relevant papers, not just keyword matches.
+The RAG pipeline solves this by embedding and reranking retrieved abstracts so the Literature Agent
+receives the most relevant papers, not just keyword matches.
 
 **Confirmed empirically with:**
 - Bupropion → obesity: papers about immunometabolic depression dominated results; the actual Contrave (naltrexone/bupropion) papers were buried
 - Sildenafil → diabetic nephropathy: needed reranking to separate PDE5-specific evidence from noisy non-selective PDE inhibitor literature
 - Baricitinib → myelofibrosis: needed reranking to distinguish JAK1/2 inhibition therapeutic context from general oncology mentions
 
+The steps are
+- Given a drug+disease , query an llm to get relevant terms
+- Convert the papers into embeddings and put into pgvector
+- Create a query from drug+disease , embed, and search over pgvector to get most relevant
+- Convert these top papers into EvidenceSummary objects
+
+Notes:
+e.g. "Metformin + colorectal" should include things like 
+"metformin AND colorectal neoplasm"   
+"biguanide AND colorectal"
+
+For the query to the LLM, we need to send entire Drug object
+Should include - the mechanism, drug class, ATC codes, synonyms
+
 ---
 
-## Architecture Overview
+## The RAG Loop
+
+**fetch → embed → search → stuff into prompt → generate grounded summary**
+
+1. **Expand search terms** — given a drug+disease, query an LLM with the full Drug object (mechanism, drug class, ATC codes, synonyms) to generate diverse PubMed keyword queries. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, …
+2. **Fetch & cache** — hit PubMed E-utilities with each query (up to 500 PMIDs), fetch abstracts for any not already stored, embed with BioLORD-2023, store in pgvector
+3. **Semantic search** — embed the drug+disease query with BioLORD-2023, run cosine similarity over pgvector, return top 20 abstracts. Finds conceptually relevant papers even without exact keyword matches (e.g. "biguanide antineoplastic mechanisms" matches a metformin/cancer query)
+4. **Re-rank** — reduce top 20 → top 5 using a cross-encoder or LLM reranker
+5. **Augment + generate** — stuff the top 5 abstracts into a Claude prompt. Claude reads the actual retrieved papers, not training data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim — every finding is traceable to a real paper
 
 ```
-PubMed E-utilities
-       │
+PubMed E-utilities (keyword search)
+       │  up to 500 PMIDs
        ▼
 ┌──────────────────┐
-│  Fetch abstracts  │  (existing PubMed client)
-│  for drug+disease │
+│  fetch_and_cache  │  Fetch abstracts for new PMIDs only
+│                   │  Embed with BioLORD-2023 (768-dim)
+│                   │  Store in pgvector (deduplicate by PMID)
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
-│  Store in         │  PostgreSQL + pgvector
-│  pgvector cache   │  (deduplicate by PMID)
+│  semantic_search  │  Embed query with BioLORD-2023
+│                   │  Cosine similarity over pgvector → top 20
+│                   │  Re-rank → top 5 (cross-encoder or LLM)
 └────────┬─────────┘
-         │
+         │  top 5 abstracts (title + abstract + PMID)
          ▼
 ┌──────────────────┐
-│  Embed abstracts  │  Voyage AI or OpenAI embeddings
-│  + embed query    │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  Vector similarity│  Cosine similarity reranking
-│  reranking        │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  Top-k papers to  │  Feed to Literature Agent
-│  Literature Agent │  for LLM synthesis (Claude)
+│  Synthesize       │  
+│  EvidenceSummary  │  
+│  objects          │
+│                   │  Output: EvidenceSummary
+│                   │  Every claim is attached to a PMID,
+│                   │  traceable back to a real paper.
 └──────────────────┘
 ```
-
----
-
-## Components
-
-### 1. PostgreSQL + pgvector (Abstract Cache + Vector Store)
-
-Serves two purposes:
-- **Caching**: Avoid re-fetching the same PubMed abstracts across runs. Deduplicate by PMID.
-- **Vector search**: Store embeddings alongside abstracts for semantic retrieval.
-
-**Proposed schema:**
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE pubmed_abstracts (
-    pmid          TEXT PRIMARY KEY,
-    title         TEXT NOT NULL,
-    abstract      TEXT,
-    authors       TEXT[],
-    journal       TEXT,
-    pub_date      TEXT,
-    mesh_terms    TEXT[],
-    keywords      TEXT[],
-    embedding     vector(1024),   -- dimension depends on embedding model
-    fetched_at    TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX ON pubmed_abstracts USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
-
--- Track which drug-disease queries have been run
-CREATE TABLE search_queries (
-    id            SERIAL PRIMARY KEY,
-    drug_name     TEXT NOT NULL,
-    disease_name  TEXT NOT NULL,
-    pubmed_query  TEXT NOT NULL,
-    pmids         TEXT[],
-    searched_at   TIMESTAMP DEFAULT NOW(),
-    UNIQUE(drug_name, disease_name)
-);
-```
-
-**Why pgvector over a dedicated vector DB (Pinecone, Weaviate, etc.):**
-- Single infrastructure dependency (Postgres already needed)
-- Abstracts are small enough (~10k-50k total across all drugs) that pgvector performance is fine
-- Simpler Docker setup: one `postgres:16` container with `pgvector` extension
-
-### 2. Embedding API
-
-**Options discussed:**
-- **Voyage AI** (`voyage-3`) — optimized for scientific/biomedical retrieval
-- **OpenAI** (`text-embedding-3-small` or `text-embedding-3-large`)
-
-The embedding model encodes both the PubMed abstracts (stored in pgvector) and the retrieval query at search time.
-
-**Query formulation for embedding:**
-The query should encode the therapeutic intent, not just keywords. For example:
-- Keyword query: `"bupropion AND obesity"`
-- Embedding query: `"Evidence for bupropion as a treatment for obesity, including clinical trials, efficacy data, and mechanism of action"`
-
-This semantic framing is what separates papers about bupropion *treating* obesity from papers that mention both words in a depression context.
-
-### 3. Retrieval + Reranking Flow
-
-```python
-async def retrieve_and_rerank(
-    drug_name: str,
-    disease_name: str,
-    pubmed_query: str,
-    top_k: int = 10
-) -> list[PubMedArticle]:
-    """
-    1. Check cache for existing results
-    2. If miss, fetch from PubMed (up to 100 abstracts)
-    3. Store abstracts + embeddings in pgvector
-    4. Embed the therapeutic query
-    5. Rerank by cosine similarity
-    6. Return top-k
-    """
-    
-    # Step 1: Check if we've already fetched for this drug-disease pair
-    cached = await check_search_cache(drug_name, disease_name)
-    if not cached:
-        # Step 2: Fetch from PubMed
-        articles = await pubmed_client.search(pubmed_query, max_results=100)
-        
-        # Step 3: Embed and store
-        for article in articles:
-            if not await abstract_exists(article.pmid):
-                embedding = await embed(article.title + " " + article.abstract)
-                await store_abstract(article, embedding)
-        
-        await record_search(drug_name, disease_name, pubmed_query, 
-                          [a.pmid for a in articles])
-    
-    # Step 4: Build therapeutic query embedding
-    therapeutic_query = (
-        f"Evidence for {drug_name} as a treatment for {disease_name}, "
-        f"including clinical trials, efficacy, mechanism of action, "
-        f"and therapeutic outcomes"
-    )
-    query_embedding = await embed(therapeutic_query)
-    
-    # Step 5: Vector similarity search over cached PMIDs
-    pmids = await get_cached_pmids(drug_name, disease_name)
-    results = await vector_search(query_embedding, pmids, top_k=top_k)
-    
-    return results
-```
-
-### 4. Disease Name Normalization (Pre-RAG Step)
-
-Open Targets EFO disease names don't always match PubMed indexing. Confirmed issues:
-- `"narcolepsy-cataplexy syndrome"` → PubMed needs `"narcolepsy"`
-- `"eczematoid dermatitis"` → PubMed needs `"atopic dermatitis"`
-- `"type 2 diabetes nephropathy"` → PubMed needs `"diabetic nephropathy"`
-
-**Solution:** One LLM call (Claude Haiku) per candidate disease before PubMed search:
-
-```python
-async def normalize_disease_for_pubmed(efo_disease_name: str) -> str:
-    prompt = f"""Convert this disease name to the best PubMed search query.
-    Return ONLY the search term, nothing else.
-    Disease: {efo_disease_name}"""
-    
-    return await haiku_call(prompt)
-```
-
-Run for all 10 candidates upfront — 10 cheap Haiku calls. No retry logic, no synonym explosion. The LLM already knows the PubMed-friendly terms.
 
 ---
 
@@ -204,12 +92,7 @@ Run for all 10 candidates upfront — 10 cheap Haiku calls. No retry logic, no s
     ┌─────────────────────────────┐
     │     For each candidate:      │
     │                              │
-    │  1. Normalize disease name   │  ← LLM (Haiku)
-    │  2. PubMed search            │  ← Existing client
-    │  3. RAG rerank               │  ← pgvector + embeddings
-    │  4. Literature Agent synth.  │  ← LLM (Claude)
-    │  5. Clinical Trial search    │  ← Existing client
-    │  6. Trial Agent synthesis    │  ← LLM (Claude)
+    │     RAG processing steps     │
     │                              │
     └─────────────┬────────────────┘
                   │
@@ -221,53 +104,8 @@ Run for all 10 candidates upfront — 10 cheap Haiku calls. No retry logic, no s
           └────────────────┘
 ```
 
-The RAG pipeline sits between raw PubMed retrieval and the Literature Agent. It does not change the discovery logic (Path 1 / Path 2) — it improves the quality of evidence presented to the LLM for synthesis.
-
----
-
-## Infrastructure Setup (Docker)
-
-```yaml
-# docker-compose.yml addition
-services:
-  db:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: indication_scout
-      POSTGRES_USER: scout
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
-```
-
----
-
-## Sprint Mapping
-
-| Task | Sprint | Status |
-|------|--------|--------|
-| Docker + pgvector setup | Sprint 1 | Not started |
-| Abstract caching schema | Sprint 1 | Not started |
-| Embedding integration (Voyage/OpenAI) | Sprint 1 | Not started |
-| Reranking function | Sprint 1-2 | Not started |
-| Disease name normalization (Haiku) | Sprint 2 | Not started |
-| Literature Agent integration | Sprint 2 | Not started |
-| Full pipeline wiring via LangGraph | Sprint 2-3 | Not started |
-
----
-
-## Key Design Decisions
-
-1. **pgvector over dedicated vector DB** — simplicity; dataset is small enough (~10k-50k abstracts)
-2. **Therapeutic query framing** — embed intent ("evidence for X as treatment for Y") not just keywords
-3. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
-4. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
-5. **Rerank within PubMed result set** — not open-ended vector search across all stored abstracts; scope reranking to the PMIDs returned by the drug-disease PubMed query
+The RAG pipeline sits between raw PubMed retrieval and the Literature Agent. It does not change the
+discovery logic (Path 1 / Path 2) — it improves the quality of evidence presented to the LLM for synthesis.
 
 ---
 
@@ -282,3 +120,7 @@ These drug-disease pairs confirmed that PubMed has signal but reranking is neede
 | Sildenafil | BPH | Confirmed signal (PMID 40678732, 38448685) but mixed with erectile dysfunction papers |
 | Sildenafil | Diabetic nephropathy | Needed reranking to separate PDE5-specific from non-selective PDE literature |
 | Baricitinib | Eczematoid dermatitis | EFO name doesn't match PubMed indexing (`atopic dermatitis`) |
+
+---
+
+See [rag_details.md](rag_details.md) for schema, embedding model, stage specifications, infrastructure, and design decisions.
