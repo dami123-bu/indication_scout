@@ -51,6 +51,18 @@
 
 ---
 
+## Composite objects
+
+| Model | Returned by | Description |
+|---|---|---|
+| `RichDrugData` | `get_rich_drug_data(drug_name)` | `DrugData` + `list[TargetData]` for all of the drug's targets, fetched in parallel |
+
+`RichDrugData` fields:
+- `drug: DrugData` — full drug node
+- `targets: list[TargetData]` — one `TargetData` per `DrugTarget` in `drug.targets`, in the same order
+
+---
+
 ## Standalone (returned directly by methods)
 
 | Model | Returned by | Description |

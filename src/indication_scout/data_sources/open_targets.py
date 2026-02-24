@@ -8,6 +8,7 @@ Two primary methods:
 Plus convenience accessors for specific target data slices.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -45,6 +46,7 @@ from indication_scout.models.model_open_targets import (
     SafetyLiability,
     SafetyEffect,
     DiseaseSynonyms,
+    RichDrugData,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,8 +108,16 @@ class OpenTargetsClient(BaseClient):
         )
 
     # ------------------------------------------------------------------
-    # Public: get_drug and get_target
+    # Public: get_drug and get_target and get_rich_drug_data
     # ------------------------------------------------------------------
+
+    async def get_rich_drug_data(self, drug_name: str) -> RichDrugData:
+        """Fetch drug data and all associated target data in parallel."""
+        drug = await self.get_drug(drug_name)
+        targets = await asyncio.gather(
+            *[self.get_target_data(t.target_id) for t in drug.targets]
+        )
+        return RichDrugData(drug=drug, targets=list(targets))
 
     async def get_drug(self, drug_name: str) -> DrugData:
         """Fetch drug data by name."""
@@ -246,14 +256,31 @@ class OpenTargetsClient(BaseClient):
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
+        cached = self._cache_get("disease_drugs", {"disease_id": disease_id})
+        if cached:
+            return [DrugSummary.model_validate(d) for d in cached]
+
         data = await self._graphql(
             self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
         )
-        return self._parse_disease_drugs(data["data"])
+        result = self._parse_disease_drugs(data["data"])
+
+        self._cache_set(
+            "disease_drugs",
+            {"disease_id": disease_id},
+            [d.model_dump() for d in result],
+        )
+
+        return result
 
     async def get_disease_synonyms(self, disease_name: str) -> DiseaseSynonyms:
         """Fetch exact and related synonyms for a disease by name."""
         disease_id = await self._resolve_disease_name(disease_name)
+
+        cached = self._cache_get("disease_synonyms", {"disease_id": disease_id})
+        if cached:
+            return DiseaseSynonyms.model_validate(cached)
+
         data = await self._graphql(
             self.BASE_URL, DISEASE_SYNONYMS_QUERY, {"id": disease_id}
         )
@@ -277,12 +304,20 @@ class OpenTargetsClient(BaseClient):
 
         parent_names = [p["name"] for p in raw_disease.get("parents", []) or []]
 
-        return DiseaseSynonyms(
+        result = DiseaseSynonyms(
             disease_id=raw_disease["id"],
             disease_name=raw_disease["name"],
             parent_names=parent_names,
             **grouped,
         )
+
+        self._cache_set(
+            "disease_synonyms",
+            {"disease_id": disease_id},
+            result.model_dump(),
+        )
+
+        return result
 
     # ------------------------------------------------------------------
     # Private: network calls

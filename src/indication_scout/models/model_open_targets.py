@@ -200,7 +200,6 @@ class DiseaseSynonyms(BaseModel):
         return self.exact + self.related + self.parent_names
 
 
-
 class DrugWarning(BaseModel):
     """Black box warning or withdrawal."""
 
@@ -254,3 +253,15 @@ class DrugData(BaseModel):
     def investigated_disease_ids(self) -> set[str]:
         """All disease IDs being actively investigated (any phase)."""
         return {i.disease_id for i in self.indications}
+
+
+class RichDrugData(BaseModel):
+    """DrugData combined with full TargetData for each of its targets.
+
+    Returned by get_rich_drug_data(). Provides everything Open Targets knows
+    about a drug and all its targets in a single object, for use by agents
+    that need both drug-level and target-level data without making multiple calls.
+    """
+
+    drug: DrugData
+    targets: list[TargetData]
