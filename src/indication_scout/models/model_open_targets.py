@@ -135,7 +135,13 @@ class GeneticConstraint(BaseModel):
 
 
 class DrugSummary(BaseModel):
-    """A drug known to act on this target, with indication and phase info."""
+    """A drug known to act on this target, with indication and phase info.
+
+    Target-centric view of a drug — lives inside TargetData.drug_summaries.
+    Inverse of DrugData: if get_target("GLP1R") returns a TargetData, its
+    drug_summaries will include semaglutide, liraglutide, etc. The shared key
+    with DrugData is drug_id (ChEMBL ID).
+    """
 
     drug_id: str  # ChEMBL ID
     drug_name: str
@@ -224,7 +230,14 @@ class Indication(BaseModel):
 
 
 class DrugData(BaseModel):
-    """Everything Open Targets knows about a drug. Populated once by get_drug()."""
+    """Everything Open Targets knows about a drug. Populated once by get_drug().
+
+    Drug-centric view — queried by drug name. Contains the drug's targets,
+    indications, warnings, and adverse events. Inverse of DrugSummary: a drug's
+    targets list the same relationships that TargetData.drug_summaries captures
+    from the target side. Shared key with DrugSummary is chembl_id / drug_id.
+    Mechanism of action is not a top-level field; access it via targets[i].mechanism_of_action.
+    """
 
     chembl_id: str
     name: str
