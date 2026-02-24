@@ -353,8 +353,6 @@ phenotypes = await client.get_target_data_mouse_phenotypes(target_id)
 safety = await client.get_target_data_safety_liabilities(target_id)
 constraints = await client.get_target_data_genetic_constraints(target_id)
 
-# Drug-specific accessor
-indications = await client.get_drug_indications(drug_name)
 ```
 
 ---

@@ -49,9 +49,8 @@ from indication_scout.data_sources.open_targets import OpenTargetsClient
 | Method | Description | Returns |
 |--------|-------------|---------|
 | `get_drug(name)` | Fetch drug data by name | `DrugData` |
-| `get_drug_indications(name)` | Get approved/investigational indications | `list[Indication]` |
 | `get_target_data(target_id)` | Fetch target data by Ensembl ID | `TargetData` |
-| `get_disease_drugs(disease_id)` | Get drugs for a disease | `list[DrugSummary]` |
+| `get_disease_drugs(disease_id)` | Get drugs for a disease | `list[DiseaseDrug]` |
 
 ### Convenience Accessors
 
@@ -62,7 +61,7 @@ These methods call `get_target_data()` and return a specific slice:
 | `get_target_data_associations(target_id, min_score)` | `list[Association]` |
 | `get_target_data_pathways(target_id)` | `list[Pathway]` |
 | `get_target_data_interactions(target_id)` | `list[Interaction]` |
-| `get_target_data_drug_summaries(target_id)` | `list[DrugSummary]` |
+| `get_target_data_drug_summaries(target_id)` | `list[TargetDrug]` |
 | `get_target_data_tissue_expression(target_id)` | `list[TissueExpression]` |
 | `get_target_data_mouse_phenotypes(target_id)` | `list[MousePhenotype]` |
 | `get_target_data_safety_liabilities(target_id)` | `list[SafetyLiability]` |
@@ -174,7 +173,7 @@ from indication_scout.data_sources.pubmed import PubMedClient
 async with PubMedClient() as client:
     # Search and fetch
     pmids = await client.search("semaglutide diabetes", max_results=10)
-    articles = await client.fetch_abstracts(pmids)
+    articles = await client.fetch_articles(pmids)
 
     for article in articles:
         print(f"[{article.pmid}] {article.title}")

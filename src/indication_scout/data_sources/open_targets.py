@@ -244,6 +244,46 @@ class OpenTargetsClient(BaseClient):
         target = await self.get_target_data(target_id)
         return target.genetic_constraint
 
+    async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
+        """All drugs for a disease, any target, any mechanism."""
+        data = await self._graphql(
+            self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
+        )
+        return self._parse_disease_drugs(data["data"])
+
+    async def get_disease_synonyms(self, disease_name: str) -> DiseaseSynonyms:
+        """Fetch exact and related synonyms for a disease by name."""
+        disease_id = await self._resolve_disease_name(disease_name)
+        data = await self._graphql(
+            self.BASE_URL, DISEASE_SYNONYMS_QUERY, {"id": disease_id}
+        )
+        raw_disease = data["data"]["disease"]
+        if raw_disease is None:
+            raise DataSourceError(
+                self._source_name,
+                f"No disease found for '{disease_name}'",
+            )
+        relation_map: dict[str, str] = {
+            "hasExactSynonym": "exact",
+            "hasRelatedSynonym": "related",
+            "hasNarrowSynonym": "narrow",
+            "hasBroadSynonym": "broad",
+        }
+        grouped: dict[str, list[str]] = {v: [] for v in relation_map.values()}
+        for entry in raw_disease.get("synonyms", []) or []:
+            field = relation_map.get(entry.get("relation", ""))
+            if field:
+                grouped[field].extend(entry.get("terms", []) or [])
+
+        parent_names = [p["name"] for p in raw_disease.get("parents", []) or []]
+
+        return DiseaseSynonyms(
+            disease_id=raw_disease["id"],
+            disease_name=raw_disease["name"],
+            parent_names=parent_names,
+            **grouped,
+        )
+
     # ------------------------------------------------------------------
     # Private: network calls
     # ------------------------------------------------------------------
@@ -552,46 +592,6 @@ class OpenTargetsClient(BaseClient):
             oe_upper=raw.get("oeUpper"),
             score=raw.get("score"),
             upper_bin=raw.get("upperBin"),
-        )
-
-    async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
-        """All drugs for a disease, any target, any mechanism."""
-        data = await self._graphql(
-            self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
-        )
-        return self._parse_disease_drugs(data["data"])
-
-    async def get_disease_synonyms(self, disease_name: str) -> DiseaseSynonyms:
-        """Fetch exact and related synonyms for a disease by name."""
-        disease_id = await self._resolve_disease_name(disease_name)
-        data = await self._graphql(
-            self.BASE_URL, DISEASE_SYNONYMS_QUERY, {"id": disease_id}
-        )
-        raw_disease = data["data"]["disease"]
-        if raw_disease is None:
-            raise DataSourceError(
-                self._source_name,
-                f"No disease found for '{disease_name}'",
-            )
-        relation_map: dict[str, str] = {
-            "hasExactSynonym": "exact",
-            "hasRelatedSynonym": "related",
-            "hasNarrowSynonym": "narrow",
-            "hasBroadSynonym": "broad",
-        }
-        grouped: dict[str, list[str]] = {v: [] for v in relation_map.values()}
-        for entry in raw_disease.get("synonyms", []) or []:
-            field = relation_map.get(entry.get("relation", ""))
-            if field:
-                grouped[field].extend(entry.get("terms", []) or [])
-
-        parent_names = [p["name"] for p in raw_disease.get("parents", []) or []]
-
-        return DiseaseSynonyms(
-            disease_id=raw_disease["id"],
-            disease_name=raw_disease["name"],
-            parent_names=parent_names,
-            **grouped,
         )
 
     def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:

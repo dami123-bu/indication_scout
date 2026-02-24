@@ -200,14 +200,6 @@ class DiseaseSynonyms(BaseModel):
         return self.exact + self.related + self.parent_names
 
 
-class DiseaseDrug(BaseModel):
-    """A drug being developed for a specific disease, from the disease node."""
-
-    drug_id: str
-    drug_name: str
-    mechanism_of_action: str
-    max_phase: float
-
 
 class DrugWarning(BaseModel):
     """Black box warning or withdrawal."""
