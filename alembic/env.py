@@ -7,6 +7,7 @@ from alembic import context
 
 from indication_scout.db.base import Base
 from indication_scout.config import get_settings
+import indication_scout.sqlalchemy.pubmed_abstracts  # noqa: F401 — registers models with Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
