@@ -495,6 +495,138 @@ async def test_drug_target_competitors(open_targets_client):
     assert isinstance(liraglutide.clinical_trial_ids, list)
 
 
+# --- get_rich_drug_data ---
+
+
+@pytest.mark.asyncio
+async def test_get_rich_drug_data_semaglutide(open_targets_client):
+    """Test RichDrugData for semaglutide: all DrugData fields, all TargetData fields for GLP1R."""
+    result = await open_targets_client.get_rich_drug_data("semaglutide")
+
+    # --- RichDrugData structure ---
+    assert len(result.targets) == len(result.drug.targets)
+
+    # --- DrugData fields ---
+    drug = result.drug
+    assert drug.chembl_id == "CHEMBL2108724"
+    assert drug.name == "SEMAGLUTIDE"
+    assert "NN-9535" in drug.synonyms
+    assert "Ozempic" in drug.trade_names
+    assert "Wegovy" in drug.trade_names
+    assert drug.drug_type == "Protein"
+    assert drug.is_approved is True
+    assert drug.max_clinical_phase == 4.0
+    assert drug.year_first_approved == 2017
+    assert len(drug.indications) > 5
+    assert len(drug.targets) > 0
+    assert len(drug.adverse_events) > 5
+    assert 38.5 < drug.adverse_events_critical_value < 38.6
+    assert len(drug.warnings) == 1
+
+    # DrugTarget — GLP1R
+    glp1r_target = next(t for t in drug.targets if t.target_symbol == "GLP1R")
+    assert glp1r_target.target_id == "ENSG00000112164"
+    assert glp1r_target.target_symbol == "GLP1R"
+    assert (
+        glp1r_target.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
+    )
+    assert glp1r_target.action_type == "AGONIST"
+
+    # Indication — type 2 diabetes mellitus
+    t2d = next(
+        i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus"
+    )
+    assert t2d.disease_id == "MONDO_0005148"
+    assert t2d.disease_name == "type 2 diabetes mellitus"
+    assert t2d.max_phase == 4.0
+    assert len(t2d.references) == 4
+    fda_ref = next(r for r in t2d.references if r["source"] == "FDA")
+    assert "label/2017/209637lbl.pdf" in fda_ref["ids"]
+
+    # DrugWarning — single warning for semaglutide
+    [warning] = drug.warnings
+    assert warning.warning_type == "Black Box Warning"
+
+    # AdverseEvent — pick a known one
+    nausea = next(ae for ae in drug.adverse_events if ae.name == "nausea")
+    assert nausea.name == "nausea"
+    assert nausea.count > 0
+    assert nausea.log_likelihood_ratio > 300
+
+    # --- GLP1R TargetData — all fields ---
+    glp1r = next(t for t in result.targets if t.target_id == "ENSG00000112164")
+    assert glp1r.target_id == "ENSG00000112164"
+    assert glp1r.symbol == "GLP1R"
+    assert glp1r.name == "glucagon like peptide 1 receptor"
+    assert len(glp1r.associations) > 10
+    assert len(glp1r.drug_summaries) > 5
+    assert len(glp1r.expressions) > 0
+    assert len(glp1r.mouse_phenotypes) > 5
+    assert len(glp1r.pathways) > 0
+    assert len(glp1r.interactions) > 0
+
+    # Association — gastroparesis
+    gastroparesis = next(
+        a for a in glp1r.associations if a.disease_name == "gastroparesis"
+    )
+    assert gastroparesis.disease_id == "EFO_1000948"
+    assert gastroparesis.disease_name == "gastroparesis"
+    assert gastroparesis.overall_score > 0.2
+    assert 0.4 < gastroparesis.datatype_scores["genetic_association"] < 0.5
+    assert 0.2 < gastroparesis.datatype_scores["literature"] < 0.3
+    assert "gastrointestinal disease" in gastroparesis.therapeutic_areas
+
+    # DrugSummary — semaglutide on GLP1R for type 2 diabetes mellitus
+    sema_summary = next(
+        d
+        for d in glp1r.drug_summaries
+        if d.drug_name == "SEMAGLUTIDE" and d.disease_name == "type 2 diabetes mellitus"
+    )
+    assert sema_summary.drug_id == "CHEMBL2108724"
+    assert sema_summary.drug_name == "SEMAGLUTIDE"
+    assert sema_summary.disease_id == "MONDO_0005148"
+    assert sema_summary.disease_name == "type 2 diabetes mellitus"
+    assert sema_summary.phase == 4.0
+    assert sema_summary.status is None
+    assert (
+        sema_summary.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
+    )
+    assert sema_summary.clinical_trial_ids == []
+
+    # MousePhenotype — increased fasting circulating glucose level
+    glucose_phenotype = next(
+        p for p in glp1r.mouse_phenotypes if p.phenotype_id == "MP:0013279"
+    )
+    assert glucose_phenotype.phenotype_id == "MP:0013279"
+    assert (
+        glucose_phenotype.phenotype_label
+        == "increased fasting circulating glucose level"
+    )
+    assert "homeostasis/metabolism phenotype" in glucose_phenotype.phenotype_categories
+    assert len(glucose_phenotype.biological_models) == 1
+    [bio_model] = glucose_phenotype.biological_models
+    assert bio_model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
+    assert bio_model.genetic_background == "C57BL/6NTac"
+    assert bio_model.literature == []
+    assert bio_model.model_id == ""
+
+    # Interaction — pick a STRING interaction
+    string_interaction = next(
+        i for i in glp1r.interactions if i.source_database == "string"
+    )
+    assert string_interaction.interacting_target_id == "ENSG00000115263"
+    assert string_interaction.interacting_target_symbol != ""
+    assert string_interaction.source_database == "string"
+    assert string_interaction.interaction_type == "functional"
+    assert string_interaction.evidence_count > 0
+
+    # Pathway — R-HSA-420092
+    [pathway] = [p for p in glp1r.pathways if p.pathway_id == "R-HSA-420092"]
+    assert pathway.pathway_id == "R-HSA-420092"
+    assert pathway.pathway_name == "Glucagon-type ligand receptors"
+    assert pathway.top_level_pathway == "Signal Transduction"
+
+
 # TODO rework
 @pytest.mark.asyncio
 async def test_get_drug_target_competitors_semaglutide(open_targets_client):
