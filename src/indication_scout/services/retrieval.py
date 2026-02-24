@@ -6,7 +6,7 @@ async def fetch_and_cache(queries: list[str]) -> list[str]:
     raise NotImplementedError
 
 
-async def semantic_search(disease: str, drug:str,  top_k: int = 20) -> list[dict]:
+async def semantic_search(disease: str, drug: str, top_k: int = 20) -> list[dict]:
     """Create a query from drug + disease, embed it, search pgvector, return ranked abstracts.
     [
         {"pmid": "29734553", "title": "Metformin suppresses colorectal...", "abstract": "...", "similarity": 0.89},
@@ -16,6 +16,7 @@ async def semantic_search(disease: str, drug:str,  top_k: int = 20) -> list[dict
     ]
     """
     raise NotImplementedError
+
 
 def synthesize(drug, disease, top_5_abstracts):
     """get back a structured evidence summary with PMIDs

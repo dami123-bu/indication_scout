@@ -22,6 +22,7 @@ CREATE TABLE pubmed_abstracts (
     authors       TEXT[],
     journal       TEXT,
     pub_date      TEXT,
+    mesh_terms    TEXT[],
     embedding     vector(768),    -- BioLORD-2023 output dimension
     fetched_at    TIMESTAMP DEFAULT NOW()
 );

@@ -23,5 +23,3 @@ async def get_disease_synonyms(disease):
 
     text = await query_small_llm(prompt)
     return parse_llm_response(text)
-
-

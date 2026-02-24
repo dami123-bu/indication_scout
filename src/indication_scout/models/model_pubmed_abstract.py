@@ -3,8 +3,8 @@
 from pydantic import BaseModel
 
 
-class PubMedArticle(BaseModel):
-    """Parsed PubMed article data."""
+class PubmedAbstract(BaseModel):
+    """Parsed PubMed abstract data."""
 
     pmid: str
     title: str | None = None

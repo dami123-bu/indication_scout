@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from datetime import date
 
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.models.model_pubmed import PubMedArticle
+from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 
 
 class PubMedClient(BaseClient):
@@ -59,14 +59,14 @@ class PubMedClient(BaseClient):
         count_str = data.get("esearchresult", {}).get("count", "0")
         return int(count_str)
 
-    async def fetch_articles(
+    async def fetch_abstracts(
         self, pmids: list[str], batch_size: int = 100
-    ) -> list[PubMedArticle]:
+    ) -> list[PubmedAbstract]:
         """Fetch article content for given PMIDs."""
         if not pmids:
             return []
 
-        all_articles: list[PubMedArticle] = []
+        all_articles: list[PubmedAbstract] = []
 
         for i in range(0, len(pmids), batch_size):
             batch = pmids[i : i + batch_size]
@@ -84,8 +84,8 @@ class PubMedClient(BaseClient):
 
         return all_articles
 
-    def _parse_pubmed_xml(self, xml_text: str) -> list[PubMedArticle]:
-        """Parse PubMed XML response into PubMedArticle objects."""
+    def _parse_pubmed_xml(self, xml_text: str) -> list[PubmedAbstract]:
+        """Parse PubMed XML response into PubmedAbstract objects."""
         articles = []
 
         try:
@@ -145,7 +145,7 @@ class PubMedClient(BaseClient):
             keywords = [kw.text for kw in article_elem.findall(".//Keyword") if kw.text]
 
             articles.append(
-                PubMedArticle(
+                PubmedAbstract(
                     pmid=pmid,
                     title=title,
                     abstract=abstract,
