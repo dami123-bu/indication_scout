@@ -11,5 +11,5 @@ Planned architecture:
 
 PostgreSQL + pgvector — caches PubMed abstracts with vector embeddings for semantic search
 Embedding API (Voyage AI or OpenAI) — generates embeddings for reranking
-Retrieval flow: PubMed search → store abstracts in pgvector → embed query → vector similarity reranking → top results 
-fed to Claude for synthesis
+Retrieval flow: PubMed search → store abstracts in pgvector → embed query → vector similarity reranking 
+→ top results fed to Claude for synthesis
