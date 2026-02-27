@@ -63,12 +63,17 @@ black src/
 
 ```
 src/indication_scout/
-├── agents/          # AI agents (orchestrator, literature, clinical trials, etc.)
-├── data_sources/    # External API clients (PubMed, Open Targets, etc.)
-├── models/          # Data models (Drug, Indication, Evidence, Report)
+├── agents/          # AI agents (orchestrator, literature, clinical_trials, mechanism, safety)
+├── api/             # FastAPI application (main.py, routes/, schemas/)
+├── data_sources/    # External API clients (PubMed, Open Targets, ClinicalTrials.gov, ChEMBL, DrugBank)
+├── db/              # SQLAlchemy base and session factory
+├── helpers/         # Utility functions (drug name normalization)
+├── models/          # Pydantic data contracts (model_open_targets.py, model_clinical_trials.py, model_pubmed_abstract.py)
+├── runners/         # Standalone runner scripts
 ├── services/        # Business logic (LLM, embeddings, scoring)
-├── db/              # Database layer
-└── api/             # FastAPI application
+├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts.py)
+├── config.py        # Settings via pydantic-settings, loaded from .env
+└── constants.py     # URLs, timeouts, lookup maps
 ```
 
 ### Citations

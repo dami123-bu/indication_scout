@@ -94,7 +94,7 @@ These methods call `get_target_data()` internally and return specific slices:
 Additional methods:
 | Method | Returns |
 |--------|---------|
-| `get_disease_drugs(disease_id)` | `list[DiseaseDrug]` — all drugs for a disease, deduplicated by drug_id |
+| `get_disease_drugs(disease_id)` | `list[DrugSummary]` — all drugs for a disease, deduplicated by drug_id |
 
 ---
 

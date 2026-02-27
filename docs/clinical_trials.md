@@ -1,6 +1,6 @@
 # ClinicalTrials.gov Client — Data Contracts
 
-Four methods. The Trial Agent consumes methods 1 and 2, the Landscape Agent consumes method 3, and the Critique Agent consumes method 4.
+Five methods. The Trial Agent consumes methods 1 and 2, the Landscape Agent consumes method 3, and the Critique Agent consumes method 4. Method 5 (`get_trial`) fetches a single trial by NCT ID.
 
 **API:** ClinicalTrials.gov v2 REST API (`https://clinicaltrials.gov/api/v2/studies`)
 **Auth:** None required
@@ -277,7 +277,7 @@ class ConditionLandscape(BaseModel):
     total_trial_count: int
     competitors: list[CompetitorEntry] = []
     phase_distribution: dict[str, int] = {}
-    recent_starts: list[dict] = []
+    recent_starts: list[RecentStart] = []
 
 class TerminatedTrial(BaseModel):
     nct_id: str

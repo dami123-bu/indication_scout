@@ -10,7 +10,7 @@ def _expand(drug_name: str) -> None:
 
 async def run_candidate(drug_name: str) -> None:
     async with OpenTargetsClient() as client:
-        x= await client.get_drug(drug_name)
+        x = await client.get_drug(drug_name)
 
     print(x)
 
