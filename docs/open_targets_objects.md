@@ -11,6 +11,14 @@
 | `DrugData` | `get_drug(drug_name)` |
 | `TargetData` | `get_target_data(target_id)` |
 
+**`DrugData`** — drug-centric. You query by drug name and get everything about that drug: its ChEMBL ID, approval status, indications (diseases it's been trialed for), black box warnings, adverse events, and a list of `DrugTarget` objects (its molecular targets + MoA).
+
+**`TargetData`** — target-centric. You query by target (e.g. GLP1R) and get everything about that protein: disease associations, pathways, tissue expression, mouse phenotypes, safety liabilities, and a list of `DrugSummary` objects (all drugs that hit this target).
+
+**`DrugSummary`** — a lightweight, read-only view of a drug *from the target's perspective*. It lives inside `TargetData.drug_summaries` and contains just the fields relevant to that target relationship: drug name, disease, clinical phase, status, MoA, and trial IDs. It's not queried directly — it's populated as part of a `get_target()` call.
+
+The shared key between them is the ChEMBL ID (`DrugData.chembl_id` == `DrugSummary.drug_id`). `RichDrugData` combines a `DrugData` with its full `TargetData` list for agents that need both sides at once.
+
 ---
 
 ## Models nested inside `DrugData`
@@ -38,6 +46,8 @@
 | `GeneticConstraint` | `genetic_constraint` | gnomAD LOF intolerance scores |
 
 ---
+
+
 
 ## Sub-models (nested inside the above)
 
