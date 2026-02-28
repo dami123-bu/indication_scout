@@ -1,5 +1,11 @@
 """Retrieval service: PubMed fetch/embed/cache and semantic search via pgvector."""
 
+from pathlib import Path
+
+from indication_scout.services.llm import query_small_llm, parse_llm_response
+
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+
 
 async def fetch_and_cache(queries: list[str]) -> list[str]:
     """Hit PubMed for each query, fetch new abstracts, embed, cache in pgvector. Return PMIDs."""
@@ -32,3 +38,11 @@ async def expand_search_terms(
 ) -> list[str]:
     """Use LLM to generate PubMed search queries from drug-disease pair."""
     raise NotImplementedError
+
+
+async def get_disease_synonyms(disease):
+    template = (_PROMPTS_DIR / "disease_synonyms.txt").read_text()
+    prompt = template.format(disease=disease)
+
+    text = await query_small_llm(prompt)
+    return parse_llm_response(text)

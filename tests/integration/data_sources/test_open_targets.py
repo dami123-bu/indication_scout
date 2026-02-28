@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+import indication_scout.services.retrieval
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 from indication_scout.services.pubmed_query import get_pubmed_query
@@ -455,12 +456,13 @@ async def test_surfacing_pipeline(open_targets_client, pubmed_client):
     top_10 = await open_targets_client.get_drug_competitors(drug_name)
 
     for disease in top_10:
-        query = await get_pubmed_query(drug_name, disease)
+        queries = await get_pubmed_query(drug_name, disease)
+        print(queries)
         # query = f"{name} AND {disease}"
-        pmids = await pubmed_client.search(query, max_results=10)
-        articles = await pubmed_client.fetch_abstracts(pmids)
-
-        assert query
+        for query in queries:
+            pmids = await pubmed_client.search(query, max_results=10)
+            articles = await pubmed_client.fetch_abstracts(pmids)
+            assert query
 
     assert len(top_10) > 0
 

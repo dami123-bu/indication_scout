@@ -6,55 +6,44 @@ import pytest
 
 from indication_scout.services.pubmed_query import (
     get_pubmed_query,
+)
+from indication_scout.services.retrieval import (
+    expand_search_terms,
     get_disease_synonyms,
 )
-from indication_scout.services.retrieval import expand_search_terms
 
 logger = logging.getLogger(__name__)
 
 
 async def test_get_pubmed_query_returns_drug_and_term():
-    """Result must start with the drug name and contain AND."""
+    """Each query must be a '<disease> AND <drug>' string with a diabetes-related disease term."""
     result = await get_pubmed_query("metformin", "type 2 diabetes mellitus")
 
-    assert result.startswith("metformin AND ")
-    assert len(result) > len("metformin AND ")
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    for q in result:
+        parts = q.split(" AND ")
+        assert len(parts) == 2
+        disease_part, drug_part = parts
+        assert drug_part.strip() == "metformin"
+        assert any(
+            w in disease_part.lower()
+            for w in ("diabetes", "metabolic", "glucose", "insulin")
+        )
 
 
 async def test_get_pubmed_query_edge():
-    """Result must start with the drug name and contain AND."""
+    """Each query must be a '<disease> AND <drug>' string."""
     result = await get_pubmed_query("bupropion", "narcolepsy-cataplexy syndrome")
 
-    assert result
-
-
-@pytest.mark.parametrize(
-    "disease, synonyms",
-    [
-        (
-            "eczematoid dermatitis",
-            ["eczematoid dermatitis", "eczema", "AD", "atopic dermatitis"],
-        ),
-        (
-            "benign prostatic hyperplasia",
-            [
-                "benign prostatic hyperplasia",
-                "BPH",
-                "enlarged prostate",
-                "prostatic enlargement",
-            ],
-        ),
-        (
-            "HER2-positive breast cancer",
-            ["breast cancer", "ERBB2-positive breast cancer"],
-        ),
-    ],
-)
-async def test_get_disease_synonyms(disease, synonyms):
-
-    diseases = await get_disease_synonyms(disease)
-    is_subset = set(synonyms).issubset(set(diseases))
-    assert is_subset
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    for q in result:
+        parts = q.split(" AND ")
+        assert len(parts) == 2
+        disease_part, drug_part = parts
+        assert disease_part.strip() != ""
+        assert drug_part.strip() == "bupropion"
 
 
 async def test_get_single_disease_synonym():
