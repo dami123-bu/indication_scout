@@ -5,7 +5,6 @@ import logging
 import pytest
 
 from indication_scout.services.retrieval import (
-    get_best_disease,
     get_disease_synonyms,
     fetch_and_cache,
     semantic_search,

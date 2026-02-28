@@ -31,6 +31,13 @@ async def test_get_pubmed_query_returns_drug_and_term():
             for w in ("diabetes", "metabolic", "glucose", "insulin")
         )
 
+# TODO delete
+async def test_get_single_pubmed_query_returns_drug_and_term():
+    """Each query must be a '<disease> AND <drug>' string with a diabetes-related disease term."""
+    results = await get_pubmed_query("Baricitinib", "Rheumatoid Arthritis")
+
+    assert len(results) >= 1
+
 
 async def test_get_pubmed_query_edge():
     """Each query must be a '<disease> AND <drug>' string."""

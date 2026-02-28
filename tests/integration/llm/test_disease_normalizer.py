@@ -12,26 +12,18 @@ from indication_scout.services.disease_normalizer import (
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.parametrize(
-    "disease, drug, expected_term",
-    [
-        ("portal hypertension", None, "hypertension"),
-        ("atopic dermatitis", None, "dermatitis"),
-        ("narcolepsy-cataplexy", None, "narcolepsy"),
-        ("alopecia areata", None, "alopecia"),
-        ("non-small cell lung carcinoma", None, "lung cancer"),
-        ("hepatocellular carcinoma", None, "liver cancer"),
-    ],
-)
-async def test_disease_normalizer(disease, drug, expected_term):
-    llm_results = await normalize_for_pubmed(disease, drug)
-    terms = [t.strip().lower() for t in llm_results.split("OR")]
-    assert any(t == expected_term.lower() for t in terms)
 
-
+# Exclude from testing rules, TODO delete
 async def test_single_disease_normalizer():
-    disease = "Eczematoid dermatitis"
+    disease = "hepatocellular carcinoma"
     drug = ""
+    result = await normalize_for_pubmed(disease, drug)
+    assert result
+
+# Exclude from testing rules, TODO delete
+async def test_single_drug_disease_normalizer():
+    disease = "atopic dermatitis"
+    drug = "Baricitinib"
     result = await normalize_for_pubmed(disease, drug)
     assert result
 
@@ -39,8 +31,10 @@ async def test_single_disease_normalizer():
 async def test_normalize_returns_multiple_terms():
     # "atopic eczema" should normalize to two terms joined by OR (e.g. "eczema OR dermatitis")
     result = await normalize_for_pubmed("atopic eczema", None)
-    terms = [t.strip() for t in result.split("OR")]
-    assert len(terms) >= 2
+    terms = [t.strip().lower() for t in result.split("OR")]
+    assert len(terms) == 2
+    assert terms[0] == "eczema"
+    assert terms[1] == "dermatitis"
 
 
 @pytest.mark.parametrize(

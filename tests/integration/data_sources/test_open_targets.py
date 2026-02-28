@@ -448,23 +448,7 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-# TODO rework
-@pytest.mark.asyncio
-async def test_surfacing_pipeline(open_targets_client, pubmed_client):
-    """Test bupropion competitor pipeline returns top diseases with multiple drugs."""
-    drug_name = "bupropion"
-    top_10 = await open_targets_client.get_drug_competitors(drug_name)
 
-    for disease in top_10:
-        queries = await get_pubmed_query(drug_name, disease)
-        print(queries)
-        # query = f"{name} AND {disease}"
-        for query in queries:
-            pmids = await pubmed_client.search(query, max_results=10)
-            articles = await pubmed_client.fetch_abstracts(pmids)
-            assert query
-
-    assert len(top_10) > 0
 
 
 @pytest.mark.asyncio

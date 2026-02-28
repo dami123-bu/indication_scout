@@ -63,7 +63,7 @@ NORMALIZE_PROMPT = (
 # ── LLM Normalize ───────────────────────────────────────────────────────────
 
 
-async def llm_normalize(raw_term: str) -> str:
+async def llm_normalize_disease(raw_term: str) -> str:
     """
     Use an LLM to convert a disease term into a PubMed search term.
 
@@ -126,7 +126,7 @@ async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -
         Normalized PubMed search term (e.g., "narcolepsy")
     """
     # Step 1: LLM normalize
-    normalized = await llm_normalize(raw_term)
+    normalized = await llm_normalize_disease(raw_term)
 
     # Reject if LLM collapsed to a blocklisted over-generic term
     normalized_terms = {t.strip().lower() for t in normalized.split("OR")}
@@ -142,7 +142,7 @@ async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -
 
         if count < MIN_RESULTS:
             # Step 3: Ask LLM to generalize further
-            broader = await llm_normalize(
+            broader = await llm_normalize_disease(
                 f"{normalized} (generalize to a broader disease category)"
             )
             broader_terms = {t.strip().lower() for t in broader.split("OR")}

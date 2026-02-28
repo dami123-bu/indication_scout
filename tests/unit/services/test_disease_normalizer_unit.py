@@ -7,6 +7,7 @@ import pytest
 
 from indication_scout.services.disease_normalizer import (
     BROADENING_BLOCKLIST,
+    llm_normalize_disease,
     normalize_for_pubmed,
 )
 
@@ -31,7 +32,7 @@ async def test_blocklist_rejects_overly_broad_initial_normalization(
 ):
     """If LLM returns only blocklisted terms, raw_term is returned unchanged."""
     with patch(
-        "indication_scout.services.disease_normalizer.llm_normalize",
+        "indication_scout.services.disease_normalizer.llm_normalize_disease",
         new=AsyncMock(return_value=llm_output),
     ):
         result = await normalize_for_pubmed(raw_term, drug_name=None)
@@ -55,7 +56,7 @@ async def test_blocklist_rejects_overly_broad_initial_normalization(
 async def test_organ_specificity_preserved(raw_term, llm_output, forbidden_exact):
     """Result must retain organ context and not collapse to a bare blocklisted term."""
     with patch(
-        "indication_scout.services.disease_normalizer.llm_normalize",
+        "indication_scout.services.disease_normalizer.llm_normalize_disease",
         new=AsyncMock(return_value=llm_output),
     ):
         result = await normalize_for_pubmed(raw_term, drug_name=None)
@@ -82,7 +83,7 @@ async def test_fallback_blocklist_rejects_overly_broad_broader_term():
 
     with (
         patch(
-            "indication_scout.services.disease_normalizer.llm_normalize",
+            "indication_scout.services.disease_normalizer.llm_normalize_disease",
             new=mock_llm_normalize,
         ),
         patch(
@@ -110,7 +111,7 @@ async def test_fallback_accepted_when_not_blocklisted():
 
     with (
         patch(
-            "indication_scout.services.disease_normalizer.llm_normalize",
+            "indication_scout.services.disease_normalizer.llm_normalize_disease",
             new=mock_llm_normalize,
         ),
         patch(
@@ -122,3 +123,49 @@ async def test_fallback_accepted_when_not_blocklisted():
             "renal tubular dysgenesis", drug_name="metformin"
         )
         assert result == "kidney disease"
+
+
+# ── llm_normalize_disease unit tests ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "raw_term, llm_response, expected",
+    [
+        ("atopic eczema", "eczema OR dermatitis", "eczema OR dermatitis"),
+        ("narcolepsy-cataplexy syndrome", "narcolepsy", "narcolepsy"),
+        (
+            "non-small cell lung carcinoma",
+            "lung cancer OR lung neoplasm",
+            "lung cancer OR lung neoplasm",
+        ),
+        ("myocardial infarction", "heart attack OR myocardial infarction", "heart attack OR myocardial infarction"),
+        ('"CML"', "chronic myeloid leukemia", "chronic myeloid leukemia"),
+    ],
+)
+async def test_llm_normalize_disease_returns_cleaned_llm_output(
+    raw_term, llm_response, expected
+):
+    """llm_normalize_disease strips quotes/whitespace and returns the LLM output."""
+    with patch(
+        "indication_scout.services.disease_normalizer.query_small_llm",
+        new=AsyncMock(return_value=llm_response),
+    ):
+        result = await llm_normalize_disease(raw_term)
+        assert result == expected
+
+
+@pytest.mark.parametrize(
+    "raw_term, llm_response, expected",
+    [
+        ("narcolepsy-cataplexy syndrome", '"narcolepsy"', "narcolepsy"),
+        ("atopic eczema", "  eczema OR dermatitis  ", "eczema OR dermatitis"),
+    ],
+)
+async def test_llm_normalize_disease_strips_llm_response(raw_term, llm_response, expected):
+    """Leading/trailing quotes and whitespace in the LLM response are stripped."""
+    with patch(
+        "indication_scout.services.disease_normalizer.query_small_llm",
+        new=AsyncMock(return_value=llm_response),
+    ):
+        result = await llm_normalize_disease(raw_term)
+        assert result == expected
