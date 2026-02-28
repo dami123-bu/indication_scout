@@ -8,12 +8,16 @@ Strategy: LLM normalize → verify with PubMed count → cache everything.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
-from typing import Optional
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
 
 import httpx
 
+from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
 from indication_scout.services.llm import (
     query_small_llm,
 )  # Adjust import path as needed
@@ -60,6 +64,38 @@ NORMALIZE_PROMPT = (
 )
 
 
+# ── Cache ────────────────────────────────────────────────────────────────────
+
+
+def _cache_key(namespace: str, params: dict[str, Any]) -> str:
+    raw = json.dumps({"ns": namespace, **params}, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_get(namespace: str, params: dict[str, Any], cache_dir: Path = DEFAULT_CACHE_DIR) -> Any | None:
+    path = cache_dir / f"{_cache_key(namespace, params)}.json"
+    if not path.exists():
+        return None
+    try:
+        entry = json.loads(path.read_text())
+        age = (datetime.now() - datetime.fromisoformat(entry["cached_at"])).total_seconds()
+        if age > entry.get("ttl", CACHE_TTL):
+            path.unlink(missing_ok=True)
+            return None
+        return entry["data"]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        path.unlink(missing_ok=True)
+        return None
+
+
+def _cache_set(namespace: str, params: dict[str, Any], data: Any, cache_dir: Path = DEFAULT_CACHE_DIR) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    entry = {"data": data, "cached_at": datetime.now().isoformat(), "ttl": CACHE_TTL}
+    (cache_dir / f"{_cache_key(namespace, params)}.json").write_text(
+        json.dumps(entry, default=str)
+    )
+
+
 # ── LLM Normalize ───────────────────────────────────────────────────────────
 
 
@@ -72,9 +108,15 @@ async def llm_normalize_disease(raw_term: str) -> str:
         "renal tubular dysgenesis"              → "kidney disease"
         "CML"                                   → "chronic myeloid leukemia"
     """
+    cached = _cache_get("disease_norm", {"raw_term": raw_term})
+    if cached is not None:
+        return cached
+
     prompt = NORMALIZE_PROMPT.format(raw_term=raw_term)
     response = await query_small_llm(prompt)
     normalized = response.strip().strip('"').strip("'")
+
+    _cache_set("disease_norm", {"raw_term": raw_term}, normalized)
     return normalized
 
 
@@ -83,6 +125,10 @@ async def llm_normalize_disease(raw_term: str) -> str:
 
 async def pubmed_count(query: str) -> int:
     """Return the number of PubMed results for a query string."""
+    cached = _cache_get("pubmed_count", {"query": query})
+    if cached is not None:
+        return cached
+
     url = f"{NCBI_BASE}/esearch.fcgi"
     params = {
         "db": "pubmed",
@@ -100,7 +146,9 @@ async def pubmed_count(query: str) -> int:
             logger.warning(f"PubMed count failed for '{query}': {e}")
             return 0
 
-    return int(data.get("esearchresult", {}).get("count", 0))
+    count = int(data.get("esearchresult", {}).get("count", 0))
+    _cache_set("pubmed_count", {"query": query}, count)
+    return count
 
 
 # ── Main Orchestrator ────────────────────────────────────────────────────────

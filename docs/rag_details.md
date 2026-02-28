@@ -127,7 +127,27 @@ PubMed keyword queries. This runs before `fetch_and_cache`.
 
 ---
 
-## 4. Infrastructure Setup (Docker)
+## 4. Disease Name Normalizer (`services/disease_normalizer.py`)
+
+Converts raw Open Targets disease names (e.g. `"narcolepsy-cataplexy syndrome"`) into PubMed-friendly search terms (e.g. `"narcolepsy"`) before they are passed to `get_pubmed_query`.
+
+**Two-step LLM strategy:**
+
+1. **Normalize** — Haiku prompt strips subtypes, staging, etiology, and genetic qualifiers while preserving organ specificity. If the disease has a well-known synonym, both are returned joined with `OR` (e.g. `"eczema OR dermatitis"`).
+2. **Verify** — If a `drug_name` is provided, the normalized term is verified with a PubMed count (`drug AND disease`). If the count is below `MIN_RESULTS` (3), a second Haiku call generalises to a broader category. The broader term is used only if it also has `>= MIN_RESULTS` hits and does not collapse to an over-generic term in `BROADENING_BLOCKLIST` (e.g. `"cancer"`, `"disease"`, `"syndrome"`).
+
+**File-based cache (`_cache/`, 5-day TTL):**
+
+| Namespace | Cache key | Cached value |
+|-----------|-----------|--------------|
+| `disease_norm` | `raw_term` | LLM-normalized string (e.g. `"narcolepsy"`) |
+| `pubmed_count` | full query string | PubMed result count (int) |
+
+Both the `drug AND disease` and `drug AND broader` PubMed counts are cached under `pubmed_count` using their respective query strings as keys. Same SHA-256-keyed JSON format and `CACHE_TTL` constant as the Open Targets client.
+
+---
+
+## 5. Infrastructure Setup (Docker)
 
 ```yaml
 # docker-compose.yml addition
@@ -149,7 +169,7 @@ volumes:
 
 ---
 
-## 5. Sprint Mapping
+## 6. Sprint Mapping
 
 | Task | Sprint | Status |
 |------|--------|--------|
@@ -166,7 +186,7 @@ volumes:
 
 ---
 
-## 6. Key Design Decisions
+## 7. Key Design Decisions
 
 1. **pgvector over dedicated vector DB** — simplicity; dataset is small enough (~10k-50k abstracts)
 2. **BioLORD-2023 for embeddings** — trained on UMLS + SNOMED-CT + biomedical definitions; sentence-level embedding model; state-of-the-art on biomedical similarity benchmarks; 768-dim vectors
