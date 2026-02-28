@@ -2,6 +2,7 @@
 
 import pytest
 
+from indication_scout.constants import TEST_CACHE_DIR
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
@@ -18,8 +19,8 @@ async def chembl_client():
 
 @pytest.fixture
 async def open_targets_client():
-    """Create and tear down an OpenTargetsClient."""
-    c = OpenTargetsClient()
+    """Create and tear down an OpenTargetsClient using the test cache."""
+    c = OpenTargetsClient(cache_dir=TEST_CACHE_DIR)
     yield c
     await c.close()
 

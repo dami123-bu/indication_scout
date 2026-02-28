@@ -111,7 +111,7 @@ async def test_rofecoxib_drug_warning(open_targets_client):
     """Test DrugWarning fields for rofecoxib (Vioxx) - a withdrawn drug with complete warning data."""
     drug = await open_targets_client.get_drug("rofecoxib")
     assert len(drug.warnings) > 5
-    assert drug.atc_classifications == []
+    assert drug.atc_classifications == ["M01AH02"]
 
     # Find a specific warning with all fields populated
     warning = next(

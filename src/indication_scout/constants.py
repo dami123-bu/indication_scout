@@ -12,6 +12,7 @@ DEFAULT_MAX_RETRIES: int = 3
 # from which tests or scripts are launched.
 _PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
 DEFAULT_CACHE_DIR: Path = _PROJECT_ROOT / "_cache"
+TEST_CACHE_DIR: Path = _PROJECT_ROOT / "_cache_test"
 CACHE_TTL: int = 5 * 86400  # 5 days in seconds
 
 # -- Open Targets -----------------------------------------------------------
