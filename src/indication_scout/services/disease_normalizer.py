@@ -110,6 +110,8 @@ def _cache_set(
 
 async def llm_normalize_disease(raw_term: str) -> str:
     """
+    Reduce disease to overarching
+
     Use an LLM to convert a disease term into a PubMed search term.
 
     Example:
@@ -165,9 +167,10 @@ async def pubmed_count(query: str) -> int:
 
 async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -> str:
     """
-    Normalize a raw disease term from Open Targets into a list of PubMed queries.
-
+    Short set of queries
     e.g. hepatocellular carcinoma -> 'liver cancer OR hepatocellular carcinoma'
+
+    Normalize a raw disease term from Open Targets into a list of PubMed queries.
 
     Strategy:
         1. Check cache

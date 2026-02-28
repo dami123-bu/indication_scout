@@ -22,8 +22,8 @@ async def test_single_disease_normalizer():
 
 # Exclude from testing rules, TODO delete
 async def test_single_drug_disease_normalizer():
-    disease = "atopic dermatitis"
-    drug = "Baricitinib"
+    disease = "colorectal neoplasm"
+    drug = "metformin"
     result = await normalize_for_pubmed(disease, drug)
     assert result
 
@@ -49,8 +49,7 @@ async def test_blocklist_terms_return_raw_term(raw_term):
     """Bare blocklisted terms should be returned unchanged (not further generalized)."""
     result = await normalize_for_pubmed(raw_term, drug_name=None)
     result_terms = {t.strip().lower() for t in result.split("OR")}
-    # Result must not be a subset of blocklist (i.e. must retain some specificity)
-    assert not (result_terms <= BROADENING_BLOCKLIST)
+    assert raw_term.lower() in result_terms
 
 
 async def test_organ_specificity_not_lost_for_cancer_terms():

@@ -25,6 +25,12 @@ async def test_sildenafil_drug_data(open_targets_client):
     approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
     logger.info(drug.indications)
 
+@pytest.mark.asyncio
+async def test_single_drug_data(open_targets_client):
+    """Test fetching drug data and indications for semaglutide."""
+    drug = await open_targets_client.get_drug("bupropion")
+    indications = drug.indications
+    pass
 
 @pytest.mark.asyncio
 async def test_semaglutide_drug_data(open_targets_client):
