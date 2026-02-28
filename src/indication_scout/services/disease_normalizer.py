@@ -165,7 +165,9 @@ async def pubmed_count(query: str) -> int:
 
 async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -> str:
     """
-    Normalize a raw disease term from Open Targets into a PubMed search term.
+    Normalize a raw disease term from Open Targets into a list of PubMed queries.
+
+    e.g. hepatocellular carcinoma -> 'liver cancer OR hepatocellular carcinoma'
 
     Strategy:
         1. Check cache

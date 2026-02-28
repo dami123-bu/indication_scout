@@ -14,6 +14,37 @@ from indication_scout.services.disease_normalizer import (
 logger = logging.getLogger(__name__)
 
 
+# ── normalize_for_pubmed happy path ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "raw_term, llm_output, expected",
+    [
+        ("narcolepsy-cataplexy syndrome", "narcolepsy", "narcolepsy"),
+        ("atopic eczema", "eczema OR dermatitis", "eczema OR dermatitis"),
+        (
+            "non-small cell lung carcinoma",
+            "lung cancer OR lung neoplasm",
+            "lung cancer OR lung neoplasm",
+        ),
+        (
+            "hepatocellular carcinoma",
+            "liver cancer OR hepatocellular carcinoma",
+            "liver cancer OR hepatocellular carcinoma",
+        ),
+        ("myocardial infarction", "heart attack OR myocardial infarction", "heart attack OR myocardial infarction"),
+    ],
+)
+async def test_normalize_for_pubmed_returns_llm_output(raw_term, llm_output, expected):
+    """normalize_for_pubmed passes LLM output through when it is not blocklisted."""
+    with patch(
+        "indication_scout.services.disease_normalizer.llm_normalize_disease",
+        new=AsyncMock(return_value=llm_output),
+    ):
+        result = await normalize_for_pubmed(raw_term, drug_name=None)
+        assert result == expected
+
+
 # ── Blocklist guard on initial normalization ──────────────────────────────────
 
 

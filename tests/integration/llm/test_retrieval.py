@@ -68,7 +68,7 @@ async def test_get_best_disease():
     disease = "renal tubular dysgenesis"
 
     """Returned PubMed term should contain at least one expected keyword."""
-    result = await get_best_disease(disease)
+    result = await g(disease)
 
     assert result
 

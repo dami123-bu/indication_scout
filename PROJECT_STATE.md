@@ -57,7 +57,7 @@ Pydantic models (models/)  — contract boundary; agents receive these, never ra
 External APIs: Open Targets GraphQL, ClinicalTrials.gov v2 REST, PubMed EUtils
 ```
 
-The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts with their embeddings. The embedding model is `FremyCompany/BioLORD-2023` (768 dims). The Open Targets client and the disease normalizer service both use a separate file-based cache (`_cache/` dir, SHA-256-keyed JSON files, 5-day TTL) that does not require the database.
+The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts with their embeddings. The embedding model is `FremyCompany/BioLORD-2023` (768 dims), loaded via `sentence-transformers` (added to runtime deps in `pyproject.toml`). The Open Targets client and the disease normalizer service both use a separate file-based cache (`_cache/` dir, SHA-256-keyed JSON files, 5-day TTL) that does not require the database.
 
 ## Key Paths
 

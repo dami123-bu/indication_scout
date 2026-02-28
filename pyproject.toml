@@ -47,6 +47,7 @@ dependencies = [
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
     "pgvector>=0.3.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -122,6 +123,7 @@ module = [
     "sklearn.*",
     "pandas.*",
     "numpy.*",
+    "sentence_transformers.*",
 ]
 ignore_missing_imports = true
 

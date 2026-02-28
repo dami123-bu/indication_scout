@@ -58,3 +58,26 @@ async def test_organ_specificity_not_lost_for_cancer_terms():
     result = await normalize_for_pubmed("non-small cell lung carcinoma", drug_name=None)
     terms = [t.strip().lower() for t in result.split("OR")]
     assert any("lung" in t for t in terms)
+
+
+@pytest.mark.parametrize(
+    "disease, drug, required_keyword",
+    [
+        ("atopic dermatitis", "baricitinib", "dermatitis"),
+        ("obesity", "bupropion", "obesity"),
+        ("narcolepsy-cataplexy syndrome", "modafinil", "narcolepsy"),
+        ("diabetic nephropathy", "sildenafil", "nephropathy"),
+        ("myelofibrosis", "baricitinib", "myelofibrosis"),
+    ],
+)
+async def test_multiple_drug_disease_normalizer(disease, drug, required_keyword):
+    """normalize_for_pubmed with a drug name returns a non-empty, specific result."""
+    result = await normalize_for_pubmed(disease, drug_name=drug)
+    assert result, f"Expected a non-empty result for {drug} + {disease}"
+    result_terms = {t.strip().lower() for t in result.split("OR")}
+    assert not (result_terms <= BROADENING_BLOCKLIST), (
+        f"Result '{result}' collapsed to over-generic terms for {drug} + {disease}"
+    )
+    assert any(required_keyword in t for t in result_terms), (
+        f"Expected '{required_keyword}' in result terms {result_terms} for {drug} + {disease}"
+    )
