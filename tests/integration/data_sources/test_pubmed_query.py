@@ -15,6 +15,57 @@ from indication_scout.services.retrieval import (
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.parametrize(
+    "drug_name, disease_name, expected_drug, expected_disease_keywords",
+    [
+        (
+            "metformin",
+            "type 2 diabetes mellitus",
+            "metformin",
+            ["diabetes", "metabolic", "glucose", "insulin"],
+        ),
+        (
+            "bupropion",
+            "narcolepsy-cataplexy syndrome",
+            "bupropion",
+            ["narcolepsy", "sleep", "cataplexy"],
+        ),
+        (
+            "trastuzumab",
+            "HER2-positive breast cancer",
+            "trastuzumab",
+            ["breast", "her2", "erbb2", "cancer"],
+        ),
+        (
+            "semaglutide",
+            "non-alcoholic fatty liver disease",
+            "semaglutide",
+            ["liver", "fatty", "nafld", "hepatic"],
+        ),
+        (
+            "baricitinib",
+            "rheumatoid arthritis",
+            "baricitinib",
+            ["arthritis", "rheumatoid", "joint"],
+        ),
+    ],
+)
+async def test_get_pubmed_query(
+    drug_name, disease_name, expected_drug, expected_disease_keywords
+):
+    """Each query must be '<disease_term> AND <drug>' with recognisable disease keywords."""
+    result = await get_pubmed_query(drug_name, disease_name)
+
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    for q in result:
+        parts = q.split(" AND ")
+        assert len(parts) == 2
+        disease_part, drug_part = parts
+        assert drug_part.strip() == expected_drug
+        assert any(kw in disease_part.lower() for kw in expected_disease_keywords)
+
+
 async def test_get_pubmed_query_returns_drug_and_term():
     """Each query must be a '<disease> AND <drug>' string with a diabetes-related disease term."""
     result = await get_pubmed_query("metformin", "type 2 diabetes mellitus")
