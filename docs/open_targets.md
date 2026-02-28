@@ -4,11 +4,25 @@
 **Auth:** None required
 **Cache TTL:** 5 days
 
-The client provides two primary entry points that fetch complete data in a single call, plus convenience accessors for specific data types.
+The client provides three primary entry points that fetch complete data in a single call, plus convenience accessors for specific data types.
 
 ---
 
 ## Primary Entry Points
+
+### `get_rich_drug_data(drug_name) → RichDrugData`
+
+Fetches drug data and all associated target data in parallel. Calls `get_drug()` to resolve the drug, then calls `get_target_data()` concurrently for every target in `DrugData.targets`.
+
+**In:** `"semaglutide"` (a human-friendly drug name)
+
+**Out:** `RichDrugData` containing:
+- `drug` — `DrugData` (see below)
+- `targets` — `list[TargetData]`, one per target in `drug.targets`, fetched in parallel
+
+**Agent use:** Provides everything Open Targets knows about a drug and all its targets in a single object, for agents that need both drug-level and target-level data without making multiple calls.
+
+---
 
 ### `get_drug(drug_name) → DrugData`
 
@@ -94,7 +108,11 @@ These methods call `get_target_data()` internally and return specific slices:
 Additional methods:
 | Method | Returns |
 |--------|---------|
+| `get_drug_indications(drug_name)` | `list[Indication]` — all indications for a drug (calls `get_drug` internally) |
+| `get_drug_competitors(name)` | `dict[str, set[str]]` — top 10 diseases with phase 3+ competitor drugs, grouped by disease name |
+| `get_drug_target_competitors(drug_name)` | `dict[str, list[DrugSummary]]` — all drugs acting on each of the drug's targets, keyed by target symbol |
 | `get_disease_drugs(disease_id)` | `list[DrugSummary]` — all drugs for a disease, deduplicated by drug_id |
+| `get_disease_synonyms(disease_name)` | `DiseaseSynonyms` — exact, related, narrow, and broad synonyms for a disease |
 
 ---
 
@@ -314,6 +332,42 @@ class DrugData(BaseModel):
 
 ---
 
+### RichDrugData
+
+DrugData combined with full TargetData for each of its targets.
+
+```python
+class RichDrugData(BaseModel):
+    drug: DrugData
+    targets: list[TargetData]
+```
+
+**Agent use:** Returned by `get_rich_drug_data()`. Provides everything Open Targets knows about a drug and all its targets in a single object, for agents that need both drug-level and target-level data without making multiple calls.
+
+---
+
+### DiseaseSynonyms
+
+Synonyms for a disease from Open Targets, grouped by relation type.
+
+```python
+class DiseaseSynonyms(BaseModel):
+    disease_id: str                # EFO/MONDO identifier
+    disease_name: str              # Canonical disease name
+    parent_names: list[str] = []   # Parent disease names in the ontology
+    exact: list[str] = []          # Exact synonyms (hasExactSynonym)
+    related: list[str] = []        # Related synonyms (hasRelatedSynonym)
+    narrow: list[str] = []         # Narrow synonyms (hasNarrowSynonym)
+    broad: list[str] = []          # Broad synonyms (hasBroadSynonym)
+
+    @property
+    def all_synonyms(self) -> list[str]  # exact + related + parent_names combined
+```
+
+**Agent use:** Used to expand disease search terms when querying other data sources (e.g., PubMed, ClinicalTrials.gov) that may use different terminology for the same condition.
+
+---
+
 ### TargetData
 
 Everything Open Targets knows about a target.
@@ -377,11 +431,11 @@ get_drug("semaglutide")
 
 ## Caching
 
-Both `get_drug` and `get_target_data` use a two-level cache:
-1. **In-memory cache** — keyed by `chembl_id` or `target_id` for fast repeated access
-2. **Disk cache** — 5-day TTL, survives process restarts
+All public methods use a **disk-based file cache** in the `_cache/` directory with a 5-day TTL (configurable via `CACHE_TTL` in `constants.py`). Cache entries are JSON files keyed by a SHA-256 hash of the namespace and parameters. Expired entries are evicted on read.
 
-The convenience accessors all call `get_target_data` internally, so accessing multiple data types for the same target only hits the API once.
+Cached namespaces: `drug` (keyed by `chembl_id`), `target` (keyed by `target_id`), `disease_drugs` (keyed by `disease_id`), `disease_synonyms` (keyed by `disease_id`).
+
+The convenience accessors all call `get_target_data` internally, so accessing multiple data types for the same target only hits the API once. Similarly, `get_rich_drug_data` benefits from the cache: if target data was previously fetched, the parallel `get_target_data` calls return cached results.
 
 ---
 
@@ -390,7 +444,11 @@ The convenience accessors all call `get_target_data` internally, so accessing mu
 ```python
 client = OpenTargetsClient()
 
-# Get drug data
+# Get drug + all target data in one call
+rich = await client.get_rich_drug_data("semaglutide")
+print(f"Drug: {rich.drug.name}, Targets fetched: {len(rich.targets)}")
+
+# Or get drug data alone
 drug = await client.get_drug("semaglutide")
 print(f"ChEMBL ID: {drug.chembl_id}")
 print(f"Targets: {[t.target_symbol for t in drug.targets]}")
@@ -406,9 +464,12 @@ for target in drug.targets:
     safety = await client.get_target_data_safety_liabilities(target.target_id)
     constraints = await client.get_target_data_genetic_constraints(target.target_id)
 
-# Drug-specific accessor
+# Drug-specific accessors
 indications = await client.get_drug_indications("semaglutide")
+competitors = await client.get_drug_competitors("semaglutide")
+target_competitors = await client.get_drug_target_competitors("semaglutide")
 
-# Disease-specific accessor
+# Disease-specific accessors
 disease_drugs = await client.get_disease_drugs("EFO_0003847")  # NASH
+synonyms = await client.get_disease_synonyms("non-alcoholic steatohepatitis")
 ```
