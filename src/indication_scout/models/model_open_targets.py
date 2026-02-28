@@ -243,6 +243,7 @@ class DrugData(BaseModel):
     targets: list[DrugTarget] = []
     adverse_events: list[AdverseEvent] = []
     adverse_events_critical_value: float = 0.0
+    atc_classifications: list[str] = []
 
     @property
     def approved_disease_ids(self) -> set[str]:

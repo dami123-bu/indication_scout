@@ -30,7 +30,7 @@ async def test_single_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
     drug = await open_targets_client.get_drug("bupropion")
     indications = drug.indications
-    pass
+    assert drug.atc_classifications == ["N06AX12"]
 
 @pytest.mark.asyncio
 async def test_semaglutide_drug_data(open_targets_client):
@@ -52,6 +52,7 @@ async def test_semaglutide_drug_data(open_targets_client):
     assert len(drug.adverse_events) > 5
     assert 38.5 < drug.adverse_events_critical_value < 38.6
     assert len(drug.warnings) == 1
+    assert drug.atc_classifications == ["A10BJ06"]
 
     # Indications - should include type 2 diabetes (approved)
     t2d_indication = next(
@@ -98,6 +99,7 @@ async def test_trastuzumab_adverse_event(open_targets_client):
         ae for ae in drug.adverse_events if ae.name == "ejection fraction decreased"
     )
 
+    assert drug.atc_classifications == ["L01FD01"]
     assert adverse_event.name == "ejection fraction decreased"
     assert adverse_event.meddra_code == "10050528"
     assert adverse_event.count == 1124
@@ -109,6 +111,7 @@ async def test_rofecoxib_drug_warning(open_targets_client):
     """Test DrugWarning fields for rofecoxib (Vioxx) - a withdrawn drug with complete warning data."""
     drug = await open_targets_client.get_drug("rofecoxib")
     assert len(drug.warnings) > 5
+    assert drug.atc_classifications == []
 
     # Find a specific warning with all fields populated
     warning = next(
@@ -141,6 +144,7 @@ async def test_metformin_drug_data(open_targets_client):
     assert drug.is_approved is True
     assert drug.max_clinical_phase == 4.0
     assert drug.year_first_approved == 1995
+    assert drug.atc_classifications == ["A10BA02"]
 
 
 # --- get_drug error handling ---

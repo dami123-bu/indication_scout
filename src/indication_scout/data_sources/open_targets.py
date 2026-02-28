@@ -23,6 +23,7 @@ from indication_scout.constants import (
     OPEN_TARGETS_BASE_URL,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 
 from indication_scout.models.model_open_targets import (
@@ -120,14 +121,27 @@ class OpenTargetsClient(BaseClient):
         return RichDrugData(drug=drug, targets=list(targets))
 
     async def get_drug(self, drug_name: str) -> DrugData:
-        """Fetch drug data by name."""
+        """Fetch drug data by name, enriched with ATC codes from ChEMBL."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
         cached = self._cache_get("drug", {"chembl_id": chembl_id})
         if cached:
             return DrugData.model_validate(cached)
 
-        drug_data = await self._fetch_drug(chembl_id)
+        async with ChEMBLClient() as chembl_client:
+            drug_data, molecule = await asyncio.gather(
+                self._fetch_drug(chembl_id),
+                chembl_client.get_molecule(chembl_id),
+                return_exceptions=True,
+            )
+
+        if isinstance(drug_data, BaseException):
+            raise drug_data
+
+        if isinstance(molecule, BaseException):
+            logger.warning("ChEMBL ATC lookup failed for %s: %s", chembl_id, molecule)
+        else:
+            drug_data.atc_classifications = molecule.atc_classifications
 
         self._cache_set(
             "drug",

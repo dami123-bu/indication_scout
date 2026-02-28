@@ -13,6 +13,9 @@ CACHE_TTL: int = 5 * 86400  # 5 days in seconds
 # -- Open Targets -----------------------------------------------------------
 OPEN_TARGETS_BASE_URL: str = "https://api.platform.opentargets.org/api/v4/graphql"
 
+# -- ChEMBL -----------------------------------------------------------------
+CHEMBL_BASE_URL: str = "https://www.ebi.ac.uk/chembl/api/data"
+
 # -- Interaction type mapping (Open Targets) --------------------------------
 INTERACTION_TYPE_MAP: dict[str, str] = {
     "intact": "physical",

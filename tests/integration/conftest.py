@@ -2,9 +2,18 @@
 
 import pytest
 
+from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.data_sources.pubmed import PubMedClient
+
+
+@pytest.fixture
+async def chembl_client():
+    """Create and tear down a ChEMBLClient."""
+    c = ChEMBLClient()
+    yield c
+    await c.close()
 
 
 @pytest.fixture
