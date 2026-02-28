@@ -72,13 +72,17 @@ def _cache_key(namespace: str, params: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _cache_get(namespace: str, params: dict[str, Any], cache_dir: Path = DEFAULT_CACHE_DIR) -> Any | None:
+def _cache_get(
+    namespace: str, params: dict[str, Any], cache_dir: Path = DEFAULT_CACHE_DIR
+) -> Any | None:
     path = cache_dir / f"{_cache_key(namespace, params)}.json"
     if not path.exists():
         return None
     try:
         entry = json.loads(path.read_text())
-        age = (datetime.now() - datetime.fromisoformat(entry["cached_at"])).total_seconds()
+        age = (
+            datetime.now() - datetime.fromisoformat(entry["cached_at"])
+        ).total_seconds()
         if age > entry.get("ttl", CACHE_TTL):
             path.unlink(missing_ok=True)
             return None
@@ -88,7 +92,12 @@ def _cache_get(namespace: str, params: dict[str, Any], cache_dir: Path = DEFAULT
         return None
 
 
-def _cache_set(namespace: str, params: dict[str, Any], data: Any, cache_dir: Path = DEFAULT_CACHE_DIR) -> None:
+def _cache_set(
+    namespace: str,
+    params: dict[str, Any],
+    data: Any,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     entry = {"data": data, "cached_at": datetime.now().isoformat(), "ttl": CACHE_TTL}
     (cache_dir / f"{_cache_key(namespace, params)}.json").write_text(

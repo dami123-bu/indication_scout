@@ -138,7 +138,11 @@ async def test_fallback_accepted_when_not_blocklisted():
             "lung cancer OR lung neoplasm",
             "lung cancer OR lung neoplasm",
         ),
-        ("myocardial infarction", "heart attack OR myocardial infarction", "heart attack OR myocardial infarction"),
+        (
+            "myocardial infarction",
+            "heart attack OR myocardial infarction",
+            "heart attack OR myocardial infarction",
+        ),
         ('"CML"', "chronic myeloid leukemia", "chronic myeloid leukemia"),
     ],
 )
@@ -161,7 +165,9 @@ async def test_llm_normalize_disease_returns_cleaned_llm_output(
         ("atopic eczema", "  eczema OR dermatitis  ", "eczema OR dermatitis"),
     ],
 )
-async def test_llm_normalize_disease_strips_llm_response(raw_term, llm_response, expected):
+async def test_llm_normalize_disease_strips_llm_response(
+    raw_term, llm_response, expected
+):
     """Leading/trailing quotes and whitespace in the LLM response are stripped."""
     with patch(
         "indication_scout.services.disease_normalizer.query_small_llm",

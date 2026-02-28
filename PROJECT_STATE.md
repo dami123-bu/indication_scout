@@ -13,7 +13,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `data_sources/base_client.py` | Complete | Async HTTP client with retry/backoff, REST GET, GraphQL POST, XML GET |
 | `data_sources/open_targets.py` | Complete | Full GraphQL client; drug, target, disease, disease synonyms; file-based cache |
 | `data_sources/clinical_trials.py` | Complete | ClinicalTrials.gov v2 REST; 5 public methods; whitespace detection, landscape, terminated |
-| `data_sources/pubmed.py` | Complete | PubMed ESearch/EFetch; search, count, fetch abstracts from XML |
+| `data_sources/pubmed.py` | Complete | PubMed ESearch/EFetch; search (cached), count, fetch abstracts from XML; file-based cache on `search()` |
 | `data_sources/chembl.py` | Stub | `search_compound` and `get_activities` both raise `NotImplementedError` |
 | `data_sources/drugbank.py` | Stub | `get_drug` and `get_interactions` both raise `NotImplementedError` |
 | `models/model_open_targets.py` | Complete | Full Pydantic contract for all OT data types |
@@ -25,14 +25,15 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `agents/mechanism.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/safety.py` | Stub | `run()` raises `NotImplementedError` |
 | `services/llm.py` | Complete | `query_llm` and `query_small_llm` via Anthropic SDK |
-| `services/disease_normalizer.py` | Complete | LLM normalization of disease terms for PubMed; blocklist guard; PubMed count verification |
+| `services/disease_normalizer.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
 | `services/retrieval.py` | Partial | `get_disease_synonyms` works; `fetch_and_cache`, `semantic_search`, `synthesize`, `expand_search_terms` all raise `NotImplementedError` |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
-| `api/main.py` | Partial | FastAPI app with `/health` endpoint only; routes/ and schemas/ subdirs are empty |
+| `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
 | `helpers/drug_helpers.py` | Complete | `normalize_drug_name` strips common salt suffixes |
-| `runners/pubmed_runner.py` | Partial | Development script demonstrating OT client; uses `print()` (violates project rules) |
+| `scripts/open_target_pipeline.py` | Complete | Exploratory pipeline: fetches bupropion competitors, builds PubMed queries, fetches abstracts; proper async with client context managers, `asyncio.run` under `__main__`, uses logging |
+| `runners/pubmed_runner.py` | Partial | Development/exploration script; uses `print()` which violates project rules |
 | `config.py` | Complete | Pydantic settings from `.env`; LLM model, DB URL, API keys |
 | `constants.py` | Complete | Timeout, cache TTL, OT URL, interaction type map, stop-reason keywords |
 
@@ -56,7 +57,7 @@ Pydantic models (models/)  — contract boundary; agents receive these, never ra
 External APIs: Open Targets GraphQL, ClinicalTrials.gov v2 REST, PubMed EUtils
 ```
 
-The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts with their embeddings. The embedding model is `FremyCompany/BioLORD-2023` (768 dims). The Open Targets client uses a separate file-based cache (`_cache/` dir, SHA-256-keyed JSON files, 5-day TTL) that does not require the database.
+The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts with their embeddings. The embedding model is `FremyCompany/BioLORD-2023` (768 dims). The Open Targets client and the disease normalizer service both use a separate file-based cache (`_cache/` dir, SHA-256-keyed JSON files, 5-day TTL) that does not require the database.
 
 ## Key Paths
 
@@ -64,12 +65,15 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 |------|---------|
 | `src/indication_scout/data_sources/open_targets.py` | Most complex client; GraphQL queries are defined as module-level strings at the bottom of the file |
 | `src/indication_scout/data_sources/clinical_trials.py` | `detect_whitespace()` runs 3 concurrent API calls; `get_landscape()` aggregates trials into a competitive map |
-| `src/indication_scout/services/disease_normalizer.py` | LLM-driven disease term normalization with a blocklist guard against over-broad terms |
+| `src/indication_scout/services/disease_normalizer.py` | LLM-driven disease term normalization; two-step strategy (normalize then verify/broaden); file-based cache for LLM results and PubMed counts |
 | `src/indication_scout/services/retrieval.py` | Intended RAG pipeline for PubMed (mostly stubs; only `get_disease_synonyms` works) |
 | `src/indication_scout/sqlalchemy/pubmed_abstracts.py` | ORM model for the `pubmed_abstracts` pgvector table |
-| `src/indication_scout/runners/pubmed_runner.py` | Development/exploration script, not part of production pipeline |
+| `scripts/open_target_pipeline.py` | Exploratory async pipeline script; not part of production path |
+| `runners/pubmed_runner.py` | Development/exploration script; uses `print()` in violation of project rules |
 | `tests/integration/data_sources/test_open_targets.py` | Extensive integration suite with exact field assertions; doubles as API contract verification |
+| `tests/integration/data_sources/test_pubmed_query.py` | Parametrized integration tests for `get_pubmed_query`; 5 drug-disease pairs; asserts query structure and disease keyword presence |
 | `docs/open_targets.md` | Full data contract documentation for Open Targets client |
+| `docs/rag_details.md` | RAG pipeline implementation details; disease normalizer strategy documented in section 4 |
 | `planning_docs/` | Sprint plans and technical implementation docs |
 
 ## Non-Obvious Patterns & Decisions
@@ -80,13 +84,14 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - The ClinicalTrials v2 API uses `AREA[Phase]` syntax for phase filtering embedded in `query.term`, not a dedicated parameter.
 - The `DiseaseSynonyms.all_synonyms` property deliberately excludes `broad` and `narrow` synonyms; it only returns `exact + related + parent_names`.
 - The disease normalizer has a two-step LLM strategy: first normalize, then if PubMed hit count is below `MIN_RESULTS` (3), ask the LLM to generalize further. Both steps are blocked if the result is an over-generic term in `BROADENING_BLOCKLIST`.
+- The disease normalizer caches two types of results in `_cache/`: LLM-normalized terms under namespace `"disease_norm"` (key: `raw_term`) and PubMed result counts under namespace `"pubmed_count"` (key: full query string). Same SHA-256 JSON format and `CACHE_TTL` constant as the Open Targets client.
+- `PubMedClient.search()` now caches PMID lists under namespace `"pubmed_search"` (key: `query + max_results + date_before`) using the same file-based SHA-256 pattern. `get_count()` and `fetch_abstracts()` are not cached.
 - `pubmed_query.get_pubmed_query()` returns a list of queries (one per disease term when the normalized result contains `OR`), not a single string.
 - The `stop_category` field on `TerminatedTrial` is a keyword-based pre-classification; the docstring notes that LLM refinement is intended to happen at the agent layer (not yet implemented).
-- LLM model: `claude-sonnet-4-6` for main model, `claude-haiku-4-5-20251001` for lightweight calls (e.g. disease normalization).
+- LLM model: `claude-sonnet-4-6` for main calls, `claude-haiku-4-5-20251001` for lightweight calls (e.g. disease normalization).
 - The `get_drug_competitors()` method on `OpenTargetsClient` has a `# TODO needs rework` comment; it is implemented but may produce inconsistent results.
 - `api/routes/` and `api/schemas/` subdirectories exist but contain only `__init__.py` — no routes or schemas are defined yet.
 - The CLI entry point `scout find -d "metformin"` is referenced in pyproject.toml scripts but the CLI module `indication_scout.cli.cli` does not exist yet.
-- `runners/pubmed_runner.py` uses `print()` which violates the project rule of logging-only output.
 
 ## Known Issues / Caveats
 
@@ -96,5 +101,5 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.
 - `runners/pubmed_runner.py` uses `print()` instead of the `logging` module, which violates project rules.
-- `MEMORY.md` is marked as deleted in git status (D MEMORY.md) — it has been removed and replaced by `PROJECT_STATE.md`.
-- The `db/session.py` creates a new engine and session factory on every call to `get_db()` — there is no connection pooling singleton.
+- `tests/integration/data_sources/test_pubmed_query.py` contains two tests marked `# TODO delete` (`test_get_single_pubmed_query_returns_drug_and_term`, `test_get_single_disease_synonym`) — these are superseded by the parametrized suite but have not been removed yet.
+- `db/session.py` creates a new engine and session factory on every call to `get_db()` — there is no connection pooling singleton.

@@ -99,6 +99,11 @@ When creating a plan:
 - [ ] Verify each dependency's schema/contract before writing code
 - [ ] If you can't verify, explicitly flag it as an assumption that needs human confirmation
 
+## Plan Tracking Workflow
+- When asked to design or plan a feature, write the plan to `PLAN.md` in the **project root** as a checklist (`- [ ]` items) before touching any code.
+- While implementing, mark each step complete (`- [x]`) in `PLAN.md` as it is finished.
+- After a feature is done, leave `PLAN.md` in place as a record; overwrite it when the next plan starts.
+
 ## Design & Implementation Guidelines
 - Favor clear, explicit control flow over clever patterns.
 - When refactoring, preserve existing behavior; avoid changing public interfaces unless requested.

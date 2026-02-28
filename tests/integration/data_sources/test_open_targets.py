@@ -448,9 +448,6 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-
-
-
 @pytest.mark.asyncio
 async def test_drug_target_competitors(open_targets_client):
     """Test get_drug_target_competitors returns DrugSummary lists keyed by target symbol."""

@@ -82,6 +82,7 @@ async def test_get_pubmed_query_returns_drug_and_term():
             for w in ("diabetes", "metabolic", "glucose", "insulin")
         )
 
+
 # TODO delete
 async def test_get_single_pubmed_query_returns_drug_and_term():
     """Each query must be a '<disease> AND <drug>' string with a diabetes-related disease term."""

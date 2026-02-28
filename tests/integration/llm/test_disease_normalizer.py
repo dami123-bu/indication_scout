@@ -12,13 +12,13 @@ from indication_scout.services.disease_normalizer import (
 logger = logging.getLogger(__name__)
 
 
-
 # Exclude from testing rules, TODO delete
 async def test_single_disease_normalizer():
     disease = "hepatocellular carcinoma"
     drug = ""
     result = await normalize_for_pubmed(disease, drug)
     assert result
+
 
 # Exclude from testing rules, TODO delete
 async def test_single_drug_disease_normalizer():
