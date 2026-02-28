@@ -7,7 +7,11 @@ DEFAULT_TIMEOUT: float = 30.0
 DEFAULT_MAX_RETRIES: int = 3
 
 # -- Cache ------------------------------------------------------------------
-DEFAULT_CACHE_DIR: Path = Path("_cache")
+# Anchored to the project root (two levels above this package's src/ dir) so
+# that a single _cache/ directory is used regardless of the working directory
+# from which tests or scripts are launched.
+_PROJECT_ROOT: Path = Path(__file__).parent.parent.parent
+DEFAULT_CACHE_DIR: Path = _PROJECT_ROOT / "_cache"
 CACHE_TTL: int = 5 * 86400  # 5 days in seconds
 
 # -- Open Targets -----------------------------------------------------------
