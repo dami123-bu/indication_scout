@@ -41,13 +41,15 @@ def test_intervention_with_various_types(
     assert intervention.description == description
 
 
-def test_intervention_requires_type_and_name():
-    """Intervention should require intervention_type and intervention_name."""
-    with pytest.raises(ValidationError):
-        Intervention(intervention_name="Semaglutide")  # missing type
+def test_intervention_missing_fields_defaults_to_empty_string():
+    """Intervention fields default to empty string when omitted (all fields have defaults)."""
+    intervention = Intervention(intervention_name="Semaglutide")
+    assert intervention.intervention_type == ""
+    assert intervention.intervention_name == "Semaglutide"
 
-    with pytest.raises(ValidationError):
-        Intervention(intervention_type="Drug")  # missing name
+    intervention2 = Intervention(intervention_type="Drug")
+    assert intervention2.intervention_type == "Drug"
+    assert intervention2.intervention_name == ""
 
 
 @pytest.mark.parametrize(
@@ -65,10 +67,11 @@ def test_primary_outcome_with_various_measures(measure, time_frame):
     assert outcome.time_frame == time_frame
 
 
-def test_primary_outcome_requires_measure():
-    """PrimaryOutcome should require measure field."""
-    with pytest.raises(ValidationError):
-        PrimaryOutcome(time_frame="24 weeks")  # missing measure
+def test_primary_outcome_missing_measure_defaults_to_empty_string():
+    """PrimaryOutcome measure defaults to empty string when omitted."""
+    outcome = PrimaryOutcome(time_frame="24 weeks")
+    assert outcome.measure == ""
+    assert outcome.time_frame == "24 weeks"
 
 
 # --- Trial ---
@@ -168,7 +171,7 @@ def test_trial_minimal_required_fields():
     assert trial.completion_date is None
     assert trial.study_type == "Interventional"
     assert trial.primary_outcomes == []
-    assert trial.results_posted is False
+    assert trial.results_posted is None
     assert trial.references == []
 
 
@@ -261,16 +264,16 @@ def test_condition_drug_all_fields(sample_condition_drug):
     assert sample_condition_drug.status == "Active, not recruiting"
 
 
-def test_condition_drug_requires_all_fields():
-    """ConditionDrug should require all fields."""
-    with pytest.raises(ValidationError):
-        ConditionDrug(
-            nct_id="NCT04375669",
-            drug_name="Semaglutide",
-            condition="NASH",
-            phase="Phase 3",
-            # missing status
-        )
+def test_condition_drug_missing_status_defaults_to_empty_string():
+    """ConditionDrug status defaults to empty string when omitted."""
+    cd = ConditionDrug(
+        nct_id="NCT04375669",
+        drug_name="Semaglutide",
+        condition="NASH",
+        phase="Phase 3",
+        # missing status
+    )
+    assert cd.status == ""
 
 
 def test_whitespace_result_is_whitespace_true():

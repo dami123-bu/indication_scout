@@ -624,17 +624,25 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
 
 @pytest.mark.asyncio
 async def test_get_rich_drug_data_null_interactions(open_targets_client):
-    """Targets that return null for interactions/associatedDiseases/knownDrugs must not crash.
+    """coerce_nones must convert null list fields to [] across all targets.
 
-    metformin's PRKAA1 target returns null for 'interactions' from the Open Targets API.
-    This test guards against AttributeError: 'NoneType' object has no attribute 'get'.
+    metformin's PRKAA1 target is known to return null for 'interactions' from
+    the Open Targets API. This guards against AttributeError on any target,
+    regardless of which symbols the API returns.
     """
     result = await open_targets_client.get_rich_drug_data("metformin")
 
-    prkaa1 = next(t for t in result.targets if t.symbol == "PRKAA1")
-    assert isinstance(prkaa1.interactions, list)
-    assert isinstance(prkaa1.associations, list)
-    assert isinstance(prkaa1.drug_summaries, list)
+    assert len(result.targets) > 0
+    for t in result.targets:
+        assert isinstance(
+            t.interactions, list
+        ), f"{t.symbol} interactions is not a list"
+        assert isinstance(
+            t.associations, list
+        ), f"{t.symbol} associations is not a list"
+        assert isinstance(
+            t.drug_summaries, list
+        ), f"{t.symbol} drug_summaries is not a list"
 
 
 # TODO rework

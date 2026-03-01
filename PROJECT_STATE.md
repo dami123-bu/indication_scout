@@ -116,6 +116,14 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - File-based cache utility (`cache_get`, `cache_set`, `cache_key`) lives in `utils/cache.py` and is shared by all callers. All data source clients and services import from there — no per-module duplication. Callers pass `cache_dir` explicitly; the utility never silently no-ops. Active namespaces: `"drug"`, `"target"`, `"disease_drugs"`, `"disease_synonyms"` (OpenTargets), `"pubmed_search"` (PubMed), `"disease_norm"`, `"pubmed_count"` (disease_normalizer), `"atc_description"` (ChEMBL), `"organ_term"`, `"expand_search_terms"` (retrieval.py).
 - Unit tests that touch the file-based cache must pass `tmp_path` as `cache_dir` (or patch `DEFAULT_CACHE_DIR`) to avoid contamination from real cached results left by integration test runs.
 
+## Delta — 2026-03-01 (Pydantic defensive defaults rollout)
+
+- Applied `coerce_nones` `model_validator` to all 5 model files: `model_chembl.py`, `model_clinical_trials.py`, `model_open_targets.py`, `model_pubmed_abstract.py`, `model_drug_profile.py`. Every model that ingests external API data now follows the CLAUDE.md defensive defaults pattern.
+- Previously-required fields that are structural identifiers (e.g. `nct_id`, `title`, `phase`) now default to `""` so API `null` is coerced cleanly.
+- Fields with scientific meaning that can be absent (e.g. `overall_score`, `count`, `log_likelihood_ratio`) changed to `T | None = None`.
+- `Trial.results_posted` changed from `bool = False` to `bool | None = None` — `False` is a real value, not a safe missing-data default.
+- Unit tests in `tests/unit/models/test_clinical_trials_models.py` updated: tests that previously asserted `ValidationError` on missing fields now assert empty-string defaults instead.
+
 ## Known Issues / Caveats
 
 - All five agents (`Orchestrator`, `LiteratureAgent`, `ClinicalTrialsAgent`, `MechanismAgent`, `SafetyAgent`) raise `NotImplementedError` in their `run()` methods — the agent layer is completely unimplemented.

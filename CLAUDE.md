@@ -125,6 +125,50 @@ When creating a plan:
 - All data source clients must extend `BaseClient` (async context manager, lazy session via `_get_session()`).
 - Raise `DataSourceError` (not generic exceptions) from data source clients. Include source name and context in the error.
 
+## Pydantic Defensive Defaults
+
+**Every** Pydantic model that ingests external data (APIs, DBs, parsed JSON) must include this `model_validator`
+— it does not inherit to nested models, so add it to every model in the hierarchy:
+```
+@model_validator(mode="before")
+@classmethod
+def coerce_nones(cls, values):
+    for field_name, field_info in cls.model_fields.items():
+        if values.get(field_name) is None and field_info.default is not None:
+            values[field_name] = field_info.default
+    return values
+```
+
+This keeps factory methods and downstream code clean — no `or []` / `or ""` guards needed.
+
+**Factory classmethods** should still:
+- Guard comprehensions with `if value` to exclude empty strings from output lists.
+- Use `list(dict.fromkeys(...))` for order-preserving dedup.
+- Build fields inline in the constructor.
+
+### Example
+```
+# API returns: {"name": null, "synonyms": null, "year_approved": null}
+
+class Drug(BaseModel):
+    name: str = ""
+    synonyms: list[str] = []
+    year_approved: int | None = None  # genuinely optional — stays None
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values):
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default is not None:
+                values[field_name] = field_info.default
+        return values
+
+drug = Drug(**{"name": None, "synonyms": None, "year_approved": None})
+# drug.name == ""
+# drug.synonyms == []
+# drug.year_approved == None  (default is None, so left alone)
+```
+
 ## Architecture Rules
 - If a change touches more than one of these layers, clearly separate:
   - Prompt-level changes.

@@ -6,6 +6,7 @@ from indication_scout.models.model_open_targets import (
     DrugData,
     DrugTarget,
     Indication,
+    TargetData,
 )
 
 # --- DrugData ---
@@ -133,6 +134,35 @@ def test_approved_disease_ids_empty_when_no_indications():
         indications=[],
     )
     assert drug.approved_disease_ids == set()
+
+
+# --- TargetData ---
+
+
+def test_target_data_coerce_nones_converts_null_lists_to_empty():
+    """TargetData with all list fields set to None must coerce them to []."""
+    target = TargetData(
+        target_id="ENSG00000099977",
+        symbol="PRKAA1",
+        name="5'-AMP-activated protein kinase catalytic subunit alpha-1",
+        associations=None,
+        pathways=None,
+        interactions=None,
+        drug_summaries=None,
+        expressions=None,
+        mouse_phenotypes=None,
+        safety_liabilities=None,
+        genetic_constraint=None,
+    )
+
+    assert target.associations == []
+    assert target.pathways == []
+    assert target.interactions == []
+    assert target.drug_summaries == []
+    assert target.expressions == []
+    assert target.mouse_phenotypes == []
+    assert target.safety_liabilities == []
+    assert target.genetic_constraint == []
 
 
 def test_investigated_disease_ids_empty_when_no_indications():
