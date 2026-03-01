@@ -310,19 +310,20 @@ Everything Open Targets knows about a drug.
 
 ```python
 class DrugData(BaseModel):
-    chembl_id: str
-    name: str
+    chembl_id: str = ""
+    name: str = ""
     synonyms: list[str] = []
     trade_names: list[str] = []
-    drug_type: str
-    is_approved: bool
-    max_clinical_phase: float
+    drug_type: str = ""
+    is_approved: bool | None = None
+    max_clinical_phase: float | None = None
     year_first_approved: int | None = None
     warnings: list[DrugWarning] = []
     indications: list[Indication] = []
     targets: list[DrugTarget] = []
     adverse_events: list[AdverseEvent] = []
-    adverse_events_critical_value: float = 0.0
+    adverse_events_critical_value: float | None = None
+    atc_classifications: list[str] = []
 
     @property
     def approved_disease_ids(self) -> set[str]
@@ -338,8 +339,8 @@ DrugData combined with full TargetData for each of its targets.
 
 ```python
 class RichDrugData(BaseModel):
-    drug: DrugData
-    targets: list[TargetData]
+    drug: DrugData | None = None
+    targets: list[TargetData] = []
 ```
 
 **Agent use:** Returned by `get_rich_drug_data()`. Provides everything Open Targets knows about a drug and all its targets in a single object, for agents that need both drug-level and target-level data without making multiple calls.

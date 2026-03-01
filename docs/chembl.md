@@ -1,6 +1,6 @@
 # ChEMBL Client — Data Contracts
 
-One method. Returns molecule-level drug properties from the ChEMBL REST API.
+Two methods. Returns molecule-level drug properties and ATC classification hierarchies from the ChEMBL REST API.
 
 **API:** ChEMBL REST API (`https://www.ebi.ac.uk/chembl/api/data`)
 **Auth:** None required
@@ -57,41 +57,82 @@ oral                 → oral
 
 ---
 
-## Pydantic model
+## 2. `get_atc_description(atc_code) -> ATCDescription`
+
+Fetch the full ATC classification hierarchy for a single ATC code.
+
+**In:**
+- `atc_code` -- a WHO ATC code (e.g. `"A10BA02"`)
+
+**API call:** `GET /atc_class/{atc_code}.json`
+
+**Out:** `ATCDescription` with 10 fields:
+- `level1` -- Anatomical main group code (e.g. `"A"`)
+- `level1_description` -- (e.g. `"ALIMENTARY TRACT AND METABOLISM"`)
+- `level2` -- Therapeutic subgroup code (e.g. `"A10"`)
+- `level2_description` -- (e.g. `"DRUGS USED IN DIABETES"`)
+- `level3` -- Pharmacological subgroup code (e.g. `"A10B"`)
+- `level3_description` -- (e.g. `"BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS"`)
+- `level4` -- Chemical subgroup code (e.g. `"A10BA"`)
+- `level4_description` -- (e.g. `"Biguanides"`)
+- `level5` -- Chemical substance code (e.g. `"A10BA02"`)
+- `who_name` -- WHO International Nonproprietary Name (e.g. `"metformin"`)
+
+**Caching:** Results are cached under namespace `"atc_description"` with 5-day TTL.
+
+**Error behavior:**
+- **ATC code not found:** Raises `DataSourceError`
+- **Malformed response:** Raises `DataSourceError` with message `"Unexpected response shape for ATC code '{atc_code}'"`
+- **Unexpected exception:** Wrapped and re-raised as `DataSourceError`
+
+---
+
+## Pydantic models
 
 ```python
 class MoleculeData(BaseModel):
-    molecule_chembl_id: str
-    molecule_type: str
-    max_phase: str | None
-    atc_classifications: list[str]
-    black_box_warning: int
-    first_approval: int | None
-    oral: bool
+    molecule_chembl_id: str = ""
+    molecule_type: str = ""
+    max_phase: str | None = None
+    atc_classifications: list[str] = []
+    black_box_warning: int | None = None
+    first_approval: int | None = None
+    oral: bool | None = None
+
+class ATCDescription(BaseModel):
+    level1: str = ""
+    level1_description: str = ""
+    level2: str = ""
+    level2_description: str = ""
+    level3: str = ""
+    level3_description: str = ""
+    level4: str = ""
+    level4_description: str = ""
+    level5: str = ""
+    who_name: str = ""
 ```
 
 ---
 
-## Data flow from ChEMBL into the agents
+## Data flow from ChEMBL into the pipeline
 
 ```
-Mechanism Agent
-  │
-  ├── get_molecule("CHEMBL1118")      # metformin
-  │     → molecule_type, max_phase, atc_classifications, black_box_warning
-  │
-  └── OUTPUT: drug property summary
-        - Is this a small molecule or biologic?
-        - How far has it been in trials (max_phase)?
-        - Does it carry a black box warning?
-        - What therapeutic class (ATC)?
-        - When was it first approved?
+Retrieval Service (build_drug_profile)
+  |
+  +-- get_atc_description("A10BA02")    # for each ATC code on the drug
+  |     -> level3_description, level4_description used in DrugProfile.atc_descriptions
+  |
+Mechanism Agent (stub)
+  |
+  +-- get_molecule("CHEMBL1118")        # metformin
+        -> molecule_type, max_phase, atc_classifications, black_box_warning
 ```
 
 ---
 
 ## Agent-to-method mapping
 
-| Agent | Method | What it gets |
-|-------|--------|--------------|
-| **Mechanism** | `get_molecule` | Molecule type, clinical maturity (`max_phase`), ATC class, safety flag (`black_box_warning`) |
+| Consumer | Method | What it gets |
+|----------|--------|--------------|
+| **Retrieval service** | `get_atc_description` | Level 3 and level 4 ATC descriptions for `DrugProfile.atc_descriptions` |
+| **Mechanism agent** (stub) | `get_molecule` | Molecule type, clinical maturity (`max_phase`), ATC class, safety flag (`black_box_warning`) |

@@ -49,8 +49,13 @@ from indication_scout.data_sources.open_targets import OpenTargetsClient
 | Method | Description | Returns |
 |--------|-------------|---------|
 | `get_drug(name)` | Fetch drug data by name | `DrugData` |
+| `get_rich_drug_data(name)` | Fetch drug + all target data in parallel | `RichDrugData` |
 | `get_target_data(target_id)` | Fetch target data by Ensembl ID | `TargetData` |
-| `get_disease_drugs(disease_id)` | Get drugs for a disease | `list[DiseaseDrug]` |
+| `get_drug_indications(name)` | All indications for a drug | `list[Indication]` |
+| `get_drug_competitors(name)` | Top 10 diseases with phase 3+ competitor drugs | `dict[str, set[str]]` |
+| `get_drug_target_competitors(name)` | All drugs acting on each of the drug's targets | `dict[str, list[DrugSummary]]` |
+| `get_disease_drugs(disease_id)` | Get drugs for a disease, deduplicated by drug_id | `list[DrugSummary]` |
+| `get_disease_synonyms(disease_name)` | Exact, related, narrow, and broad synonyms | `DiseaseSynonyms` |
 
 ### Convenience Accessors
 
@@ -61,7 +66,7 @@ These methods call `get_target_data()` and return a specific slice:
 | `get_target_data_associations(target_id, min_score)` | `list[Association]` |
 | `get_target_data_pathways(target_id)` | `list[Pathway]` |
 | `get_target_data_interactions(target_id)` | `list[Interaction]` |
-| `get_target_data_drug_summaries(target_id)` | `list[TargetDrug]` |
+| `get_target_data_drug_summaries(target_id)` | `list[DrugSummary]` |
 | `get_target_data_tissue_expression(target_id)` | `list[TissueExpression]` |
 | `get_target_data_mouse_phenotypes(target_id)` | `list[MousePhenotype]` |
 | `get_target_data_safety_liabilities(target_id)` | `list[SafetyLiability]` |
@@ -163,9 +168,9 @@ from indication_scout.data_sources.pubmed import PubMedClient
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `search(query, max_results, date_before)` | Search for PMIDs | `list[str]` |
+| `search(query, max_results, date_before)` | Search for PMIDs (cached) | `list[str]` |
 | `get_count(query, date_before)` | Count results without fetching | `int` |
-| `fetch_articles(pmids, batch_size)` | Fetch article details | `list[PubMedArticle]` |
+| `fetch_abstracts(pmids, batch_size)` | Fetch abstract details by PMID | `list[PubmedAbstract]` |
 
 ### Example
 
@@ -173,16 +178,16 @@ from indication_scout.data_sources.pubmed import PubMedClient
 async with PubMedClient() as client:
     # Search and fetch
     pmids = await client.search("semaglutide diabetes", max_results=10)
-    articles = await client.fetch_articles(pmids)
+    abstracts = await client.fetch_abstracts(pmids)
 
-    for article in articles:
-        print(f"[{article.pmid}] {article.title}")
-        print(f"  Authors: {', '.join(article.authors[:3])}")
-        print(f"  Journal: {article.journal}")
+    for abstract in abstracts:
+        logger.info("[%s] %s", abstract.pmid, abstract.title)
+        logger.info("  Authors: %s", ", ".join(abstract.authors[:3]))
+        logger.info("  Journal: %s", abstract.journal)
 
     # Quick count
     count = await client.get_count("GLP-1 receptor agonist")
-    print(f"Found {count} articles")
+    logger.info("Found %d articles", count)
 ```
 
 ### Error Behavior
@@ -207,20 +212,24 @@ from indication_scout.data_sources.chembl import ChEMBLClient
 | Method | Description | Returns |
 |--------|-------------|---------|
 | `get_molecule(chembl_id)` | Fetch molecule properties by ChEMBL ID | `MoleculeData` |
+| `get_atc_description(atc_code)` | Fetch ATC classification hierarchy for an ATC code (cached) | `ATCDescription` |
 
 ### Example
 
 ```python
 async with ChEMBLClient() as client:
     molecule = await client.get_molecule("CHEMBL1118")
-    print(f"{molecule.molecule_chembl_id}: {molecule.molecule_type}")
-    print(f"Max phase: {molecule.max_phase}, Oral: {molecule.oral}")
-    print(f"Black box warning: {bool(molecule.black_box_warning)}")
+    logger.info("%s: %s", molecule.molecule_chembl_id, molecule.molecule_type)
+    logger.info("Max phase: %s, Oral: %s", molecule.max_phase, molecule.oral)
+
+    atc = await client.get_atc_description("A10BA02")
+    logger.info("Level 3: %s, Level 4: %s", atc.level3_description, atc.level4_description)
 ```
 
 ### Error Behavior
 
 - **Nonexistent ChEMBL ID**: Raises `DataSourceError` (HTTP 404)
+- **Nonexistent ATC code**: Raises `DataSourceError`
 - **Malformed response**: Raises `DataSourceError`
 
 See [chembl.md](chembl.md) for full field-level documentation and agent usage.

@@ -43,7 +43,7 @@ Should include - the mechanism, drug class, ATC codes, synonyms
    # profile.atc_codes, profile.atc_descriptions, profile.drug_type
    ```
 
-2. **Expand search terms** — given a drug+disease, query an LLM with the full Drug object (mechanism, drug class, ATC codes, synonyms) to generate diverse PubMed keyword queries. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, …
+2. **Expand search terms** — given a drug+disease, query an LLM with the `DrugProfile` (mechanism, drug class, ATC codes, synonyms, target gene symbols) to generate diverse PubMed keyword queries. e.g. "Metformin + colorectal" -> `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, ...
 3. **Fetch & cache** — hit PubMed E-utilities with each query (up to 500 PMIDs), fetch abstracts for any not already stored, embed with BioLORD-2023, store in pgvector
 4. **Semantic search** — embed the drug+disease query with BioLORD-2023, run cosine similarity over pgvector, return top 20 abstracts. Finds conceptually relevant papers even without exact keyword matches (e.g. "biguanide antineoplastic mechanisms" matches a metformin/cancer query)
 5. **Re-rank** — reduce top 20 → top 5 using a cross-encoder or LLM reranker

@@ -63,15 +63,18 @@ black src/
 
 ```
 src/indication_scout/
-├── agents/          # AI agents (orchestrator, literature, clinical_trials, mechanism, safety)
-├── api/             # FastAPI application (main.py, routes/, schemas/)
-├── data_sources/    # External API clients (PubMed, Open Targets, ClinicalTrials.gov, ChEMBL, DrugBank)
-├── db/              # SQLAlchemy base and session factory
+├── agents/          # AI agents (orchestrator, literature, clinical_trials, mechanism, safety) -- all stubs
+├── api/             # FastAPI application (main.py, routes/, schemas/) -- /health endpoint only
+├── data_sources/    # Async API clients (OpenTargets, ClinicalTrials.gov, PubMed, ChEMBL, DrugBank)
+├── db/              # SQLAlchemy session factory
 ├── helpers/         # Utility functions (drug name normalization)
-├── models/          # Pydantic data contracts (model_open_targets.py, model_clinical_trials.py, model_pubmed_abstract.py)
+├── models/          # Pydantic data contracts (model_open_targets, model_clinical_trials, model_pubmed_abstract, model_chembl, model_drug_profile)
+├── prompts/         # LLM prompt templates (extract_organ_term, expand_search_terms, disease_synonyms)
 ├── runners/         # Standalone runner scripts
-├── services/        # Business logic (LLM, embeddings, scoring)
-├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts.py)
+├── scripts/         # Session management, exploratory pipeline scripts
+├── services/        # Business logic -- LLM calls, embeddings, disease normalization, PubMed query building, retrieval (partial)
+├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts with pgvector embedding)
+├── utils/           # Shared file-based cache utility (cache_key, cache_get, cache_set)
 ├── config.py        # Settings via pydantic-settings, loaded from .env
 └── constants.py     # URLs, timeouts, lookup maps
 ```

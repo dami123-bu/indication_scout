@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-IndicationScout is a tool for drug indication discovery and repurposing analysis. It integrates data from multiple external sources (Open Targets, ClinicalTrials.gov, PubMed) to identify potential new therapeutic indications for existing drugs.
+IndicationScout is an agentic drug repurposing system. A drug name goes in; coordinated AI agents query multiple biomedical data sources (Open Targets, ClinicalTrials.gov, PubMed, ChEMBL) and produce a repurposing report identifying candidate indications not yet approved or explored.
 
 ### Directory Structure
 
@@ -11,19 +11,25 @@ indication_scout/
 ├── src/indication_scout/          # Main source code
 │   ├── __init__.py                # Package initialization
 │   ├── config.py                  # Application settings (pydantic-settings)
-│   ├── agents/                    # AI agent layer (stubs)
-│   ├── api/                       # FastAPI application (minimal)
-│   ├── data_sources/              # External API clients
-│   ├── models/                    # Pydantic data models
-│   └── services/                  # Business logic layer (placeholder)
+│   ├── constants.py               # URLs, timeouts, lookup maps
+│   ├── agents/                    # AI agent layer (all stubs)
+│   ├── api/                       # FastAPI application (/health only)
+│   ├── data_sources/              # Async API clients (OpenTargets, ClinicalTrials, PubMed, ChEMBL, DrugBank)
+│   ├── db/                        # SQLAlchemy session factory
+│   ├── helpers/                   # Drug name normalization
+│   ├── models/                    # Pydantic data contracts
+│   ├── prompts/                   # LLM prompt templates
+│   ├── runners/                   # Standalone runner scripts
+│   ├── scripts/                   # Session management, exploratory pipelines
+│   ├── services/                  # Business logic (LLM, embeddings, disease normalization, retrieval)
+│   ├── sqlalchemy/                # ORM models (pubmed_abstracts with pgvector)
+│   └── utils/                     # Shared file-based cache utility
 ├── tests/                         # Test suite
-│   ├── unit/                      # Unit tests
-│   ├── integration/               # Integration tests
-│   ├── fixtures/                  # Test fixtures
-│   └── conftest.py               # Pytest configuration
+│   ├── unit/                      # Unit tests (no network)
+│   ├── integration/               # Integration tests (hits real APIs)
+│   └── conftest.py               # Shared fixtures
 ├── docs/                          # Documentation
-├── scripts/                       # Utility scripts
-├── _cache/                        # Disk cache for API responses
+├── _cache/                        # Disk cache for API responses (SHA-256-keyed JSON, 5-day TTL)
 └── pyproject.toml                 # Project metadata & dependencies
 ```
 
@@ -31,13 +37,14 @@ indication_scout/
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Data Sources | **Complete** | OpenTargetsClient, ClinicalTrialsClient, PubMedClient |
-| Data Models | **Complete** | Pydantic models for all data contracts |
-| BaseClient | **Complete** | Retry, rate limiting, caching infrastructure |
-| Agents | Stub | Orchestrator, LiteratureAgent, ClinicalTrialsAgent, etc. |
-| API | Minimal | FastAPI with `/health` endpoint only |
-| Services | Placeholder | Business logic layer not yet implemented |
-| CLI | Referenced | Defined in pyproject.toml but not implemented |
+| Data Sources | **Complete** | OpenTargetsClient, ClinicalTrialsClient, PubMedClient, ChEMBLClient; DrugBankClient is a stub |
+| Data Models | **Complete** | Pydantic models for all data contracts (Open Targets, ClinicalTrials, PubMed, ChEMBL, DrugProfile) |
+| BaseClient | **Complete** | Retry with exponential backoff, session management via aiohttp |
+| File Cache | **Complete** | Shared `utils/cache.py` used by all clients and services (`_cache/` dir, SHA-256 keys, 5-day TTL) |
+| Services | **Partial** | `llm.py`, `embeddings.py`, `disease_normalizer.py`, `pubmed_query.py` complete; `retrieval.py` partial (expand/extract done, fetch_and_cache/semantic_search/synthesize stubbed) |
+| Agents | Stub | Orchestrator, LiteratureAgent, ClinicalTrialsAgent, MechanismAgent, SafetyAgent -- all `run()` raise `NotImplementedError` |
+| API | Minimal | FastAPI with `/health` endpoint only; routes/ and schemas/ are empty |
+| CLI | Referenced | Defined in pyproject.toml but CLI module does not exist |
 
 ---
 
@@ -78,122 +85,148 @@ BaseClient(
 
 ## Open Targets Data Structure
 
-The `OpenTargetsClient` provides two independent data objects: `DrugData` and `TargetData`. These are fetched separately via `get_drug()` and `get_target_data()` methods, each with their own cache.
+The `OpenTargetsClient` provides three primary entry points: `get_drug()` for drug data, `get_target_data()` for target data, and `get_rich_drug_data()` which combines both. Results are cached independently per namespace.
 
 ### DrugData
 
 ```
 DrugData
- |-- chembl_id: str
- |-- name: str
- |-- synonyms: list[str]
- |-- trade_names: list[str]
- |-- drug_type: str
- |-- is_approved: bool
- |-- max_clinical_phase: float
- |-- year_first_approved: int | None
- |-- warnings: list[DrugWarning]
- |        |-- warning_type: str
- |        |-- description: str | None
- |        |-- toxicity_class: str | None
- |        |-- country: str | None
- |        |-- year: int | None
- |        +-- efo_id: str | None
- |-- indications: list[Indication]
- |        |-- disease_id: str
- |        |-- disease_name: str
- |        |-- max_phase: float
- |        +-- references: list[dict]
- |-- targets: list[DrugTarget]
- |        |-- target_id: str  ─────────────────> use with get_target_data()
- |        |-- target_symbol: str
- |        |-- mechanism_of_action: str
- |        +-- action_type: str | None
- |-- adverse_events: list[AdverseEvent]
- |        |-- name: str
- |        |-- meddra_code: str | None
- |        |-- count: int
- |        +-- log_likelihood_ratio: float
- +-- adverse_events_critical_value: float
+ |-- chembl_id: str = ""
+ |-- name: str = ""
+ |-- synonyms: list[str] = []
+ |-- trade_names: list[str] = []
+ |-- drug_type: str = ""
+ |-- is_approved: bool | None = None
+ |-- max_clinical_phase: float | None = None
+ |-- year_first_approved: int | None = None
+ |-- warnings: list[DrugWarning] = []
+ |        |-- warning_type: str = ""
+ |        |-- description: str | None = None
+ |        |-- toxicity_class: str | None = None
+ |        |-- country: str | None = None
+ |        |-- year: int | None = None
+ |        +-- efo_id: str | None = None
+ |-- indications: list[Indication] = []
+ |        |-- disease_id: str = ""
+ |        |-- disease_name: str = ""
+ |        |-- max_phase: float | None = None
+ |        +-- references: list[dict] = []
+ |-- targets: list[DrugTarget] = []
+ |        |-- target_id: str = ""  ──────────> use with get_target_data()
+ |        |-- target_symbol: str = ""
+ |        |-- mechanism_of_action: str = ""
+ |        +-- action_type: str | None = None
+ |-- adverse_events: list[AdverseEvent] = []
+ |        |-- name: str = ""
+ |        |-- meddra_code: str | None = None
+ |        |-- count: int | None = None
+ |        +-- log_likelihood_ratio: float | None = None
+ |-- adverse_events_critical_value: float | None = None
+ +-- atc_classifications: list[str] = []
 ```
 
 ### TargetData
 
 ```
 TargetData
- |-- target_id: str
- |-- symbol: str
- |-- name: str
- |-- associations: list[Association]
- |        |-- disease_id: str
- |        |-- disease_name: str
- |        |-- overall_score: float
- |        |-- datatype_scores: dict[str, float]
- |        +-- therapeutic_areas: list[str]
- |-- pathways: list[Pathway]
- |        |-- pathway_id: str
- |        |-- pathway_name: str
- |        +-- top_level_pathway: str
- |-- interactions: list[Interaction]
- |        |-- interacting_target_id: str
- |        |-- interacting_target_symbol: str
- |        |-- interaction_score: float
- |        |-- source_database: str
- |        |-- biological_role: str
- |        |-- evidence_count: int
- |        +-- interaction_type: str | None
- |-- drug_summaries: list[DrugSummary]
- |        |-- drug_id: str
- |        |-- drug_name: str
- |        |-- disease_id: str
- |        |-- disease_name: str
- |        |-- phase: float
- |        |-- status: str | None
- |        |-- mechanism_of_action: str
- |        +-- clinical_trial_ids: list[str]
- |-- expressions: list[TissueExpression]
- |        |-- tissue_id: str
- |        |-- tissue_name: str
- |        |-- tissue_anatomical_system: str
- |        |-- rna: RNAExpression
- |        |        |-- value: float
- |        |        |-- quantile: int
- |        |        +-- unit: str
- |        +-- protein: ProteinExpression
- |                 |-- level: int
- |                 |-- reliability: bool
- |                 +-- cell_types: list[CellTypeExpression]
- |                          |-- name: str
- |                          |-- level: int
- |                          +-- reliability: bool
- |-- mouse_phenotypes: list[MousePhenotype]
- |        |-- phenotype_id: str
- |        |-- phenotype_label: str
- |        |-- phenotype_categories: list[str]
- |        +-- biological_models: list[BiologicalModel]
- |                 |-- allelic_composition: str
- |                 |-- genetic_background: str
- |                 |-- literature: list[str]
- |                 +-- model_id: str
- |-- safety_liabilities: list[SafetyLiability]
- |        |-- event: str | None
- |        |-- event_id: str | None
- |        |-- effects: list[SafetyEffect]
- |        |        |-- direction: str
- |        |        +-- dosing: str | None
- |        |-- datasource: str | None
- |        |-- literature: str | None
- |        +-- url: str | None
- +-- genetic_constraint: list[GeneticConstraint]
-          |-- constraint_type: str
-          |-- oe: float | None
-          |-- oe_lower: float | None
-          |-- oe_upper: float | None
-          |-- score: float | None
-          +-- upper_bin: int | None
+ |-- target_id: str = ""
+ |-- symbol: str = ""
+ |-- name: str = ""
+ |-- associations: list[Association] = []
+ |        |-- disease_id: str = ""
+ |        |-- disease_name: str = ""
+ |        |-- overall_score: float | None = None
+ |        |-- datatype_scores: dict[str, float] = {}
+ |        +-- therapeutic_areas: list[str] = []
+ |-- pathways: list[Pathway] = []
+ |        |-- pathway_id: str = ""
+ |        |-- pathway_name: str = ""
+ |        +-- top_level_pathway: str = ""
+ |-- interactions: list[Interaction] = []
+ |        |-- interacting_target_id: str = ""
+ |        |-- interacting_target_symbol: str = ""
+ |        |-- interaction_score: float | None = None
+ |        |-- source_database: str = ""
+ |        |-- biological_role: str = ""
+ |        |-- evidence_count: int | None = None
+ |        +-- interaction_type: str | None = None
+ |-- drug_summaries: list[DrugSummary] = []
+ |        |-- drug_id: str = ""
+ |        |-- drug_name: str = ""
+ |        |-- disease_id: str = ""
+ |        |-- disease_name: str = ""
+ |        |-- phase: float | None = None
+ |        |-- status: str | None = None
+ |        |-- mechanism_of_action: str = ""
+ |        +-- clinical_trial_ids: list[str] = []
+ |-- expressions: list[TissueExpression] = []
+ |        |-- tissue_id: str = ""
+ |        |-- tissue_name: str = ""
+ |        |-- tissue_anatomical_system: str = ""
+ |        |-- rna: RNAExpression | None = None
+ |        |        |-- value: float | None = None
+ |        |        |-- quantile: int | None = None
+ |        |        +-- unit: str = "TPM"
+ |        +-- protein: ProteinExpression | None = None
+ |                 |-- level: int | None = None
+ |                 |-- reliability: bool | None = None
+ |                 +-- cell_types: list[CellTypeExpression] = []
+ |                          |-- name: str = ""
+ |                          |-- level: int | None = None
+ |                          +-- reliability: bool | None = None
+ |-- mouse_phenotypes: list[MousePhenotype] = []
+ |        |-- phenotype_id: str = ""
+ |        |-- phenotype_label: str = ""
+ |        |-- phenotype_categories: list[str] = []
+ |        +-- biological_models: list[BiologicalModel] = []
+ |                 |-- allelic_composition: str = ""
+ |                 |-- genetic_background: str = ""
+ |                 |-- literature: list[str] = []
+ |                 +-- model_id: str = ""
+ |-- safety_liabilities: list[SafetyLiability] = []
+ |        |-- event: str | None = None
+ |        |-- event_id: str | None = None
+ |        |-- effects: list[SafetyEffect] = []
+ |        |        |-- direction: str = ""
+ |        |        +-- dosing: str | None = None
+ |        |-- datasource: str | None = None
+ |        |-- literature: str | None = None
+ |        +-- url: str | None = None
+ +-- genetic_constraint: list[GeneticConstraint] = []
+          |-- constraint_type: str = ""
+          |-- oe: float | None = None
+          |-- oe_lower: float | None = None
+          |-- oe_upper: float | None = None
+          |-- score: float | None = None
+          +-- upper_bin: int | None = None
 ```
 
 **Key design**: `DrugTarget` (inside `DrugData`) only holds lightweight reference data. To get the full target data, call `get_target_data(target_id)` separately. This allows targets to be cached independently and shared across drugs.
+
+### RichDrugData
+
+```
+RichDrugData
+ |-- drug: DrugData | None = None   # Full drug data
+ +-- targets: list[TargetData] = [] # Full target data for each of drug.targets
+```
+
+Returned by `get_rich_drug_data()`. Provides everything Open Targets knows about a drug and all its targets in a single object. `DrugProfile` (in `models/model_drug_profile.py`) is the flat LLM-facing projection of `RichDrugData`.
+
+### DiseaseSynonyms
+
+```
+DiseaseSynonyms
+ |-- disease_id: str = ""           # EFO/MONDO identifier
+ |-- disease_name: str = ""         # Canonical disease name
+ |-- parent_names: list[str] = []   # Parent disease names in the ontology
+ |-- exact: list[str] = []          # Exact synonyms (hasExactSynonym)
+ |-- related: list[str] = []        # Related synonyms (hasRelatedSynonym)
+ |-- narrow: list[str] = []         # Narrow synonyms (hasNarrowSynonym)
+ +-- broad: list[str] = []          # Broad synonyms (hasBroadSynonym)
+
+ Property: all_synonyms -> exact + related + parent_names (excludes broad and narrow)
+```
 
 ---
 
@@ -260,8 +293,17 @@ get_target_data("ENSG...") follows the same pattern with TARGET_QUERY
 │  Location: _cache/<sha256>.json  (shared across sessions)           │
 │                                                                      │
 │  Key: SHA-256 of {"ns": namespace, **params} (JSON, sorted keys)   │
-│  ├── namespace: "drug"    + params: {"chembl_id": ...}              │
-│  └── namespace: "target"  + params: {"target_id": ...}             │
+│  Namespaces:                                                        │
+│  ├── "drug"              (OpenTargets)  key: chembl_id              │
+│  ├── "target"            (OpenTargets)  key: target_id              │
+│  ├── "disease_drugs"     (OpenTargets)  key: disease_id             │
+│  ├── "disease_synonyms"  (OpenTargets)  key: disease_id             │
+│  ├── "pubmed_search"     (PubMed)       key: query+max+date        │
+│  ├── "atc_description"   (ChEMBL)       key: atc_code              │
+│  ├── "disease_norm"      (normalizer)   key: raw_term              │
+│  ├── "pubmed_count"      (normalizer)   key: query                 │
+│  ├── "organ_term"        (retrieval)    key: disease_name           │
+│  └── "expand_search_terms" (retrieval)  key: drug+disease          │
 │                                                                      │
 │  Entry: {"data": <model_dump>, "cached_at": <iso>, "ttl": <secs>}  │
 │                                                                      │
@@ -335,24 +377,34 @@ if len(target_data.associations) >= 500:
 ## Client API
 
 ```python
-client = OpenTargetsClient()
+async with OpenTargetsClient() as client:
+    # Fetch drug + all target data in one call
+    rich = await client.get_rich_drug_data("semaglutide")
 
-# Fetch drug data (cached)
-drug = await client.get_drug("semaglutide")
+    # Or fetch drug data alone (cached)
+    drug = await client.get_drug("semaglutide")
 
-# Fetch target data separately (cached independently)
-target = await client.get_target_data("ENSG00000112164")
+    # Fetch target data separately (cached independently)
+    target = await client.get_target_data("ENSG00000112164")
 
-# Accessor methods for specific target data
-associations = await client.get_target_data_associations(target_id, min_score=0.1)
-pathways = await client.get_target_data_pathways(target_id)
-interactions = await client.get_target_data_interactions(target_id)
-known_drugs = await client.get_target_data_drug_summaries(target_id)
-expressions = await client.get_target_data_tissue_expression(target_id)
-phenotypes = await client.get_target_data_mouse_phenotypes(target_id)
-safety = await client.get_target_data_safety_liabilities(target_id)
-constraints = await client.get_target_data_genetic_constraints(target_id)
+    # Accessor methods for specific target data
+    associations = await client.get_target_data_associations(target_id, min_score=0.1)
+    pathways = await client.get_target_data_pathways(target_id)
+    interactions = await client.get_target_data_interactions(target_id)
+    known_drugs = await client.get_target_data_drug_summaries(target_id)
+    expressions = await client.get_target_data_tissue_expression(target_id)
+    phenotypes = await client.get_target_data_mouse_phenotypes(target_id)
+    safety = await client.get_target_data_safety_liabilities(target_id)
+    constraints = await client.get_target_data_genetic_constraints(target_id)
 
+    # Drug-specific accessors
+    indications = await client.get_drug_indications("semaglutide")
+    competitors = await client.get_drug_competitors("semaglutide")
+    target_competitors = await client.get_drug_target_competitors("semaglutide")
+
+    # Disease-specific accessors
+    disease_drugs = await client.get_disease_drugs("EFO_0003847")
+    synonyms = await client.get_disease_synonyms("non-alcoholic steatohepatitis")
 ```
 
 ---
@@ -394,7 +446,7 @@ Trial
  |-- primary_outcomes: list[PrimaryOutcome]
  |        |-- measure: str              # What's being measured
  |        +-- time_frame: str | None    # e.g. "72 weeks"
- |-- results_posted: bool           # Whether results are available
+ |-- results_posted: bool | None    # Whether results are available (None if unknown)
  +-- references: list[str]          # PubMed IDs (PMIDs)
 ```
 
@@ -404,10 +456,10 @@ Result of whitespace detection — is this drug-condition pair unexplored?
 
 ```
 WhitespaceResult
- |-- is_whitespace: bool            # True if no exact matches found
- |-- exact_match_count: int         # Trials with both drug AND condition
- |-- drug_only_trials: int          # Trials with drug (any condition)
- |-- condition_only_trials: int     # Trials with condition (any drug)
+ |-- is_whitespace: bool | None     # True if no exact matches found
+ |-- exact_match_count: int | None  # Trials with both drug AND condition
+ |-- drug_only_trials: int | None   # Trials with drug (any condition)
+ |-- condition_only_trials: int | None  # Trials with condition (any drug)
  +-- condition_drugs: list[ConditionDrug]  # Other drugs tested for this condition (up to 20)
           |-- nct_id: str
           |-- drug_name: str
@@ -422,18 +474,22 @@ Competitive landscape for a condition — all drug/biologic trials grouped by sp
 
 ```
 ConditionLandscape
- |-- total_trial_count: int         # All trials fetched for condition
+ |-- total_trial_count: int | None  # All trials fetched for condition
  |-- competitors: list[CompetitorEntry]   # Ranked by phase, then enrollment (top_n)
  |        |-- sponsor: str              # Lead sponsor organization
  |        |-- drug_name: str            # Primary drug intervention
  |        |-- drug_type: str | None     # "Drug" or "Biological"
  |        |-- max_phase: str            # Highest phase reached
- |        |-- trial_count: int          # Number of trials for this sponsor+drug
+ |        |-- trial_count: int | None    # Number of trials for this sponsor+drug
  |        |-- statuses: set[str]        # All statuses seen (Recruiting, Completed, etc.)
- |        |-- total_enrollment: int     # Sum of enrollment across trials
+ |        |-- total_enrollment: int | None  # Sum of enrollment across trials
  |        +-- most_recent_start: str | None  # Latest start date
  |-- phase_distribution: dict[str, int]  # Count of trials per phase
- +-- recent_starts: list[dict]      # Trials started in last 2 years
+ +-- recent_starts: list[RecentStart]  # Trials started in last 2 years
+          |-- nct_id: str = ""
+          |-- sponsor: str = ""
+          |-- drug: str = ""
+          +-- phase: str = ""
 ```
 
 ### TerminatedTrial
@@ -448,7 +504,7 @@ TerminatedTrial
  |-- condition: str | None          # First condition listed
  |-- phase: str | None
  |-- why_stopped: str | None        # Free text reason from sponsor
- |-- stop_category: str             # Classified: safety, efficacy, business, enrollment, other, unknown
+ |-- stop_category: str | None      # Classified: safety, efficacy, business, enrollment, other, unknown
  |-- enrollment: int | None
  |-- sponsor: str | None
  |-- start_date: str | None
@@ -484,46 +540,45 @@ The `stop_category` is derived from `why_stopped` using keyword matching:
 
 The `PubMedClient` provides access to scientific literature via NCBI E-utilities.
 
-### PubMedArticle
+### PubmedAbstract
 
 ```
-PubMedArticle
- |-- pmid: str                     # PubMed ID
- |-- title: str                    # Article title
- |-- abstract: str | None          # Abstract text
- |-- authors: list[str]            # Author names
- |-- journal: str                  # Journal name
- |-- publication_date: str | None  # Publication date
- |-- doi: str | None               # Digital Object Identifier
- |-- pmc_id: str | None            # PubMed Central ID
- +-- mesh_terms: list[str]         # MeSH keywords
+PubmedAbstract
+ |-- pmid: str = ""                # PubMed ID
+ |-- title: str | None = None      # Article title
+ |-- abstract: str | None = None   # Abstract text (may have labelled sections)
+ |-- authors: list[str] = []       # Author names ("Last, First" format)
+ |-- journal: str | None = None    # Journal name
+ |-- pub_date: str | None = None   # Publication date (YYYY or YYYY-MM or YYYY-MM-DD)
+ |-- mesh_terms: list[str] = []    # MeSH descriptor terms
+ +-- keywords: list[str] = []      # Author-supplied keywords
 ```
 
 ### PubMedClient Data Flow
 
 ```
 Input: query (str), max_results (int)
-  ↓
-search(query, max_results, date_before)
-  └─ REST query NCBI E-utilities
-      └─ esearch.fcgi → list[str] (PMIDs)
-  ↓
-fetch_articles(pmids, batch_size)
-  └─ efetch.fcgi → Parse XML → PubMedArticle[]
-  ↓
-Output: list[PubMedArticle]
+  |
+search(query, max_results, date_before)       [cached under "pubmed_search"]
+  +-- REST query NCBI E-utilities
+      +-- esearch.fcgi -> list[str] (PMIDs)
+  |
+fetch_abstracts(pmids, batch_size)
+  +-- efetch.fcgi -> Parse XML -> PubmedAbstract[]
+  |
+Output: list[PubmedAbstract]
 
 Alternative:
-  - get_count(query) → quick result count (no parsing)
+  - get_count(query) -> quick result count (no parsing)
 ```
 
 ### Methods
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `search(query, max_results, date_before)` | Search for PMIDs | `list[str]` |
+| `search(query, max_results, date_before)` | Search for PMIDs (cached) | `list[str]` |
 | `get_count(query, date_before)` | Count results without fetching | `int` |
-| `fetch_articles(pmids, batch_size)` | Fetch article details | `list[PubMedArticle]` |
+| `fetch_abstracts(pmids, batch_size)` | Fetch abstract details by PMID | `list[PubmedAbstract]` |
 
 ---
 
@@ -534,6 +589,8 @@ Alternative:
 | Open Targets Platform | GraphQL | https://api.platform.opentargets.org/api/v4/graphql | None |
 | ClinicalTrials.gov | REST v2 | https://clinicaltrials.gov/api/v2/ | None |
 | PubMed/NCBI | REST (E-utilities) | https://eutils.ncbi.nlm.nih.gov/entrez/eutils/ | API key (optional) |
+| ChEMBL | REST | https://www.ebi.ac.uk/chembl/api/data | None |
+| Anthropic | REST | Anthropic Messages API | API key required |
 
 ---
 
@@ -543,23 +600,28 @@ Application settings via `pydantic_settings.BaseSettings` (loads from `.env`):
 
 ```python
 Settings:
-  database_url: str          # Database connection string
-  openai_api_key: str        # For LLM agents
-  pubmed_api_key: str        # For PubMed E-utilities (optional)
-  llm_model: str             # Default: "gpt-4"
-  embedding_model: str       # Default: "text-embedding-3-small"
-  debug: bool                # Debug mode
-  log_level: str             # Logging level
+  database_url: str               # PostgreSQL connection string
+  db_password: str                # Database password
+  test_database_url: str | None   # Separate DB for integration tests
+  anthropic_api_key: str          # For Claude LLM calls
+  pubmed_api_key: str             # For PubMed E-utilities (optional)
+  ncbi_api_key: str               # NCBI API key (optional)
+  openfda_api_key: str            # OpenFDA API key (optional)
+  llm_model: str                  # Default: "claude-sonnet-4-6"
+  small_llm_model: str            # Default: "claude-haiku-4-5-20251001"
+  embedding_model: str            # Default: "FremyCompany/BioLORD-2023"
+  debug: bool                     # Debug mode
+  log_level: str                  # Logging level
 ```
 
 ---
 
 ## Design Principles
 
-1. **Separation of Concerns**: Data sources (clients) separate from domain logic (agents/services)
-2. **Async-First**: All I/O operations are async using aiohttp
-3. **Graceful Degradation**: Retry with exponential backoff; `PartialResult` wrapper for partial data
-4. **Disk Cache**: JSON files in `_cache/` with 5-day TTL (OpenTargetsClient only)
-5. **Type Safety**: Full Pydantic validation; strict typing throughout
-6. **Model-Driven**: GraphQL/REST responses parsed into typed Pydantic models
-7. **No Fallbacks for Clinical Data**: Missing scientific/clinical values return None, never defaults
+1. **Separation of Concerns**: Data sources (clients) separate from domain logic (agents/services); agents never see raw API responses
+2. **Async-First**: All I/O operations are async using aiohttp; clients are async context managers
+3. **Graceful Degradation**: Retry with exponential backoff on 429/5xx; `DataSourceError` with source name and context
+4. **Shared Disk Cache**: JSON files in `_cache/` with 5-day TTL, SHA-256-keyed; used by all data source clients and services via `utils/cache.py`
+5. **Type Safety**: Full Pydantic validation with `coerce_nones` model validator on every external data model; Python 3.10+ type hints throughout
+6. **Model-Driven**: GraphQL/REST responses parsed into typed Pydantic models; Pydantic `BaseModel` contracts at every module boundary
+7. **No Fallbacks for Clinical Data**: Missing scientific/clinical values return None, never defaults; this is a clinical genomics tool

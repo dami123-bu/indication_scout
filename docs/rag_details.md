@@ -62,7 +62,7 @@ using a three-phase strategy: contrastive learning from knowledge graphs → sup
 Achieves state-of-the-art on MedSTS (clinical sentence similarity) and EHR-Rel-B (biomedical concept
 representation) benchmarks.
 
-**Loading:** via `sentence-transformers` — add to project dependencies.
+**Loading:** via `sentence-transformers` (included in `pyproject.toml` runtime dependencies). Implemented in `services/embeddings.py` as a lazy-loaded module-level singleton.
 
 ```python
 from sentence_transformers import SentenceTransformer
@@ -120,10 +120,9 @@ EvidenceSummary(
 )
 ```
 
-**Stage 0 — `expand_search_terms(drug_name, disease_name, drug_profile: RichDrugData) -> list[str]`** (Pre-fetch)
+**Stage 0 — `expand_search_terms(drug_name, disease_name, drug_profile: DrugProfile) -> list[str]`** (Pre-fetch)
 
-Send the `RichDrugData` object (drug metadata + full target data including pathways, associations,
-and interactions) to an LLM to generate diverse PubMed keyword queries. This runs before `fetch_and_cache`.
+Send a `DrugProfile` (flat LLM-facing projection of `RichDrugData` -- name, synonyms, target gene symbols, mechanisms of action, ATC codes, ATC descriptions, drug type) to an LLM to generate diverse PubMed keyword queries across 5 axes (drug name, drug class+organ, mechanism+organ, target gene, synonym) with per-axis caps (total 5-10). Organ term is pre-extracted via a separate Haiku call (`extract_organ_term`). Both functions cache results. This runs before `fetch_and_cache`.
 
 ---
 
@@ -174,13 +173,13 @@ volumes:
 | Task | Sprint | Status |
 |------|--------|--------|
 | Docker + pgvector setup | Sprint 1 | Not started |
-| Abstract caching schema | Sprint 1 | Not started |
-| BioLORD-2023 embedding integration | Sprint 1 | Not started |
-| `fetch_and_cache` implementation | Sprint 1 | Not started |
+| Abstract caching schema | Sprint 1 | Complete (SQLAlchemy ORM in `sqlalchemy/pubmed_abstracts.py`) |
+| BioLORD-2023 embedding integration | Sprint 1 | Complete (`services/embeddings.py`, lazy singleton) |
+| `fetch_and_cache` implementation | Sprint 1 | Partial (steps 1-3 done: `get_stored_pmids`, `fetch_new_abstracts`; steps 4-7 pending: embed, insert, wire) |
 | `semantic_search` implementation | Sprint 1-2 | Not started |
 | Re-ranking function | Sprint 2 | Not started |
-| `expand_search_terms` implementation | Sprint 2 | Not started |
-| Disease name normalization (Haiku) | Sprint 2 | Not started |
+| `expand_search_terms` implementation | Sprint 2 | Complete (`services/retrieval.py`, 5-axis LLM generation with caching) |
+| Disease name normalization (Haiku) | Sprint 2 | Complete (`services/disease_normalizer.py`, two-step LLM with blocklist) |
 | `synthesize` / Literature Agent integration | Sprint 2 | Not started |
 | Full pipeline wiring | Sprint 2-3 | Not started |
 
@@ -198,4 +197,4 @@ volumes:
 8. **Grounded generation with PMIDs** — Claude synthesises from retrieved documents, not training weights; every claim in `EvidenceSummary` is traceable to a real paper
 9. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
 10. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
-11. **`RichDrugData` for query expansion** — drug metadata plus full target data (pathways, associations, interactions) inform better PubMed queries than drug name alone
+11. **`DrugProfile` for query expansion** — flat LLM-facing projection of `RichDrugData` (name, synonyms, target gene symbols, mechanisms, ATC codes/descriptions, drug type) inform better PubMed queries than drug name alone
