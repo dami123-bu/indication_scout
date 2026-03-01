@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str
     db_password: str
+    # Separate DB used by integration tests — same Postgres instance as
+    # database_url but pointing to scout_test. Set in .env for local dev;
+    # must be migrated separately before running integration tests.
+    test_database_url: str | None = None
 
     # API Keys
     openai_api_key: str = ""

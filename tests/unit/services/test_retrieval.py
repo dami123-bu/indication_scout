@@ -18,6 +18,7 @@ from indication_scout.services.retrieval import (
     build_drug_profile,
     expand_search_terms,
     extract_organ_term,
+    get_stored_pmids,
 )
 
 # --- Fixtures ---
@@ -425,3 +426,73 @@ async def test_build_drug_profile_no_atc_codes(rich_metformin):
     assert profile.atc_codes == []
     assert profile.atc_descriptions == []
     mock_chembl.__aenter__.assert_not_called()
+
+
+# --- get_stored_pmids ---
+
+
+def _make_db_session(returned_pmids: list[str]) -> MagicMock:
+    """Return a mock Session whose execute().fetchall() yields the given PMIDs as row tuples."""
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [(pmid,) for pmid in returned_pmids]
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+    return mock_db
+
+
+def test_get_stored_pmids_returns_present_pmids():
+    """Only PMIDs that the DB reports as present are returned.
+
+    The DB mock returns ["111", "222"] as existing rows. The third PMID "333"
+    is not in the mock result, so it must not appear in the output.
+    """
+    mock_db = _make_db_session(["111", "222"])
+
+    result = get_stored_pmids(["111", "222", "333"], mock_db)
+
+    assert result == {"111", "222"}
+
+
+def test_get_stored_pmids_empty_input_returns_empty_set():
+    """Empty input short-circuits before hitting the DB.
+
+    No DB query should be made when there are no PMIDs to check — avoids
+    sending a vacuous ANY(ARRAY[]) query to Postgres.
+    """
+    mock_db = _make_db_session([])
+
+    result = get_stored_pmids([], mock_db)
+
+    assert result == set()
+    mock_db.execute.assert_not_called()
+
+
+def test_get_stored_pmids_all_present():
+    """All input PMIDs present in DB → full set returned."""
+    mock_db = _make_db_session(["111", "222"])
+
+    result = get_stored_pmids(["111", "222"], mock_db)
+
+    assert result == {"111", "222"}
+
+
+def test_get_stored_pmids_none_present():
+    """No input PMIDs present in DB → empty set returned."""
+    mock_db = _make_db_session([])
+
+    result = get_stored_pmids(["111", "222"], mock_db)
+
+    assert result == set()
+
+
+def test_get_stored_pmids_passes_pmids_to_query():
+    """The pmids list is passed as a bind parameter to the SQL query."""
+    mock_db = _make_db_session([])
+    pmids = ["111", "222", "333"]
+
+    get_stored_pmids(pmids, mock_db)
+
+    call_kwargs = mock_db.execute.call_args
+    # Second positional arg is the params dict
+    params = call_kwargs[0][1]
+    assert params["pmids"] == pmids

@@ -3,6 +3,9 @@
 import logging
 from pathlib import Path
 
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
 from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
@@ -36,6 +39,31 @@ async def build_drug_profile(drug_name: str) -> DrugProfile:
                 atc_descriptions.append(await chembl_client.get_atc_description(code))
 
     return DrugProfile.from_rich_drug_data(rich, atc_descriptions)
+
+
+def get_stored_pmids(pmids: list[str], db: Session) -> set[str]:
+    """Return the subset of the given PMIDs that already exist in pubmed_abstracts.
+
+    Used by fetch_and_cache to avoid re-fetching and re-embedding abstracts that
+    are already in pgvector. A single bulk SELECT is used rather than one query
+    per PMID to keep DB round-trips to a minimum.
+
+    Args:
+        pmids: Candidate PMIDs to check.
+        db: Active SQLAlchemy session.
+
+    Returns:
+        Set of PMIDs that are present in the pubmed_abstracts table.
+    """
+    if not pmids:
+        return set()
+
+    rows = db.execute(
+        text("SELECT pmid FROM pubmed_abstracts WHERE pmid = ANY(:pmids)"),
+        {"pmids": pmids},
+    ).fetchall()
+
+    return {row[0] for row in rows}
 
 
 async def fetch_and_cache(queries: list[str]) -> list[str]:

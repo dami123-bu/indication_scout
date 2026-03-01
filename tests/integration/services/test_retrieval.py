@@ -3,6 +3,7 @@
 import logging
 
 import pytest
+from sqlalchemy import text
 
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.retrieval import (
@@ -11,11 +12,14 @@ from indication_scout.services.retrieval import (
     extract_organ_term,
     fetch_and_cache,
     get_disease_synonyms,
+    get_stored_pmids,
     semantic_search,
     synthesize,
 )
 
 logger = logging.getLogger(__name__)
+# db_session fixture is defined in tests/integration/conftest.py and
+# connects to scout_test (TEST_DATABASE_URL). It rolls back after each test.
 
 
 @pytest.mark.parametrize(
@@ -244,4 +248,29 @@ async def test_build_drug_profile(
     assert profile.atc_descriptions == expected_atc_descriptions
     assert set(expected_target_gene_symbols).issubset(set(profile.target_gene_symbols))
     assert set(expected_mechanisms_of_action).issubset(set(profile.mechanisms_of_action))
+
+
+# --- get_stored_pmids ---
+
+
+def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
+    """Only the PMIDs that were pre-inserted are returned; unknown PMIDs are excluded.
+
+    Inserts two rows directly via SQL, then queries with those two PMIDs plus
+    two that were never inserted. The result must be exactly the two inserted ones.
+    """
+    db_session.execute(
+        text(
+            "INSERT INTO pubmed_abstracts (pmid, title, fetched_at) VALUES "
+            "('10000001', 'Test title A', NOW()), "
+            "('10000002', 'Test title B', NOW()) "
+            "ON CONFLICT (pmid) DO NOTHING"
+        )
+    )
+
+    result = get_stored_pmids(
+        ["10000001", "10000002", "99999991", "99999992"], db_session
+    )
+
+    assert result == {"10000001", "10000002"}
 
