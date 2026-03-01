@@ -91,7 +91,7 @@ class RNAExpression(BaseModel):
 
     value: float | None = None  # TPM
     quantile: int | None = None  # relative level across tissues
-    unit: str = "TPM"
+    unit: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -388,7 +388,7 @@ class DrugData(BaseModel):
     name: str = ""
     synonyms: list[str] = []
     trade_names: list[str] = []
-    drug_type: str = ""
+    drug_type: str | None = None
     is_approved: bool | None = None
     max_clinical_phase: float | None = None
     year_first_approved: int | None = None

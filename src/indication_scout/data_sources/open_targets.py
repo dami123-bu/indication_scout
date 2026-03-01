@@ -434,16 +434,16 @@ class OpenTargetsClient(BaseClient):
             name=raw["name"],
             synonyms=raw.get("synonyms", []),
             trade_names=raw.get("tradeNames", []),
-            drug_type=raw.get("drugType", ""),
-            is_approved=raw.get("isApproved", False),
-            max_clinical_phase=raw.get("maximumClinicalTrialPhase", 0),
+            drug_type=raw.get("drugType"),
+            is_approved=raw.get("isApproved"),
+            max_clinical_phase=raw.get("maximumClinicalTrialPhase"),
             year_first_approved=raw.get("yearOfFirstApproval"),
             warnings=warnings,
             indications=indications,
             targets=targets,
             adverse_events=adverse_events,
             adverse_events_critical_value=(raw.get("adverseEvents") or {}).get(
-                "criticalValue", 0.0
+                "criticalValue"
             ),
         )
 
@@ -542,13 +542,13 @@ class OpenTargetsClient(BaseClient):
                 anatomical_systems[0] if anatomical_systems else ""
             ),
             rna=RNAExpression(
-                value=rna.get("value", 0.0),
-                quantile=rna.get("level", 0),
-                unit=rna.get("unit", "TPM"),
+                value=rna.get("value"),
+                quantile=rna.get("level"),
+                unit=rna.get("unit"),
             ),
             protein=ProteinExpression(
-                level=protein.get("level", 0),
-                reliability=protein.get("reliability", False),
+                level=protein.get("level"),
+                reliability=protein.get("reliability"),
                 cell_types=cell_types,
             ),
         )
