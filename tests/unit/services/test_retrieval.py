@@ -8,9 +8,13 @@ import pytest
 
 from indication_scout.models.model_chembl import ATCDescription
 from indication_scout.models.model_drug_profile import DrugProfile
-from indication_scout.models.model_open_targets import DrugData, DrugTarget, RichDrugData, TargetData
+from indication_scout.models.model_open_targets import (
+    DrugData,
+    DrugTarget,
+    RichDrugData,
+    TargetData,
+)
 from indication_scout.services.retrieval import expand_search_terms, extract_organ_term
-
 
 # --- Fixtures ---
 
@@ -58,8 +62,16 @@ def rich_metformin(atc_metformin) -> RichDrugData:
         ],
     )
     targets = [
-        TargetData(target_id="ENSG00000132356", symbol="PRKAA1", name="Protein kinase AMP-activated alpha 1"),
-        TargetData(target_id="ENSG00000162409", symbol="PRKAA2", name="Protein kinase AMP-activated alpha 2"),
+        TargetData(
+            target_id="ENSG00000132356",
+            symbol="PRKAA1",
+            name="Protein kinase AMP-activated alpha 1",
+        ),
+        TargetData(
+            target_id="ENSG00000162409",
+            symbol="PRKAA2",
+            name="Protein kinase AMP-activated alpha 2",
+        ),
     ]
     return RichDrugData(drug=drug, targets=targets)
 
@@ -70,7 +82,10 @@ def metformin_profile() -> DrugProfile:
         name="metformin",
         synonyms=["Glucophage", "Fortamet"],
         target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
-        mechanisms_of_action=["AMP-activated protein kinase activator", "mTOR inhibitor"],
+        mechanisms_of_action=[
+            "AMP-activated protein kinase activator",
+            "mTOR inhibitor",
+        ],
         atc_codes=["A10BA02"],
         atc_descriptions=["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
         drug_type="Small molecule",
@@ -85,7 +100,9 @@ def test_drug_profile_from_rich_drug_data_name(rich_metformin, atc_metformin):
     assert profile.name == "METFORMIN"
 
 
-def test_drug_profile_from_rich_drug_data_synonyms_deduped(rich_metformin, atc_metformin):
+def test_drug_profile_from_rich_drug_data_synonyms_deduped(
+    rich_metformin, atc_metformin
+):
     """synonyms = drug.synonyms + drug.trade_names, deduplicated, order-preserving."""
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
     # synonyms: ["Glucophage", "Glucophage"] → deduped → ["Glucophage"]
@@ -93,12 +110,16 @@ def test_drug_profile_from_rich_drug_data_synonyms_deduped(rich_metformin, atc_m
     assert profile.synonyms == ["Glucophage", "Fortamet"]
 
 
-def test_drug_profile_from_rich_drug_data_target_gene_symbols(rich_metformin, atc_metformin):
+def test_drug_profile_from_rich_drug_data_target_gene_symbols(
+    rich_metformin, atc_metformin
+):
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
     assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
 
 
-def test_drug_profile_from_rich_drug_data_mechanisms_deduped(rich_metformin, atc_metformin):
+def test_drug_profile_from_rich_drug_data_mechanisms_deduped(
+    rich_metformin, atc_metformin
+):
     """Duplicate MoA strings across targets are collapsed to one."""
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
     assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
@@ -109,7 +130,9 @@ def test_drug_profile_from_rich_drug_data_atc_codes(rich_metformin, atc_metformi
     assert profile.atc_codes == ["A10BA02"]
 
 
-def test_drug_profile_from_rich_drug_data_atc_descriptions(rich_metformin, atc_metformin):
+def test_drug_profile_from_rich_drug_data_atc_descriptions(
+    rich_metformin, atc_metformin
+):
     """level3_description then level4_description, deduplicated."""
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
     assert profile.atc_descriptions == [
@@ -140,10 +163,13 @@ async def test_extract_organ_term_returns_cached_result(tmp_path):
 
     cache_set("organ_term", {"disease_name": "colorectal cancer"}, "colon", tmp_path)
 
-    with patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path), patch(
-        "indication_scout.services.retrieval.query_small_llm",
-        new=AsyncMock(),
-    ) as mock_llm:
+    with (
+        patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
+        patch(
+            "indication_scout.services.retrieval.query_small_llm",
+            new=AsyncMock(),
+        ) as mock_llm,
+    ):
         result = await extract_organ_term("colorectal cancer")
 
     assert result == "colon"
@@ -157,15 +183,25 @@ async def test_expand_search_terms_returns_list(tmp_path, metformin_profile):
     llm_response = '["metformin AND colorectal cancer", "biguanides AND colon"]'
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
-        patch("indication_scout.services.retrieval.query_small_llm", new=AsyncMock(return_value=llm_response)),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
+        patch(
+            "indication_scout.services.retrieval.query_small_llm",
+            new=AsyncMock(return_value=llm_response),
+        ),
     ):
-        result = await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
+        result = await expand_search_terms(
+            "metformin", "colorectal cancer", metformin_profile
+        )
 
     assert result == ["metformin AND colorectal cancer", "biguanides AND colon"]
 
 
-async def test_expand_search_terms_prompt_contains_drug_name(tmp_path, metformin_profile):
+async def test_expand_search_terms_prompt_contains_drug_name(
+    tmp_path, metformin_profile
+):
     captured = {}
 
     async def capture_llm(prompt: str) -> str:
@@ -174,7 +210,10 @@ async def test_expand_search_terms_prompt_contains_drug_name(tmp_path, metformin
 
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
         patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
     ):
         await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
@@ -192,7 +231,10 @@ async def test_expand_search_terms_prompt_contains_targets(tmp_path, metformin_p
 
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
         patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
     ):
         await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
@@ -202,7 +244,9 @@ async def test_expand_search_terms_prompt_contains_targets(tmp_path, metformin_p
     assert "STK11" in captured["prompt"]
 
 
-async def test_expand_search_terms_prompt_contains_atc_descriptions(tmp_path, metformin_profile):
+async def test_expand_search_terms_prompt_contains_atc_descriptions(
+    tmp_path, metformin_profile
+):
     captured = {}
 
     async def capture_llm(prompt: str) -> str:
@@ -211,7 +255,10 @@ async def test_expand_search_terms_prompt_contains_atc_descriptions(tmp_path, me
 
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
         patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
     ):
         await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
@@ -220,7 +267,9 @@ async def test_expand_search_terms_prompt_contains_atc_descriptions(tmp_path, me
     assert "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS" in captured["prompt"]
 
 
-async def test_expand_search_terms_prompt_contains_organ_term(tmp_path, metformin_profile):
+async def test_expand_search_terms_prompt_contains_organ_term(
+    tmp_path, metformin_profile
+):
     captured = {}
 
     async def capture_llm(prompt: str) -> str:
@@ -229,7 +278,10 @@ async def test_expand_search_terms_prompt_contains_organ_term(tmp_path, metformi
 
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
         patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
     ):
         await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
@@ -242,10 +294,18 @@ async def test_expand_search_terms_deduplicates_output(tmp_path, metformin_profi
     llm_response = '["Metformin AND colorectal cancer", "metformin AND colorectal cancer", "biguanides AND colon"]'
     with (
         patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
-        patch("indication_scout.services.retrieval.extract_organ_term", new=AsyncMock(return_value="colon")),
-        patch("indication_scout.services.retrieval.query_small_llm", new=AsyncMock(return_value=llm_response)),
+        patch(
+            "indication_scout.services.retrieval.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
+        patch(
+            "indication_scout.services.retrieval.query_small_llm",
+            new=AsyncMock(return_value=llm_response),
+        ),
     ):
-        result = await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
+        result = await expand_search_terms(
+            "metformin", "colorectal cancer", metformin_profile
+        )
 
     assert result == ["Metformin AND colorectal cancer", "biguanides AND colon"]
 
@@ -261,11 +321,16 @@ async def test_expand_search_terms_returns_cached_result(tmp_path, metformin_pro
         tmp_path,
     )
 
-    with patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path), patch(
-        "indication_scout.services.retrieval.query_small_llm",
-        new=AsyncMock(),
-    ) as mock_llm:
-        result = await expand_search_terms("metformin", "colorectal cancer", metformin_profile)
+    with (
+        patch("indication_scout.services.retrieval.DEFAULT_CACHE_DIR", tmp_path),
+        patch(
+            "indication_scout.services.retrieval.query_small_llm",
+            new=AsyncMock(),
+        ) as mock_llm,
+    ):
+        result = await expand_search_terms(
+            "metformin", "colorectal cancer", metformin_profile
+        )
 
     assert result == cached_queries
     mock_llm.assert_not_called()

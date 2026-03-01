@@ -152,7 +152,10 @@ async def test_expand_search_terms_returns_queries():
         name="metformin",
         synonyms=["Glucophage", "Fortamet"],
         target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
-        mechanisms_of_action=["AMP-activated protein kinase activator", "mTOR inhibitor"],
+        mechanisms_of_action=[
+            "AMP-activated protein kinase activator",
+            "mTOR inhibitor",
+        ],
         atc_codes=["A10BA02"],
         atc_descriptions=["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
         drug_type="Small molecule",
@@ -173,7 +176,9 @@ async def test_expand_search_terms_returns_queries():
     assert any("ampk" in q or "mtor" in q for q in queries_lower)
 
     # Axis 4: target gene symbol + disease/cancer term
-    assert any(gene in q for gene in ("prkaa1", "prkaa2", "stk11") for q in queries_lower)
+    assert any(
+        gene in q for gene in ("prkaa1", "prkaa2", "stk11") for q in queries_lower
+    )
 
     # Axis 5: synonym/trade name + disease
     assert any("glucophage" in q or "fortamet" in q for q in queries_lower)

@@ -39,14 +39,10 @@ class DrugProfile(BaseModel):
         # rich.targets is list[TargetData] — full target objects with .symbol.
         # rich.drug.targets is list[DrugTarget] — drug-target relationships with
         # .mechanism_of_action. These are different collections; both are needed.
-        target_gene_symbols = list(
-            dict.fromkeys(t.symbol for t in rich.targets)
-        )
+        target_gene_symbols = list(dict.fromkeys(t.symbol for t in rich.targets))
 
         mechanisms_of_action = list(
-            dict.fromkeys(
-                dt.mechanism_of_action for dt in rich.drug.targets
-            )
+            dict.fromkeys(dt.mechanism_of_action for dt in rich.drug.targets)
         )
 
         # Only level3 and level4 descriptions are included. level1/level2 are too

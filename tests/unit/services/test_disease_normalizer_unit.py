@@ -32,7 +32,11 @@ logger = logging.getLogger(__name__)
             "liver cancer OR hepatocellular carcinoma",
             "liver cancer OR hepatocellular carcinoma",
         ),
-        ("myocardial infarction", "heart attack OR myocardial infarction", "heart attack OR myocardial infarction"),
+        (
+            "myocardial infarction",
+            "heart attack OR myocardial infarction",
+            "heart attack OR myocardial infarction",
+        ),
     ],
 )
 async def test_normalize_for_pubmed_returns_llm_output(raw_term, llm_output, expected):

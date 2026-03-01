@@ -100,7 +100,13 @@ class OpenTargetsClient(BaseClient):
         else:
             drug_data.atc_classifications = molecule.atc_classifications
 
-        cache_set("drug", {"chembl_id": chembl_id}, drug_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
+        cache_set(
+            "drug",
+            {"chembl_id": chembl_id},
+            drug_data.model_dump(),
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
 
         return drug_data
 
@@ -165,7 +171,13 @@ class OpenTargetsClient(BaseClient):
 
         target_data = await self._fetch_target(target_id)
 
-        cache_set("target", {"target_id": target_id}, target_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
+        cache_set(
+            "target",
+            {"target_id": target_id},
+            target_data.model_dump(),
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
 
         return target_data
 
@@ -226,7 +238,12 @@ class OpenTargetsClient(BaseClient):
         )
         result = self._parse_disease_drugs(data["data"])
 
-        cache_set("disease_drugs", {"disease_id": disease_id}, [d.model_dump() for d in result], self.cache_dir)
+        cache_set(
+            "disease_drugs",
+            {"disease_id": disease_id},
+            [d.model_dump() for d in result],
+            self.cache_dir,
+        )
 
         return result
 
@@ -234,7 +251,9 @@ class OpenTargetsClient(BaseClient):
         """Fetch exact and related synonyms for a disease by name."""
         disease_id = await self._resolve_disease_name(disease_name)
 
-        cached = cache_get("disease_synonyms", {"disease_id": disease_id}, self.cache_dir)
+        cached = cache_get(
+            "disease_synonyms", {"disease_id": disease_id}, self.cache_dir
+        )
         if cached:
             return DiseaseSynonyms.model_validate(cached)
 
@@ -268,7 +287,12 @@ class OpenTargetsClient(BaseClient):
             **grouped,
         )
 
-        cache_set("disease_synonyms", {"disease_id": disease_id}, result.model_dump(), self.cache_dir)
+        cache_set(
+            "disease_synonyms",
+            {"disease_id": disease_id},
+            result.model_dump(),
+            self.cache_dir,
+        )
 
         return result
 

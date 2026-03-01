@@ -51,7 +51,13 @@ async def extract_organ_term(disease_name: str) -> str:
     result = await query_small_llm(prompt)
     organ_term = result.strip()
 
-    cache_set("organ_term", {"disease_name": disease_name}, organ_term, DEFAULT_CACHE_DIR, ttl=CACHE_TTL)
+    cache_set(
+        "organ_term",
+        {"disease_name": disease_name},
+        organ_term,
+        DEFAULT_CACHE_DIR,
+        ttl=CACHE_TTL,
+    )
     logger.debug("Extracted organ term '%s' for disease '%s'", organ_term, disease_name)
     return organ_term
 
@@ -66,7 +72,9 @@ async def expand_search_terms(
         DEFAULT_CACHE_DIR,
     )
     if cached is not None:
-        logger.debug("Cache hit for expand_search_terms: %s / %s", drug_name, disease_name)
+        logger.debug(
+            "Cache hit for expand_search_terms: %s / %s", drug_name, disease_name
+        )
         return cached
 
     organ_term = await extract_organ_term(disease_name)
@@ -102,7 +110,12 @@ async def expand_search_terms(
         DEFAULT_CACHE_DIR,
         ttl=CACHE_TTL,
     )
-    logger.debug("expand_search_terms returned %d queries for %s / %s", len(deduped), drug_name, disease_name)
+    logger.debug(
+        "expand_search_terms returned %d queries for %s / %s",
+        len(deduped),
+        drug_name,
+        disease_name,
+    )
     return deduped
 
 

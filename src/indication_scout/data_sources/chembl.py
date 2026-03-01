@@ -39,12 +39,14 @@ class ChEMBLClient(BaseClient):
             raw = await self._rest_get(url, params={})
         except Exception as e:
             raise DataSourceError(
-                self._source_name, f"Unexpected error fetching ATC code '{atc_code}': {e}"
+                self._source_name,
+                f"Unexpected error fetching ATC code '{atc_code}': {e}",
             )
 
         if not isinstance(raw, dict):
             raise DataSourceError(
-                self._source_name, f"Unexpected response shape for ATC code '{atc_code}'"
+                self._source_name,
+                f"Unexpected response shape for ATC code '{atc_code}'",
             )
 
         result = ATCDescription(
@@ -60,7 +62,13 @@ class ChEMBLClient(BaseClient):
             who_name=raw["who_name"],
         )
 
-        cache_set("atc_description", {"atc_code": atc_code}, result.model_dump(), self.cache_dir, ttl=CACHE_TTL)
+        cache_set(
+            "atc_description",
+            {"atc_code": atc_code},
+            result.model_dump(),
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
         return result
 
     async def get_molecule(self, chembl_id: str) -> MoleculeData:
@@ -73,10 +81,14 @@ class ChEMBLClient(BaseClient):
         try:
             raw = await self._rest_get(url, params={})
         except Exception as e:
-            raise DataSourceError(self._source_name, f"Unexpected error fetching {chembl_id}: {e}")
+            raise DataSourceError(
+                self._source_name, f"Unexpected error fetching {chembl_id}: {e}"
+            )
 
         if not isinstance(raw, dict):
-            raise DataSourceError(self._source_name, f"Unexpected response shape for '{chembl_id}'")
+            raise DataSourceError(
+                self._source_name, f"Unexpected response shape for '{chembl_id}'"
+            )
 
         return MoleculeData(
             molecule_chembl_id=raw["molecule_chembl_id"],

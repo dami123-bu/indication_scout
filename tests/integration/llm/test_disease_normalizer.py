@@ -74,9 +74,9 @@ async def test_multiple_drug_disease_normalizer(disease, drug, required_keyword)
     result = await normalize_for_pubmed(disease, drug_name=drug)
     assert result, f"Expected a non-empty result for {drug} + {disease}"
     result_terms = {t.strip().lower() for t in result.split("OR")}
-    assert not (result_terms <= BROADENING_BLOCKLIST), (
-        f"Result '{result}' collapsed to over-generic terms for {drug} + {disease}"
-    )
-    assert any(required_keyword in t for t in result_terms), (
-        f"Expected '{required_keyword}' in result terms {result_terms} for {drug} + {disease}"
-    )
+    assert not (
+        result_terms <= BROADENING_BLOCKLIST
+    ), f"Result '{result}' collapsed to over-generic terms for {drug} + {disease}"
+    assert any(
+        required_keyword in t for t in result_terms
+    ), f"Expected '{required_keyword}' in result terms {result_terms} for {drug} + {disease}"
