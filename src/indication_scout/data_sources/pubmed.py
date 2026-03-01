@@ -45,7 +45,7 @@ class PubMedClient(BaseClient):
             "max_results": max_results,
             "date_before": date_before,
         }
-        cached = cache_get("pubmed_search", cache_params, self.cache_dir) if self.cache_dir else None
+        cached = cache_get("pubmed_search", cache_params, self.cache_dir)
         if cached is not None:
             return cached
 
@@ -61,8 +61,7 @@ class PubMedClient(BaseClient):
         data = await self._rest_get(self.SEARCH_URL, params)
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
 
-        if self.cache_dir:
-            cache_set("pubmed_search", cache_params, pmids, self.cache_dir)
+        cache_set("pubmed_search", cache_params, pmids, self.cache_dir)
         return pmids
 
     async def get_count(self, query: str, date_before: date | None = None) -> int:

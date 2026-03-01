@@ -2,6 +2,8 @@
 
 import logging
 
+from pathlib import Path
+
 from indication_scout.constants import CACHE_TTL, CHEMBL_BASE_URL, DEFAULT_CACHE_DIR
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.models.model_chembl import ATCDescription, MoleculeData
@@ -12,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 class ChEMBLClient(BaseClient):
     """Client for querying ChEMBL database."""
+
+    def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR) -> None:
+        super().__init__()
+        self.cache_dir = cache_dir
 
     @property
     def _source_name(self) -> str:
@@ -24,7 +30,7 @@ class ChEMBLClient(BaseClient):
         Results are cached under namespace "atc_description" for CACHE_TTL seconds.
         Raises DataSourceError if the code is not found or the response is malformed.
         """
-        cached = cache_get("atc_description", {"atc_code": atc_code}, DEFAULT_CACHE_DIR)
+        cached = cache_get("atc_description", {"atc_code": atc_code}, self.cache_dir)
         if cached is not None:
             return ATCDescription(**cached)
 
@@ -56,7 +62,7 @@ class ChEMBLClient(BaseClient):
             who_name=raw["who_name"],
         )
 
-        cache_set("atc_description", {"atc_code": atc_code}, result.model_dump(), DEFAULT_CACHE_DIR, ttl=CACHE_TTL)
+        cache_set("atc_description", {"atc_code": atc_code}, result.model_dump(), self.cache_dir, ttl=CACHE_TTL)
         return result
 
     async def get_molecule(self, chembl_id: str) -> MoleculeData:

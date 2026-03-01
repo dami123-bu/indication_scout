@@ -81,7 +81,7 @@ class OpenTargetsClient(BaseClient):
         """Fetch drug data by name, enriched with ATC codes from ChEMBL."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
-        cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir) if self.cache_dir else None
+        cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
         if cached:
             return DrugData.model_validate(cached)
 
@@ -100,8 +100,7 @@ class OpenTargetsClient(BaseClient):
         else:
             drug_data.atc_classifications = molecule.atc_classifications
 
-        if self.cache_dir:
-            cache_set("drug", {"chembl_id": chembl_id}, drug_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
+        cache_set("drug", {"chembl_id": chembl_id}, drug_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
 
         return drug_data
 
@@ -160,14 +159,13 @@ class OpenTargetsClient(BaseClient):
 
     async def get_target_data(self, target_id: str) -> TargetData:
         """Fetch target data by ID."""
-        cached = cache_get("target", {"target_id": target_id}, self.cache_dir) if self.cache_dir else None
+        cached = cache_get("target", {"target_id": target_id}, self.cache_dir)
         if cached:
             return TargetData.model_validate(cached)
 
         target_data = await self._fetch_target(target_id)
 
-        if self.cache_dir:
-            cache_set("target", {"target_id": target_id}, target_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
+        cache_set("target", {"target_id": target_id}, target_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
 
         return target_data
 
@@ -219,7 +217,7 @@ class OpenTargetsClient(BaseClient):
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
-        cached = cache_get("disease_drugs", {"disease_id": disease_id}, self.cache_dir) if self.cache_dir else None
+        cached = cache_get("disease_drugs", {"disease_id": disease_id}, self.cache_dir)
         if cached:
             return [DrugSummary.model_validate(d) for d in cached]
 
@@ -228,8 +226,7 @@ class OpenTargetsClient(BaseClient):
         )
         result = self._parse_disease_drugs(data["data"])
 
-        if self.cache_dir:
-            cache_set("disease_drugs", {"disease_id": disease_id}, [d.model_dump() for d in result], self.cache_dir)
+        cache_set("disease_drugs", {"disease_id": disease_id}, [d.model_dump() for d in result], self.cache_dir)
 
         return result
 
@@ -237,7 +234,7 @@ class OpenTargetsClient(BaseClient):
         """Fetch exact and related synonyms for a disease by name."""
         disease_id = await self._resolve_disease_name(disease_name)
 
-        cached = cache_get("disease_synonyms", {"disease_id": disease_id}, self.cache_dir) if self.cache_dir else None
+        cached = cache_get("disease_synonyms", {"disease_id": disease_id}, self.cache_dir)
         if cached:
             return DiseaseSynonyms.model_validate(cached)
 
@@ -271,8 +268,7 @@ class OpenTargetsClient(BaseClient):
             **grouped,
         )
 
-        if self.cache_dir:
-            cache_set("disease_synonyms", {"disease_id": disease_id}, result.model_dump(), self.cache_dir)
+        cache_set("disease_synonyms", {"disease_id": disease_id}, result.model_dump(), self.cache_dir)
 
         return result
 
