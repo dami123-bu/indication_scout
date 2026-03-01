@@ -14,13 +14,13 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `data_sources/open_targets.py` | Complete | Full GraphQL client; drug, target, disease, disease synonyms; file-based cache |
 | `data_sources/clinical_trials.py` | Complete | ClinicalTrials.gov v2 REST; 5 public methods; whitespace detection, landscape, terminated |
 | `data_sources/pubmed.py` | Complete | PubMed ESearch/EFetch; search (cached), count, fetch abstracts from XML; file-based cache on `search()` |
-| `data_sources/chembl.py` | Partial | `get_molecule(chembl_id)` complete; `get_atc_description(atc_code)` planned (Step 2 of current PLAN.md) |
+| `data_sources/chembl.py` | Complete | `get_molecule` + `get_atc_description` both complete; `__init__(cache_dir)` consistent with other clients; both methods use `self.cache_dir` |
 | `data_sources/drugbank.py` | Stub | `get_drug` and `get_interactions` both raise `NotImplementedError` |
-| `models/model_chembl.py` | Partial | `MoleculeData` complete; `ATCDescription` model planned (Step 1 of current PLAN.md) |
+| `models/model_chembl.py` | Complete | `MoleculeData` + `ATCDescription` (10 fields: level1–5, all _description fields, who_name) |
 | `models/model_open_targets.py` | Complete | Full Pydantic contract for all OT data types |
 | `models/model_clinical_trials.py` | Complete | Full Pydantic contract for trial, whitespace, landscape, terminated |
 | `models/model_pubmed_abstract.py` | Complete | `PubmedAbstract` model |
-| `models/model_drug_profile.py` | Not started | `DrugProfile` + `from_rich_drug_data` factory planned (Step 3 of current PLAN.md) |
+| `models/model_drug_profile.py` | Complete | `DrugProfile` + `from_rich_drug_data(rich, atc_descriptions)` factory; 7 fields; dedup via `dict.fromkeys` |
 | `agents/orchestrator.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/literature.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/clinical_trials.py` | Stub | `run()` raises `NotImplementedError` |
@@ -103,14 +103,15 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - The `get_drug_competitors()` method on `OpenTargetsClient` has a `# TODO needs rework` comment; it is implemented but may produce inconsistent results.
 - `api/routes/` and `api/schemas/` subdirectories exist but contain only `__init__.py` — no routes or schemas are defined yet.
 - The CLI entry point `scout find -d "metformin"` is referenced in pyproject.toml scripts but the CLI module `indication_scout.cli.cli` does not exist yet.
-- File-based cache utility (`cache_get`, `cache_set`, `cache_key`) lives in `utils/cache.py` and is shared by all callers. All data source clients and services import from there — no per-module duplication. Callers pass `cache_dir` explicitly; the utility never silently no-ops. New cache namespaces planned: `"atc_description"`, `"organ_term"`, `"expand_search_terms"`.
+- File-based cache utility (`cache_get`, `cache_set`, `cache_key`) lives in `utils/cache.py` and is shared by all callers. All data source clients and services import from there — no per-module duplication. Callers pass `cache_dir` explicitly; the utility never silently no-ops. Active namespaces: `"drug"`, `"target"`, `"disease_drugs"`, `"disease_synonyms"` (OpenTargets), `"pubmed_search"` (PubMed), `"disease_norm"`, `"pubmed_count"` (disease_normalizer), `"atc_description"` (ChEMBL). Planned: `"organ_term"`, `"expand_search_terms"` (retrieval.py, Steps 5–7).
+- The dead `if self.cache_dir else None` guards on `cache_get` calls and `if self.cache_dir:` guards on `cache_set` calls in `open_targets.py` and `pubmed.py` have been removed — `cache_dir: Path` is non-optional on both constructors so the guards were unreachable.
 
 ## Known Issues / Caveats
 
 - All five agents (`Orchestrator`, `LiteratureAgent`, `ClinicalTrialsAgent`, `MechanismAgent`, `SafetyAgent`) raise `NotImplementedError` in their `run()` methods — the agent layer is completely unimplemented.
 - The RAG pipeline in `services/retrieval.py` is almost entirely stubbed: `fetch_and_cache`, `semantic_search`, `synthesize` all raise `NotImplementedError`. `expand_search_terms` is actively being planned (current PLAN.md).
 - `DrugBankClient` is a stub (`get_drug` and `get_interactions` raise `NotImplementedError`).
-- `ChEMBLClient` has unit tests for `get_molecule` but no integration tests yet; `get_atc_description` not yet implemented.
+- `ChEMBLClient.get_atc_description` has an integration test (`tests/integration/test_chembl.py`) but no unit test yet (unit test planned in Step 8 of PLAN.md).
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.
 - `runners/pubmed_runner.py` uses `print()` instead of the `logging` module, which violates project rules.

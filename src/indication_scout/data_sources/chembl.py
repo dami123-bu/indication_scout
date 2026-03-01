@@ -32,13 +32,11 @@ class ChEMBLClient(BaseClient):
         """
         cached = cache_get("atc_description", {"atc_code": atc_code}, self.cache_dir)
         if cached is not None:
-            return ATCDescription(**cached)
+            return ATCDescription.model_validate(cached)
 
         url = f"{CHEMBL_BASE_URL}/atc_class/{atc_code}.json"
         try:
             raw = await self._rest_get(url, params={})
-        except DataSourceError:
-            raise
         except Exception as e:
             raise DataSourceError(
                 self._source_name, f"Unexpected error fetching ATC code '{atc_code}': {e}"
@@ -74,8 +72,6 @@ class ChEMBLClient(BaseClient):
         url = f"{CHEMBL_BASE_URL}/molecule/{chembl_id}.json"
         try:
             raw = await self._rest_get(url, params={})
-        except DataSourceError:
-            raise
         except Exception as e:
             raise DataSourceError(self._source_name, f"Unexpected error fetching {chembl_id}: {e}")
 
