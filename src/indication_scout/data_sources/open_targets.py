@@ -20,6 +20,7 @@ from indication_scout.constants import (
     OPEN_TARGETS_BASE_URL,
     OPEN_TARGETS_PAGE_SIZE,
 )
+from indication_scout.markers import no_review
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.data_sources.chembl import ChEMBLClient
@@ -111,8 +112,9 @@ class OpenTargetsClient(BaseClient):
 
         return drug_data
 
+    @no_review
     # TODO needs rework
-    async def get_drug_competitors(self, name) -> dict[str, set[str]]:
+    async def get_drug_competitors(self, name: str) -> dict[str, set[str]]:
         """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
         name = name.lower()
         drug = await self.get_drug(name)

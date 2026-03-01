@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from indication_scout.markers import no_review
 from indication_scout.services.pubmed_query import (
     get_pubmed_query,
 )
@@ -84,6 +85,7 @@ async def test_get_pubmed_query_returns_drug_and_term():
 
 
 # TODO delete
+@no_review
 async def test_get_single_pubmed_query_returns_drug_and_term():
     """Each query must be a '<disease> AND <drug>' string with a diabetes-related disease term."""
     results = await get_pubmed_query("Baricitinib", "Rheumatoid Arthritis")
@@ -104,7 +106,8 @@ async def test_get_pubmed_query_edge():
         assert disease_part.strip() != ""
         assert drug_part.strip() == "bupropion"
 
-
+# TODO delete
+@no_review
 async def test_get_single_disease_synonym():
     disease = "type 2 diabetes nephropathy"
     synonyms = await get_disease_synonyms(disease)

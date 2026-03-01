@@ -4,11 +4,9 @@ import logging
 
 import pytest
 
-import indication_scout.services.retrieval
+
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.helpers.drug_helpers import normalize_drug_name
-from indication_scout.services.pubmed_query import get_pubmed_query
-from tests.integration.conftest import open_targets_client
+from indication_scout.markers import no_review
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +14,7 @@ logger = logging.getLogger(__name__)
 # --- get_drug ---
 
 
-@pytest.mark.asyncio
+@no_review
 async def test_sildenafil_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
     drug = await open_targets_client.get_drug("Semaglutide")
@@ -25,8 +23,8 @@ async def test_sildenafil_drug_data(open_targets_client):
     approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
     logger.info(drug.indications)
 
-
-@pytest.mark.asyncio
+#TODO delete
+@no_review
 async def test_single_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
     drug = await open_targets_client.get_drug("bupropion")
@@ -34,7 +32,6 @@ async def test_single_drug_data(open_targets_client):
     assert drug.atc_classifications == ["N06AX12"]
 
 
-@pytest.mark.asyncio
 async def test_semaglutide_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
     drug = await open_targets_client.get_drug("semaglutide")
@@ -65,7 +62,6 @@ async def test_semaglutide_drug_data(open_targets_client):
     assert t2d_indication.max_phase == 4.0
 
 
-@pytest.mark.asyncio
 async def test_semaglutide_drug_target(open_targets_client):
     """Test DrugTarget fields for semaglutide's GLP1R target."""
     drug = await open_targets_client.get_drug("semaglutide")
@@ -77,7 +73,6 @@ async def test_semaglutide_drug_target(open_targets_client):
     assert glp1r.action_type == "AGONIST"
 
 
-@pytest.mark.asyncio
 async def test_semaglutide_indication(open_targets_client):
     """Test Indication fields for semaglutide's type 2 diabetes indication."""
     drug = await open_targets_client.get_drug("semaglutide")
@@ -93,7 +88,6 @@ async def test_semaglutide_indication(open_targets_client):
     assert "label/2017/209637lbl.pdf" in fda_ref["ids"]
 
 
-@pytest.mark.asyncio
 async def test_trastuzumab_adverse_event(open_targets_client):
     """Test AdverseEvent fields for trastuzumab."""
     drug = await open_targets_client.get_drug("trastuzumab")
@@ -108,7 +102,6 @@ async def test_trastuzumab_adverse_event(open_targets_client):
     assert 2725.0 < adverse_event.log_likelihood_ratio < 2726.0
 
 
-@pytest.mark.asyncio
 async def test_rofecoxib_drug_warning(open_targets_client):
     """Test DrugWarning fields for rofecoxib (Vioxx) - a withdrawn drug with complete warning data."""
     drug = await open_targets_client.get_drug("rofecoxib")
@@ -135,7 +128,6 @@ async def test_rofecoxib_drug_warning(open_targets_client):
     assert warning.efo_id == "EFO:0000612"
 
 
-@pytest.mark.asyncio
 async def test_metformin_drug_data(open_targets_client):
     """Simple test for metformin - a different drug than others in the suite."""
     drug = await open_targets_client.get_drug("metformin")
@@ -152,7 +144,6 @@ async def test_metformin_drug_data(open_targets_client):
 # --- get_drug error handling ---
 
 
-@pytest.mark.asyncio
 async def test_nonexistent_drug_raises_error(open_targets_client):
     """Test that a nonexistent drug raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -162,7 +153,6 @@ async def test_nonexistent_drug_raises_error(open_targets_client):
     assert "No drug found" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test_empty_drug_name_raises_error(open_targets_client):
     """Test that empty drug name raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -171,7 +161,6 @@ async def test_empty_drug_name_raises_error(open_targets_client):
     assert exc_info.value.source == "open_targets"
 
 
-@pytest.mark.asyncio
 async def test_special_characters_drug_name_raises_error(open_targets_client):
     """Test that special characters in drug name raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -182,8 +171,8 @@ async def test_special_characters_drug_name_raises_error(open_targets_client):
 
 # --- get_disease_synonyms ---
 
-
-@pytest.mark.asyncio
+# TODO delete
+@no_review
 async def test_get_disease_synonyms_nep(open_targets_client):
 
     result = await open_targets_client.get_disease_synonyms(
@@ -192,7 +181,6 @@ async def test_get_disease_synonyms_nep(open_targets_client):
     assert result
 
 
-@pytest.mark.asyncio
 async def test_get_disease_synonyms(open_targets_client):
     """Test fetching disease synonyms for type 2 diabetes mellitus."""
     result = await open_targets_client.get_disease_synonyms("type 2 diabetes mellitus")
@@ -210,7 +198,6 @@ async def test_get_disease_synonyms(open_targets_client):
     assert "diabetes mellitus, noninsulin-dependent, 2" in result.narrow
 
 
-@pytest.mark.asyncio
 async def test_get_disease_synonyms_nonexistent(open_targets_client):
     """Test that a nonexistent disease name raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -223,7 +210,6 @@ async def test_get_disease_synonyms_nonexistent(open_targets_client):
 # --- get_target_data error handling ---
 
 
-@pytest.mark.asyncio
 async def test_nonexistent_target_raises_error(open_targets_client):
     """Test that a nonexistent target ID raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -232,7 +218,6 @@ async def test_nonexistent_target_raises_error(open_targets_client):
     assert exc_info.value.source == "open_targets"
 
 
-@pytest.mark.asyncio
 async def test_invalid_target_format_raises_error(open_targets_client):
     """Test that invalid target format raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -241,7 +226,6 @@ async def test_invalid_target_format_raises_error(open_targets_client):
     assert exc_info.value.source == "open_targets"
 
 
-@pytest.mark.asyncio
 async def test_empty_target_id_raises_error(open_targets_client):
     """Test that empty target ID raises DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
@@ -253,7 +237,6 @@ async def test_empty_target_id_raises_error(open_targets_client):
 # --- get_target_data ---
 
 
-@pytest.mark.asyncio
 async def test_glp1r_target_associations(open_targets_client):
     """Test fetching associations for GLP1R target."""
     target = await open_targets_client.get_target_data("ENSG00000112164")
@@ -269,7 +252,6 @@ async def test_glp1r_target_associations(open_targets_client):
     assert "gastrointestinal disease" in assoc.therapeutic_areas
 
 
-@pytest.mark.asyncio
 async def test_glp1r_drug_summary(open_targets_client):
     """Test DrugSummary fields for GLP1R target."""
     target = await open_targets_client.get_target_data("ENSG00000112164")
@@ -289,7 +271,6 @@ async def test_glp1r_drug_summary(open_targets_client):
     assert isinstance(liraglutide.clinical_trial_ids, list)
 
 
-@pytest.mark.asyncio
 async def test_pdgfrb_target_pathway(open_targets_client):
     """Test Pathway fields for PDGFRB target."""
     target = await open_targets_client.get_target_data("ENSG00000113721")
@@ -300,7 +281,6 @@ async def test_pdgfrb_target_pathway(open_targets_client):
     assert pathway.top_level_pathway == "Signal Transduction"
 
 
-@pytest.mark.asyncio
 async def test_pdgfrb_target_interaction(open_targets_client):
     """Test Interaction fields for PDGFRB target."""
     target = await open_targets_client.get_target_data("ENSG00000113721")
@@ -318,7 +298,6 @@ async def test_pdgfrb_target_interaction(open_targets_client):
     assert interaction.evidence_count == 4
 
 
-@pytest.mark.asyncio
 async def test_atp1a1_target_tissue_expression(open_targets_client):
     """Test TissueExpression, RNAExpression, ProteinExpression, and CellTypeExpression fields."""
     target = await open_targets_client.get_target_data("ENSG00000163399")
@@ -348,7 +327,6 @@ async def test_atp1a1_target_tissue_expression(open_targets_client):
     assert hepatocytes.reliability is True
 
 
-@pytest.mark.asyncio
 async def test_glp1r_target_mouse_phenotype(open_targets_client):
     """Test MousePhenotype and BiologicalModel fields for GLP1R target."""
     target = await open_targets_client.get_target_data("ENSG00000112164")
@@ -368,7 +346,6 @@ async def test_glp1r_target_mouse_phenotype(open_targets_client):
     assert model.genetic_background == "C57BL/6NTac"
 
 
-@pytest.mark.asyncio
 async def test_erbb2_target_genetic_constraint(open_targets_client):
     """Test GeneticConstraint fields for ERBB2 target."""
     target = await open_targets_client.get_target_data("ENSG00000141736")
@@ -384,7 +361,6 @@ async def test_erbb2_target_genetic_constraint(open_targets_client):
     assert lof_constraint.upper_bin == 1
 
 
-@pytest.mark.asyncio
 async def test_atp1a1_target_safety_liability(open_targets_client):
     """Test SafetyLiability and SafetyEffect fields for ATP1A1 target."""
     target = await open_targets_client.get_target_data("ENSG00000163399")
@@ -460,7 +436,6 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-@pytest.mark.asyncio
 async def test_drug_target_competitors(open_targets_client):
     """Test get_drug_target_competitors returns DrugSummary lists keyed by target symbol."""
     result = await open_targets_client.get_drug_target_competitors("semaglutide")
@@ -493,7 +468,6 @@ async def test_drug_target_competitors(open_targets_client):
 # --- get_rich_drug_data ---
 
 
-@pytest.mark.asyncio
 async def test_get_rich_drug_data_semaglutide(open_targets_client):
     """Test RichDrugData for semaglutide: all DrugData fields, all TargetData fields for GLP1R."""
     result = await open_targets_client.get_rich_drug_data("semaglutide")
@@ -622,7 +596,6 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     assert pathway.top_level_pathway == "Signal Transduction"
 
 
-@pytest.mark.asyncio
 async def test_get_rich_drug_data_null_interactions(open_targets_client):
     """coerce_nones must convert null list fields to [] across all targets.
 
@@ -646,7 +619,6 @@ async def test_get_rich_drug_data_null_interactions(open_targets_client):
 
 
 # TODO rework
-@pytest.mark.asyncio
 async def test_get_drug_target_competitors_semaglutide(open_targets_client):
     """Test get_drug_target_competitors returns drugs grouped by target symbol."""
     result = await open_targets_client.get_drug_target_competitors("semaglutide")

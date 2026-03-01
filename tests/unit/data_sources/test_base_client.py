@@ -19,7 +19,6 @@ class ConcreteTestClient(BaseClient):
 # --- BaseClient session lifecycle (no network calls) ---
 
 
-@pytest.mark.asyncio
 async def test_client_context_manager():
     """Test that client can be used as async context manager."""
     async with ConcreteTestClient() as client:
@@ -33,7 +32,6 @@ async def test_client_context_manager():
     assert client._session.closed
 
 
-@pytest.mark.asyncio
 async def test_session_reuse():
     """Test that session is reused across requests."""
     client = ConcreteTestClient()
@@ -48,7 +46,6 @@ async def test_session_reuse():
 # --- _graphql error handling ---
 
 
-@pytest.mark.asyncio
 async def test_graphql_errors_in_response_raises_datasource_error():
     """Test _graphql raises DataSourceError when response contains GraphQL errors.
 
@@ -83,7 +80,6 @@ async def test_graphql_errors_in_response_raises_datasource_error():
 # --- _rest_get_xml ---
 
 
-@pytest.mark.asyncio
 async def test_rest_get_xml_returns_xml_text_on_success():
     """Test _rest_get_xml returns raw text for a 200 response."""
     xml_body = "<PubmedArticleSet><PubmedArticle></PubmedArticle></PubmedArticleSet>"
@@ -105,7 +101,6 @@ async def test_rest_get_xml_returns_xml_text_on_success():
     assert result == xml_body
 
 
-@pytest.mark.asyncio
 async def test_rest_get_xml_raises_datasource_error_on_4xx():
     """Test _rest_get_xml raises DataSourceError for non-retryable 4xx."""
     mock_resp = AsyncMock()
@@ -126,7 +121,6 @@ async def test_rest_get_xml_raises_datasource_error_on_4xx():
     assert exc_info.value.source == "test_client"
 
 
-@pytest.mark.asyncio
 async def test_rest_get_xml_retries_on_5xx_then_succeeds():
     """Test _rest_get_xml retries on 500 and succeeds on next attempt."""
     xml_body = "<root>OK</root>"
@@ -155,7 +149,6 @@ async def test_rest_get_xml_retries_on_5xx_then_succeeds():
     assert mock_session.get.call_count == 2
 
 
-@pytest.mark.asyncio
 async def test_rest_get_xml_raises_after_exhausting_retries_on_5xx():
     """Test _rest_get_xml raises DataSourceError after all retries fail with 5xx."""
     error_resp = AsyncMock()

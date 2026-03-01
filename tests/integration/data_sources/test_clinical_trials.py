@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
+from indication_scout.markers import no_review
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,6 @@ logger = logging.getLogger(__name__)
 # --- Main functionality ---
 
 
-@pytest.mark.asyncio
 async def test_get_landscape(clinical_trials_client):
     """Test get_landscape returns competitive landscape for a condition.
 
@@ -60,7 +60,8 @@ async def test_get_landscape(clinical_trials_client):
     assert cuhk.most_recent_start == "2009-12-03"
 
 
-@pytest.mark.asyncio
+# TODO remove
+@no_review
 async def test_get_trial_flow(clinical_trials_client):
     """Test get_trial returns a single trial by NCT ID."""
     # Fetch NCT03819153
@@ -68,7 +69,6 @@ async def test_get_trial_flow(clinical_trials_client):
     logger.info(trial)
 
 
-@pytest.mark.asyncio
 async def test_get_trial(clinical_trials_client):
     """Test get_trial returns a single trial by NCT ID."""
     # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
@@ -114,7 +114,6 @@ async def test_get_trial(clinical_trials_client):
     )
 
 
-@pytest.mark.asyncio
 async def test_search_trials(clinical_trials_client):
     """Test search_trials returns trials for a drug-condition pair."""
     # Search for trastuzumab + breast cancer, find a specific known trial
@@ -168,7 +167,6 @@ async def test_search_trials(clinical_trials_client):
     )
 
 
-@pytest.mark.asyncio
 async def test_search_trials_drug_only(clinical_trials_client):
     """Test search_trials returns trials for a drug without specifying condition."""
     # Search for semaglutide trials across all conditions
@@ -225,7 +223,6 @@ async def test_search_trials_drug_only(clinical_trials_client):
     assert len(all_conditions) >= 10
 
 
-@pytest.mark.asyncio
 async def test_search_trials_condition_only(clinical_trials_client):
     """Test search_trials returns trials for a condition without specifying drug."""
     # Search for gastroparesis trials across all drugs
@@ -282,7 +279,6 @@ async def test_search_trials_condition_only(clinical_trials_client):
     )
 
 
-@pytest.mark.asyncio
 async def test_search_trials_phase_filter(clinical_trials_client):
     """Test that phase_filter only returns trials matching the specified phase."""
     # Search for Phase 3 trials only
@@ -299,7 +295,6 @@ async def test_search_trials_phase_filter(clinical_trials_client):
         assert "Phase 3" in trial.phase
 
 
-@pytest.mark.asyncio
 async def test_get_terminated(clinical_trials_client):
     """Test get_terminated returns terminated trials for a query.
 
@@ -330,7 +325,6 @@ async def test_get_terminated(clinical_trials_client):
     assert novo_trial.references == []
 
 
-@pytest.mark.asyncio
 async def test_detect_whitespace(clinical_trials_client):
     """Test detect_whitespace identifies unexplored drug-condition pairs.
 
@@ -380,7 +374,6 @@ async def test_detect_whitespace(clinical_trials_client):
         assert "Early Phase 1" not in cd.phase
 
 
-@pytest.mark.asyncio
 async def test_detect_whitespace_not_whitespace(clinical_trials_client):
     """Test detect_whitespace when exact matches exist (is_whitespace=False).
 
@@ -403,7 +396,6 @@ async def test_detect_whitespace_not_whitespace(clinical_trials_client):
 # --- Edge cases and weird inputs ---
 
 
-@pytest.mark.asyncio
 async def test_get_trial_nonexistent_nct_id_raises_error(clinical_trials_client):
     """Test that a nonexistent NCT ID raises DataSourceError."""
     with pytest.raises(DataSourceError, match="404") as exc_info:
@@ -412,7 +404,6 @@ async def test_get_trial_nonexistent_nct_id_raises_error(clinical_trials_client)
     assert "NCT99999999" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_client):
     """Test that a nonexistent drug returns empty list (not an error)."""
     trials = await clinical_trials_client.search_trials(
@@ -424,7 +415,6 @@ async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_clie
     assert trials == []
 
 
-@pytest.mark.asyncio
 async def test_search_trials_nonexistent_condition_returns_empty(
     clinical_trials_client,
 ):
@@ -438,7 +428,6 @@ async def test_search_trials_nonexistent_condition_returns_empty(
     assert trials == []
 
 
-@pytest.mark.asyncio
 async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
     """Test that empty drug string returns empty list."""
     trials = await clinical_trials_client.search_trials(
@@ -452,7 +441,6 @@ async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
     assert isinstance(trials, list)
 
 
-@pytest.mark.asyncio
 async def test_get_landscape_nonexistent_condition_returns_empty(
     clinical_trials_client,
 ):
@@ -466,7 +454,6 @@ async def test_get_landscape_nonexistent_condition_returns_empty(
     assert landscape.phase_distribution == {}
 
 
-@pytest.mark.asyncio
 async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_client):
     """Test that nonexistent query returns empty list."""
     trials = await clinical_trials_client.get_terminated(
@@ -476,7 +463,6 @@ async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_cl
     assert trials == []
 
 
-@pytest.mark.asyncio
 async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_client):
     """Test that nonexistent drug returns is_whitespace=True."""
     result = await clinical_trials_client.detect_whitespace(
@@ -490,7 +476,6 @@ async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_
     assert result.condition_only_trials > 0
 
 
-@pytest.mark.asyncio
 async def test_detect_whitespace_nonexistent_condition_is_whitespace(
     clinical_trials_client,
 ):

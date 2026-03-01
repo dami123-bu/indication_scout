@@ -17,7 +17,6 @@ class ConcreteTestClient(BaseClient):
 # --- BaseClient integration tests (requires network) ---
 
 
-@pytest.mark.asyncio
 async def test_get_request_to_httpbin():
     """Test GET request to a real endpoint."""
     async with ConcreteTestClient(timeout=30.0) as client:
@@ -30,7 +29,6 @@ async def test_get_request_to_httpbin():
         assert result["args"]["test_param"] == "test_value"
 
 
-@pytest.mark.asyncio
 async def test_post_request_to_httpbin():
     """Test POST request to a real endpoint."""
     async with ConcreteTestClient(timeout=30.0) as client:
@@ -45,7 +43,6 @@ async def test_post_request_to_httpbin():
         assert result["json"]["key"] == "value"
 
 
-@pytest.mark.asyncio
 async def test_graphql_successful_query():
     """Test _graphql with Open Targets GraphQL endpoint."""
     query = """
@@ -68,7 +65,6 @@ async def test_graphql_successful_query():
         assert hits[0]["entity"] == "drug"
 
 
-@pytest.mark.asyncio
 async def test_graphql_invalid_query_raises_datasource_error():
     """Test _graphql raises DataSourceError for an invalid query.
 
@@ -86,7 +82,6 @@ async def test_graphql_invalid_query_raises_datasource_error():
         assert exc_info.value.status_code == 400
 
 
-@pytest.mark.asyncio
 async def test_rest_get_xml_returns_xml_string():
     """Test _rest_get_xml with PubMed efetch endpoint."""
     async with ConcreteTestClient(timeout=30.0) as client:
@@ -106,7 +101,6 @@ async def test_rest_get_xml_returns_xml_string():
         assert "33914610" in result
 
 
-@pytest.mark.asyncio
 async def test_timeout_raises_error():
     """Test that timeouts raise DataSourceError."""
     async with ConcreteTestClient(timeout=0.001, max_retries=0) as client:

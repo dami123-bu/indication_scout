@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from indication_scout.markers import no_review
 from indication_scout.services.disease_normalizer import (
     BROADENING_BLOCKLIST,
     normalize_for_pubmed,
@@ -11,7 +12,7 @@ from indication_scout.services.disease_normalizer import (
 
 logger = logging.getLogger(__name__)
 
-
+@no_review
 # Exclude from testing rules, TODO delete
 async def test_single_disease_normalizer():
     disease = "hepatocellular carcinoma"
@@ -19,7 +20,7 @@ async def test_single_disease_normalizer():
     result = await normalize_for_pubmed(disease, drug)
     assert result
 
-
+@no_review
 # Exclude from testing rules, TODO delete
 async def test_single_drug_disease_normalizer():
     disease = "colorectal neoplasm"

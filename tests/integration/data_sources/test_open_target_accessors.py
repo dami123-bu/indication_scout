@@ -5,7 +5,6 @@ import pytest
 # --- Target data accessors ---
 
 
-@pytest.mark.asyncio
 async def test_get_target_associations(open_targets_client):
     """Test get_target_associations returns filtered associations with all fields."""
     associations = await open_targets_client.get_target_data_associations(
@@ -23,7 +22,6 @@ async def test_get_target_associations(open_targets_client):
     assert "gastrointestinal disease" in gastroparesis.therapeutic_areas
 
 
-@pytest.mark.asyncio
 async def test_get_target_pathways(open_targets_client):
     """Test get_target_pathways returns pathway data with all fields."""
     pathways = await open_targets_client.get_target_data_pathways("ENSG00000113721")
@@ -36,7 +34,6 @@ async def test_get_target_pathways(open_targets_client):
     assert pdgf.top_level_pathway == "Signal Transduction"
 
 
-@pytest.mark.asyncio
 async def test_get_target_interactions(open_targets_client):
     """Test get_target_interactions returns interaction data with all fields."""
     interactions = await open_targets_client.get_target_data_interactions(
@@ -59,7 +56,6 @@ async def test_get_target_interactions(open_targets_client):
     assert plcg1.interaction_type == "functional"
 
 
-@pytest.mark.asyncio
 async def test_interaction_type_string_is_functional(open_targets_client):
     """Test STRING interaction with all Interaction fields verified."""
     interactions = await open_targets_client.get_target_data_interactions(
@@ -81,7 +77,6 @@ async def test_interaction_type_string_is_functional(open_targets_client):
     assert plcg1_string.interaction_type == "functional"
 
 
-@pytest.mark.asyncio
 async def test_interaction_type_intact_is_physical(open_targets_client):
     """Test IntAct interaction with all Interaction fields verified."""
     interactions = await open_targets_client.get_target_data_interactions(
@@ -103,7 +98,6 @@ async def test_interaction_type_intact_is_physical(open_targets_client):
     assert plcg1_intact.interaction_type == "physical"
 
 
-@pytest.mark.asyncio
 async def test_interaction_type_signor_is_signalling(open_targets_client):
     """Test Signor interaction with all Interaction fields verified.
 
@@ -119,7 +113,6 @@ async def test_interaction_type_signor_is_signalling(open_targets_client):
         assert interaction.interaction_type == "signalling"
 
 
-@pytest.mark.asyncio
 async def test_interaction_type_reactome_is_enzymatic(open_targets_client):
     """Test Reactome interaction with all Interaction fields verified.
 
@@ -135,7 +128,6 @@ async def test_interaction_type_reactome_is_enzymatic(open_targets_client):
         assert interaction.interaction_type == "enzymatic"
 
 
-@pytest.mark.asyncio
 async def test_get_target_drug_summaries(open_targets_client):
     """Test get_known_drugs returns drugs with all DrugSummary fields."""
     drug_summaries = await open_targets_client.get_target_data_drug_summaries(
@@ -159,7 +151,6 @@ async def test_get_target_drug_summaries(open_targets_client):
     assert liraglutide.clinical_trial_ids == []
 
 
-@pytest.mark.asyncio
 async def test_get_target_expression(open_targets_client):
     """Test get_target_expression returns tissue expression with all fields."""
     expressions = await open_targets_client.get_target_data_tissue_expression(
@@ -189,7 +180,6 @@ async def test_get_target_expression(open_targets_client):
     assert hepatocytes.reliability is True
 
 
-@pytest.mark.asyncio
 async def test_get_target_phenotypes(open_targets_client):
     """Test get_target_phenotypes returns mouse phenotype with all fields."""
     phenotypes = await open_targets_client.get_target_data_mouse_phenotypes(
@@ -211,7 +201,6 @@ async def test_get_target_phenotypes(open_targets_client):
     assert model.model_id == ""
 
 
-@pytest.mark.asyncio
 async def test_get_target_safety_liabilities(open_targets_client):
     """Test get_target_data_safety_liabilities returns all SafetyLiability fields."""
     liabilities = await open_targets_client.get_target_data_safety_liabilities(
@@ -238,7 +227,6 @@ async def test_get_target_safety_liabilities(open_targets_client):
     assert effect.dosing == "acute"
 
 
-@pytest.mark.asyncio
 async def test_get_target_genetic_constraints(open_targets_client):
     """Test get_target_data_genetic_constraints returns all GeneticConstraint fields."""
     constraints = await open_targets_client.get_target_data_genetic_constraints(
@@ -256,7 +244,6 @@ async def test_get_target_genetic_constraints(open_targets_client):
     assert lof_constraint.upper_bin == 1
 
 
-@pytest.mark.asyncio
 async def test_get_drug_indications(open_targets_client):
     """Test get_drug_indications returns indication data."""
     indications = await open_targets_client.get_drug_indications("semaglutide")
@@ -268,7 +255,6 @@ async def test_get_drug_indications(open_targets_client):
     assert len(t2d.references) == 4
 
 
-@pytest.mark.asyncio
 async def test_get_disease_drugs(open_targets_client):
     """Test get_disease_drugs returns drugs for a disease with all DrugSummary fields."""
     # Type 2 diabetes mellitus - should have semaglutide and other GLP-1 agonists

@@ -23,6 +23,7 @@ def sample_indication() -> dict:
     }
 
 
+@pytest.fixture
 def sample_disease() -> dict:
     """Sample disease data for testing."""
     return {

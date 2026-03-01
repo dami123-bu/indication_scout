@@ -17,9 +17,10 @@ import logging
 
 from sentence_transformers import SentenceTransformer
 
+from indication_scout.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-_MODEL_NAME = "FremyCompany/BioLORD-2023"
 # Module-level singleton. None until the first call to embed().
 _model: SentenceTransformer | None = None
 
@@ -28,8 +29,9 @@ def _get_model() -> SentenceTransformer:
     """Return the singleton model, instantiating it on first call."""
     global _model
     if _model is None:
-        logger.info("Loading embedding model %s", _MODEL_NAME)
-        _model = SentenceTransformer(_MODEL_NAME)
+        model_name = get_settings().embedding_model
+        logger.info("Loading embedding model %s", model_name)
+        _model = SentenceTransformer(model_name)
     return _model
 
 
