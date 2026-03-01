@@ -1,12 +1,12 @@
-"""Unit tests for ChEMBLClient.get_molecule()."""
+"""Unit tests for ChEMBLClient.get_molecule() and get_atc_description()."""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.models.model_chembl import MoleculeData
+from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.models.model_chembl import ATCDescription, MoleculeData
 
 CHEMBL894_FIXTURE = {
     "molecule_chembl_id": "CHEMBL894",
@@ -114,3 +114,107 @@ async def test_get_molecule_null_atc_returns_empty_list():
         result = await client.get_molecule("CHEMBL894")
 
     assert result.atc_classifications == []
+
+
+# --- get_atc_description ---
+
+ATC_A10BA02_FIXTURE = {
+    "level1": "A",
+    "level1_description": "ALIMENTARY TRACT AND METABOLISM",
+    "level2": "A10",
+    "level2_description": "DRUGS USED IN DIABETES",
+    "level3": "A10B",
+    "level3_description": "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS",
+    "level4": "A10BA",
+    "level4_description": "Biguanides",
+    "level5": "A10BA02",
+    "who_name": "metformin",
+}
+
+ATC_N06AX12_FIXTURE = {
+    "level1": "N",
+    "level1_description": "NERVOUS SYSTEM",
+    "level2": "N06",
+    "level2_description": "PSYCHOANALEPTICS",
+    "level3": "N06A",
+    "level3_description": "ANTIDEPRESSANTS",
+    "level4": "N06AX",
+    "level4_description": "Other antidepressants",
+    "level5": "N06AX12",
+    "who_name": "bupropion",
+}
+
+
+@pytest.mark.parametrize(
+    "atc_code, fixture, expected_level1, expected_level1_description, expected_level2, expected_level2_description, expected_level3, expected_level3_description, expected_level4, expected_level4_description, expected_level5, expected_who_name",
+    [
+        (
+            "A10BA02",
+            ATC_A10BA02_FIXTURE,
+            "A",
+            "ALIMENTARY TRACT AND METABOLISM",
+            "A10",
+            "DRUGS USED IN DIABETES",
+            "A10B",
+            "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS",
+            "A10BA",
+            "Biguanides",
+            "A10BA02",
+            "metformin",
+        ),
+        (
+            "N06AX12",
+            ATC_N06AX12_FIXTURE,
+            "N",
+            "NERVOUS SYSTEM",
+            "N06",
+            "PSYCHOANALEPTICS",
+            "N06A",
+            "ANTIDEPRESSANTS",
+            "N06AX",
+            "Other antidepressants",
+            "N06AX12",
+            "bupropion",
+        ),
+    ],
+)
+async def test_get_atc_description(
+    atc_code,
+    fixture,
+    expected_level1,
+    expected_level1_description,
+    expected_level2,
+    expected_level2_description,
+    expected_level3,
+    expected_level3_description,
+    expected_level4,
+    expected_level4_description,
+    expected_level5,
+    expected_who_name,
+):
+    client = ChEMBLClient()
+    with patch.object(client, "_rest_get", new=AsyncMock(return_value=fixture)):
+        result = await client.get_atc_description(atc_code)
+
+    assert isinstance(result, ATCDescription)
+    assert result.level1 == expected_level1
+    assert result.level1_description == expected_level1_description
+    assert result.level2 == expected_level2
+    assert result.level2_description == expected_level2_description
+    assert result.level3 == expected_level3
+    assert result.level3_description == expected_level3_description
+    assert result.level4 == expected_level4
+    assert result.level4_description == expected_level4_description
+    assert result.level5 == expected_level5
+    assert result.who_name == expected_who_name
+
+
+async def test_get_atc_description_raises_on_data_source_error(tmp_path):
+    client = ChEMBLClient(cache_dir=tmp_path)
+    with patch.object(
+        client,
+        "_rest_get",
+        new=AsyncMock(side_effect=DataSourceError("chembl", "HTTP 404", 404)),
+    ):
+        with pytest.raises(DataSourceError):
+            await client.get_atc_description("A10BA02")

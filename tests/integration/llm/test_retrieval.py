@@ -4,12 +4,14 @@ import logging
 
 import pytest
 
+from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.retrieval import (
-    get_disease_synonyms,
+    expand_search_terms,
+    extract_organ_term,
     fetch_and_cache,
+    get_disease_synonyms,
     semantic_search,
     synthesize,
-    expand_search_terms,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,11 +139,44 @@ async def test_get_disease_synonyms(disease, synonyms):
 #     assert "pmid" in str(result) or hasattr(result, "pmids")
 
 
-# async def test_expand_search_terms_returns_queries():
-#     """Should return a list of PubMed-style query strings."""
-#     drug_profile = {"name": "metformin", "mechanism": "AMPK activator"}
-#     queries = await expand_search_terms("metformin", "colorectal cancer", drug_profile)
-#
-#     assert isinstance(queries, list)
-#     assert len(queries) >= 1
-#     assert all(isinstance(q, str) and len(q) > 0 for q in queries)
+async def test_extract_organ_term_returns_string():
+    """extract_organ_term should return the primary organ for a known disease."""
+    result = await extract_organ_term("colorectal cancer")
+
+    assert result == "colon"
+
+
+async def test_expand_search_terms_returns_queries():
+    """expand_search_terms should return queries covering all 5 prompt axes."""
+    profile = DrugProfile(
+        name="metformin",
+        synonyms=["Glucophage", "Fortamet"],
+        target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
+        mechanisms_of_action=["AMP-activated protein kinase activator", "mTOR inhibitor"],
+        atc_codes=["A10BA02"],
+        atc_descriptions=["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
+        drug_type="Small molecule",
+    )
+    queries = await expand_search_terms("metformin", "colorectal cancer", profile)
+    queries_lower = [q.lower() for q in queries]
+
+    assert 5 <= len(queries) <= 10
+    assert all(isinstance(q, str) and len(q) > 0 for q in queries)
+
+    # Axis 1: drug name + disease
+    assert any("metformin" in q for q in queries_lower)
+
+    # Axis 2: ATC class term + organ
+    assert any("biguanide" in q or "blood glucose" in q for q in queries_lower)
+
+    # Axis 3: mechanism keyword + organ
+    assert any("ampk" in q or "mtor" in q for q in queries_lower)
+
+    # Axis 4: target gene symbol + disease/cancer term
+    assert any(gene in q for gene in ("prkaa1", "prkaa2", "stk11") for q in queries_lower)
+
+    # Axis 5: synonym/trade name + disease
+    assert any("glucophage" in q or "fortamet" in q for q in queries_lower)
+
+    # No duplicates (case-insensitive)
+    assert len(queries_lower) == len(set(queries_lower))

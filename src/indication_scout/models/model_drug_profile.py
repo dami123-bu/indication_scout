@@ -36,6 +36,9 @@ class DrugProfile(BaseModel):
         """
         synonyms = list(dict.fromkeys(rich.drug.synonyms + rich.drug.trade_names))
 
+        # rich.targets is list[TargetData] — full target objects with .symbol.
+        # rich.drug.targets is list[DrugTarget] — drug-target relationships with
+        # .mechanism_of_action. These are different collections; both are needed.
         target_gene_symbols = list(
             dict.fromkeys(t.symbol for t in rich.targets)
         )
@@ -46,6 +49,9 @@ class DrugProfile(BaseModel):
             )
         )
 
+        # Only level3 and level4 descriptions are included. level1/level2 are too
+        # broad to generate useful PubMed queries (e.g. "ALIMENTARY TRACT AND
+        # METABOLISM AND colon") and are intentionally excluded.
         atc_desc_strings = list(
             dict.fromkeys(
                 desc
