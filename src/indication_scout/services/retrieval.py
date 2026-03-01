@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 
 from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
+from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.llm import parse_llm_response, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
@@ -11,6 +13,29 @@ from indication_scout.utils.cache import cache_get, cache_set
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+
+
+async def build_drug_profile(drug_name: str) -> DrugProfile:
+    """Fetch drug + target data from Open Targets, enrich with ATC descriptions from ChEMBL,
+    and return a DrugProfile ready for use in search term expansion.
+
+    Args:
+        drug_name: Common drug name (e.g. "metformin").
+
+    Returns:
+        DrugProfile with all fields populated. atc_descriptions will be [] if the drug
+        has no ATC classifications.
+    """
+    async with OpenTargetsClient() as open_targets_client:
+        rich = await open_targets_client.get_rich_drug_data(drug_name)
+
+    atc_descriptions = []
+    if rich.drug.atc_classifications:
+        async with ChEMBLClient() as chembl_client:
+            for code in rich.drug.atc_classifications:
+                atc_descriptions.append(await chembl_client.get_atc_description(code))
+
+    return DrugProfile.from_rich_drug_data(rich, atc_descriptions)
 
 
 async def fetch_and_cache(queries: list[str]) -> list[str]:

@@ -6,6 +6,7 @@ import pytest
 
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.retrieval import (
+    build_drug_profile,
     expand_search_terms,
     extract_organ_term,
     fetch_and_cache,
@@ -185,3 +186,53 @@ async def test_expand_search_terms_returns_queries():
 
     # No duplicates (case-insensitive)
     assert len(queries_lower) == len(set(queries_lower))
+
+
+# --- build_drug_profile ---
+
+
+@pytest.mark.parametrize(
+    "drug_name, expected_name, expected_drug_type, expected_atc_codes, expected_atc_descriptions, expected_target_gene_symbols, expected_mechanisms_of_action",
+    [
+        (
+            "metformin",
+            "METFORMIN",
+            "Small molecule",
+            ["A10BA02"],
+            ["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
+            ["PRKAA1", "PRKAA2"],
+            ["AMP-activated protein kinase activator"],
+        ),
+        (
+            "trastuzumab",
+            "TRASTUZUMAB",
+            "Antibody",
+            ["L01FD01"],
+            [
+                "MONOCLONAL ANTIBODIES AND ANTIBODY DRUG CONJUGATES",
+                "HER2 (Human Epidermal Growth Factor Receptor 2) inhibitors",
+            ],
+            ["ERBB2"],
+            ["Receptor protein-tyrosine kinase erbB-2 inhibitor"],
+        ),
+    ],
+)
+async def test_build_drug_profile(
+    drug_name,
+    expected_name,
+    expected_drug_type,
+    expected_atc_codes,
+    expected_atc_descriptions,
+    expected_target_gene_symbols,
+    expected_mechanisms_of_action,
+):
+    """build_drug_profile assembles a complete DrugProfile from live Open Targets + ChEMBL data."""
+    profile = await build_drug_profile(drug_name)
+
+    assert profile.name == expected_name
+    assert profile.drug_type == expected_drug_type
+    assert profile.atc_codes == expected_atc_codes
+    assert profile.atc_descriptions == expected_atc_descriptions
+    assert set(expected_target_gene_symbols).issubset(set(profile.target_gene_symbols))
+    assert set(expected_mechanisms_of_action).issubset(set(profile.mechanisms_of_action))
+

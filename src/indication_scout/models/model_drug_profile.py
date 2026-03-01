@@ -25,14 +25,15 @@ class DrugProfile(BaseModel):
     def from_rich_drug_data(
         cls,
         rich: RichDrugData,
-        atc_descriptions: list[ATCDescription],
+        atc_descriptions: list[ATCDescription] | None = None,
     ) -> "DrugProfile":
-        """Build a DrugProfile from a RichDrugData and pre-fetched ATC descriptions.
+        """Build a DrugProfile from a RichDrugData and optional pre-fetched ATC descriptions.
 
         Args:
             rich: Combined drug + target data from Open Targets.
             atc_descriptions: ATCDescription objects for each ATC code on the drug,
                 fetched by the caller via ChEMBLClient.get_atc_description.
+                If None or empty, atc_descriptions on the profile will be [].
         """
         synonyms = list(dict.fromkeys(rich.drug.synonyms + rich.drug.trade_names))
 
@@ -51,7 +52,7 @@ class DrugProfile(BaseModel):
         atc_desc_strings = list(
             dict.fromkeys(
                 desc
-                for atc in atc_descriptions
+                for atc in (atc_descriptions or [])
                 for desc in (atc.level3_description, atc.level4_description)
             )
         )

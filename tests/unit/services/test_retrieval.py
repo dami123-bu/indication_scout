@@ -14,7 +14,11 @@ from indication_scout.models.model_open_targets import (
     RichDrugData,
     TargetData,
 )
-from indication_scout.services.retrieval import expand_search_terms, extract_organ_term
+from indication_scout.services.retrieval import (
+    build_drug_profile,
+    expand_search_terms,
+    extract_organ_term,
+)
 
 # --- Fixtures ---
 
@@ -343,3 +347,81 @@ async def test_expand_search_terms_returns_cached_result(tmp_path, metformin_pro
 
     assert result == cached_queries
     mock_llm.assert_not_called()
+
+
+# --- build_drug_profile ---
+
+
+async def test_build_drug_profile_returns_profile(rich_metformin, atc_metformin):
+    """build_drug_profile fetches RichDrugData and ATC descriptions, returns a DrugProfile."""
+    mock_open_targets = AsyncMock()
+    mock_open_targets.__aenter__ = AsyncMock(return_value=mock_open_targets)
+    mock_open_targets.__aexit__ = AsyncMock(return_value=None)
+    mock_open_targets.get_rich_drug_data = AsyncMock(return_value=rich_metformin)
+
+    mock_chembl = AsyncMock()
+    mock_chembl.__aenter__ = AsyncMock(return_value=mock_chembl)
+    mock_chembl.__aexit__ = AsyncMock(return_value=None)
+    mock_chembl.get_atc_description = AsyncMock(return_value=atc_metformin)
+
+    with (
+        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
+        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+    ):
+        profile = await build_drug_profile("metformin")
+
+    assert profile.name == "METFORMIN"
+    assert profile.synonyms == ["Glucophage", "Fortamet"]
+    assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
+    assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
+    assert profile.atc_codes == ["A10BA02"]
+    assert profile.atc_descriptions == [
+        "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS",
+        "Biguanides",
+    ]
+    assert profile.drug_type == "Small molecule"
+
+
+async def test_build_drug_profile_fetches_atc_per_code(rich_metformin, atc_metformin):
+    """get_atc_description is called once per ATC code on the drug."""
+    mock_open_targets = AsyncMock()
+    mock_open_targets.__aenter__ = AsyncMock(return_value=mock_open_targets)
+    mock_open_targets.__aexit__ = AsyncMock(return_value=None)
+    mock_open_targets.get_rich_drug_data = AsyncMock(return_value=rich_metformin)
+
+    mock_chembl = AsyncMock()
+    mock_chembl.__aenter__ = AsyncMock(return_value=mock_chembl)
+    mock_chembl.__aexit__ = AsyncMock(return_value=None)
+    mock_chembl.get_atc_description = AsyncMock(return_value=atc_metformin)
+
+    with (
+        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
+        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+    ):
+        await build_drug_profile("metformin")
+
+    # rich_metformin has one ATC code: "A10BA02"
+    assert mock_chembl.get_atc_description.call_count == 1
+    mock_chembl.get_atc_description.assert_called_once_with("A10BA02")
+
+
+async def test_build_drug_profile_no_atc_codes(rich_metformin):
+    """If the drug has no ATC codes, ChEMBLClient is never opened and atc_descriptions is []."""
+    rich_metformin.drug.atc_classifications = []
+
+    mock_open_targets = AsyncMock()
+    mock_open_targets.__aenter__ = AsyncMock(return_value=mock_open_targets)
+    mock_open_targets.__aexit__ = AsyncMock(return_value=None)
+    mock_open_targets.get_rich_drug_data = AsyncMock(return_value=rich_metformin)
+
+    mock_chembl = AsyncMock()
+
+    with (
+        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
+        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+    ):
+        profile = await build_drug_profile("metformin")
+
+    assert profile.atc_codes == []
+    assert profile.atc_descriptions == []
+    mock_chembl.__aenter__.assert_not_called()
