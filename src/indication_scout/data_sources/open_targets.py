@@ -391,7 +391,7 @@ class OpenTargetsClient(BaseClient):
 
     def _parse_drug_data(self, raw: dict) -> DrugData:
         targets = []
-        for row in raw.get("mechanismsOfAction", {}).get("rows", []):
+        for row in (raw.get("mechanismsOfAction") or {}).get("rows", []):
             for t in row.get("targets", []):
                 targets.append(
                     DrugTarget(
@@ -421,7 +421,7 @@ class OpenTargetsClient(BaseClient):
                 max_phase=row["maxPhaseForIndication"],
                 references=row.get("references", []),
             )
-            for row in raw.get("indications", {}).get("rows", [])
+            for row in (raw.get("indications") or {}).get("rows", [])
         ]
 
         adverse_events = [
@@ -454,16 +454,16 @@ class OpenTargetsClient(BaseClient):
             name=raw.get("approvedName", ""),
             associations=[
                 self._parse_association(r)
-                for r in raw.get("associatedDiseases", {}).get("rows", [])
+                for r in (raw.get("associatedDiseases") or {}).get("rows", [])
             ],
             pathways=[self._parse_pathway(p) for p in raw.get("pathways", [])],
             interactions=[
                 self._parse_interaction(i)
-                for i in raw.get("interactions", {}).get("rows", [])
+                for i in (raw.get("interactions") or {}).get("rows", [])
             ],
             drug_summaries=[
                 self._parse_drug_summary(d)
-                for d in raw.get("knownDrugs", {}).get("rows", [])
+                for d in (raw.get("knownDrugs") or {}).get("rows", [])
             ],
             expressions=[self._parse_expression(e) for e in raw.get("expressions", [])],
             mouse_phenotypes=[

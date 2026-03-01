@@ -95,9 +95,18 @@ def metformin_profile() -> DrugProfile:
 # --- DrugProfile.from_rich_drug_data ---
 
 
-def test_drug_profile_from_rich_drug_data_name(rich_metformin, atc_metformin):
+def test_drug_profile_from_rich_drug_data(rich_metformin, atc_metformin):
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
     assert profile.name == "METFORMIN"
+    assert profile.synonyms == ["Glucophage", "Fortamet"]
+    assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
+    assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
+    assert profile.atc_codes == ["A10BA02"]
+    assert profile.atc_descriptions == [
+        "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS",
+        "Biguanides",
+    ]
+    assert profile.drug_type == "Small molecule"
 
 
 def test_drug_profile_from_rich_drug_data_synonyms_deduped(

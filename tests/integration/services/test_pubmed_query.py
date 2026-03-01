@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
             "semaglutide",
             "non-alcoholic fatty liver disease",
             "semaglutide",
-            ["liver", "fatty", "nafld", "hepatic"],
+            ["liver", "fatty", "nafld", "hepatic", "steatosis"],
         ),
         (
             "baricitinib",

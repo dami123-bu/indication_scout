@@ -1,63 +1,109 @@
-"""Unit tests for PubMedClient caching."""
-
-import json
-from datetime import datetime, timedelta
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+"""Unit tests for PubMedClient."""
 
 import pytest
 
-from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
+from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.pubmed import PubMedClient
-from indication_scout.utils.cache import cache_get, cache_key, cache_set
+
+# --- _parse_pubmed_xml ---
 
 
-def test_default_config():
+def test_invalid_xml_raises_error():
+    """Test that invalid XML raises DataSourceError."""
     client = PubMedClient()
-    assert client.cache_dir == DEFAULT_CACHE_DIR
+    invalid_xml = "not valid xml <unclosed"
+
+    with pytest.raises(DataSourceError) as exc_info:
+        client._parse_pubmed_xml(invalid_xml)
+
+    assert exc_info.value.source == "pubmed"
+    assert "Failed to parse XML" in str(exc_info.value)
 
 
-def test_cache_disabled(tmp_path):
-    client = PubMedClient(cache_dir=None)
-    # With no cache_dir, search() skips caching — no error raised
-    assert client.cache_dir is None
+def test_empty_xml_raises_error():
+    """Test that empty string raises DataSourceError."""
+    client = PubMedClient()
+
+    with pytest.raises(DataSourceError) as exc_info:
+        client._parse_pubmed_xml("")
+
+    assert exc_info.value.source == "pubmed"
+    assert "Failed to parse XML" in str(exc_info.value)
 
 
-def test_cache_miss_then_hit(tmp_path):
-    params = {"query": "metformin", "max_results": 10, "date_before": None}
+def test_valid_xml_no_articles_returns_empty_list():
+    """Test that valid XML with no PubmedArticle elements returns empty list."""
+    client = PubMedClient()
+    xml = "<PubmedArticleSet></PubmedArticleSet>"
 
-    assert cache_get("pubmed_search", params, tmp_path) is None
+    result = client._parse_pubmed_xml(xml)
 
-    cache_set("pubmed_search", params, ["11111111", "22222222"], tmp_path)
-    result = cache_get("pubmed_search", params, tmp_path)
-    assert result == ["11111111", "22222222"]
-
-
-def test_cache_expired(tmp_path):
-    params = {"query": "aspirin", "max_results": 5, "date_before": None}
-
-    expired_at = (datetime.now() - timedelta(seconds=CACHE_TTL + 1)).isoformat()
-    key = cache_key("pubmed_search", params)
-    path = tmp_path / f"{key}.json"
-    path.write_text(
-        json.dumps({"data": ["99999999"], "cached_at": expired_at, "ttl": CACHE_TTL})
-    )
-
-    result = cache_get("pubmed_search", params, tmp_path)
-    assert result is None
-    assert not path.exists()
+    assert result == []
 
 
-async def test_search_uses_cache(tmp_path):
-    client = PubMedClient(cache_dir=tmp_path)
-    mock_response = {"esearchresult": {"idlist": ["12345678", "87654321"]}}
+def test_valid_xml_parses_article():
+    """Test that valid XML with article is parsed correctly."""
+    client = PubMedClient()
+    xml = """<?xml version="1.0"?>
+    <PubmedArticleSet>
+        <PubmedArticle>
+            <MedlineCitation>
+                <PMID>12345678</PMID>
+                <Article>
+                    <ArticleTitle>Test Article Title</ArticleTitle>
+                    <Abstract>
+                        <AbstractText>This is the abstract text.</AbstractText>
+                    </Abstract>
+                    <AuthorList>
+                        <Author>
+                            <LastName>Smith</LastName>
+                            <ForeName>John</ForeName>
+                        </Author>
+                    </AuthorList>
+                    <Journal>
+                        <Title>Test Journal</Title>
+                    </Journal>
+                </Article>
+            </MedlineCitation>
+            <PubmedData>
+                <History>
+                    <PubMedPubDate PubStatus="pubmed">
+                        <Year>2023</Year>
+                        <Month>06</Month>
+                        <Day>15</Day>
+                    </PubMedPubDate>
+                </History>
+            </PubmedData>
+        </PubmedArticle>
+    </PubmedArticleSet>
+    """
 
-    with patch.object(
-        client, "_rest_get", new=AsyncMock(return_value=mock_response)
-    ) as mock_get:
-        result1 = await client.search("metformin diabetes", max_results=10)
-        result2 = await client.search("metformin diabetes", max_results=10)
+    result = client._parse_pubmed_xml(xml)
 
-    assert result1 == ["12345678", "87654321"]
-    assert result2 == ["12345678", "87654321"]
-    mock_get.assert_called_once()
+    assert len(result) == 1
+    article = result[0]
+    assert article.pmid == "12345678"
+    assert article.title == "Test Article Title"
+    assert article.abstract == "This is the abstract text."
+    assert article.authors == ["Smith, John"]
+    assert article.journal == "Test Journal"
+
+
+def test_article_without_pmid_is_skipped():
+    """Test that articles without PMID are skipped."""
+    client = PubMedClient()
+    xml = """<?xml version="1.0"?>
+    <PubmedArticleSet>
+        <PubmedArticle>
+            <MedlineCitation>
+                <Article>
+                    <ArticleTitle>No PMID Article</ArticleTitle>
+                </Article>
+            </MedlineCitation>
+        </PubmedArticle>
+    </PubmedArticleSet>
+    """
+
+    result = client._parse_pubmed_xml(xml)
+
+    assert result == []

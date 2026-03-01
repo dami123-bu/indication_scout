@@ -622,6 +622,21 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     assert pathway.top_level_pathway == "Signal Transduction"
 
 
+@pytest.mark.asyncio
+async def test_get_rich_drug_data_null_interactions(open_targets_client):
+    """Targets that return null for interactions/associatedDiseases/knownDrugs must not crash.
+
+    metformin's PRKAA1 target returns null for 'interactions' from the Open Targets API.
+    This test guards against AttributeError: 'NoneType' object has no attribute 'get'.
+    """
+    result = await open_targets_client.get_rich_drug_data("metformin")
+
+    prkaa1 = next(t for t in result.targets if t.symbol == "PRKAA1")
+    assert isinstance(prkaa1.interactions, list)
+    assert isinstance(prkaa1.associations, list)
+    assert isinstance(prkaa1.drug_summaries, list)
+
+
 # TODO rework
 @pytest.mark.asyncio
 async def test_get_drug_target_competitors_semaglutide(open_targets_client):
