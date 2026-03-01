@@ -1,6 +1,6 @@
 # API Clients Guide
 
-This document describes the three data source clients used in IndicationScout.
+This document describes the data source clients used in IndicationScout.
 
 ## Overview
 
@@ -191,6 +191,39 @@ async with PubMedClient() as client:
 - **Invalid PMID**: Returns empty list (article not found)
 - **Empty query**: Returns empty list
 - **XML parse error**: Raises `DataSourceError`
+
+---
+
+## ChEMBLClient
+
+REST client for the ChEMBL compound database.
+
+```python
+from indication_scout.data_sources.chembl import ChEMBLClient
+```
+
+### Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_molecule(chembl_id)` | Fetch molecule properties by ChEMBL ID | `MoleculeData` |
+
+### Example
+
+```python
+async with ChEMBLClient() as client:
+    molecule = await client.get_molecule("CHEMBL1118")
+    print(f"{molecule.molecule_chembl_id}: {molecule.molecule_type}")
+    print(f"Max phase: {molecule.max_phase}, Oral: {molecule.oral}")
+    print(f"Black box warning: {bool(molecule.black_box_warning)}")
+```
+
+### Error Behavior
+
+- **Nonexistent ChEMBL ID**: Raises `DataSourceError` (HTTP 404)
+- **Malformed response**: Raises `DataSourceError`
+
+See [chembl.md](chembl.md) for full field-level documentation and agent usage.
 
 ---
 

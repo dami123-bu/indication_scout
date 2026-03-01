@@ -32,6 +32,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
 | `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
 | `helpers/drug_helpers.py` | Complete | `normalize_drug_name` strips common salt suffixes |
+| `scripts/session.py` | Complete | Session file manager: `startup` (create/rotate/print) and `append` subcommands; rotation to `session_bak/` with 5-file cap |
 | `scripts/open_target_pipeline.py` | Complete | Exploratory pipeline: fetches bupropion competitors, builds PubMed queries, fetches abstracts; proper async with client context managers, `asyncio.run` under `__main__`, uses logging |
 | `runners/pubmed_runner.py` | Partial | Development/exploration script; uses `print()` which violates project rules |
 | `config.py` | Complete | Pydantic settings from `.env`; LLM model, DB URL, API keys |

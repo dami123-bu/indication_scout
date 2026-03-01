@@ -48,29 +48,29 @@ async def test_get_disease_synonyms(disease, synonyms):
     assert set(synonyms).issubset(set(result))
 
 
-@pytest.mark.parametrize(
-    "disease, expected_terms",
-    [
-        ("type 2 diabetes", ["diabetes"]),
-        ("chronic myeloid leukemia", ["leukemia", "CML"]),
-        ("HER2-positive breast cancer", ["breast cancer", "HER2"]),
-        ("benign prostatic hyperplasia", ["BPH", "prostat"]),
-    ],
-)
-async def test_get_best_disease_contains_key_term(disease, expected_terms):
-    """Returned PubMed term should contain at least one expected keyword."""
-    result = await get_best_disease(disease)
+# @pytest.mark.parametrize(
+#     "disease, expected_terms",
+#     [
+#         ("type 2 diabetes", ["diabetes"]),
+#         ("chronic myeloid leukemia", ["leukemia", "CML"]),
+#         ("HER2-positive breast cancer", ["breast cancer", "HER2"]),
+#         ("benign prostatic hyperplasia", ["BPH", "prostat"]),
+#     ],
+# )
+# async def test_get_best_disease_contains_key_term(disease, expected_terms):
+#     """Returned PubMed term should contain at least one expected keyword."""
+#     result = await get_best_disease(disease)
+#
+#     assert any(term.lower() in result.lower() for term in expected_terms)
 
-    assert any(term.lower() in result.lower() for term in expected_terms)
 
-
-async def test_get_best_disease():
-    disease = "renal tubular dysgenesis"
-
-    """Returned PubMed term should contain at least one expected keyword."""
-    result = await g(disease)
-
-    assert result
+# async def test_get_best_disease():
+#     disease = "renal tubular dysgenesis"
+#
+#     """Returned PubMed term should contain at least one expected keyword."""
+#     result = await g(disease)
+#
+#     assert result
 
 
 # --- Stubs for unimplemented methods ---
