@@ -120,10 +120,10 @@ EvidenceSummary(
 )
 ```
 
-**Stage 0 — `expand_search_terms(drug_name, disease_name, drug_profile) -> list[str]`** (Pre-fetch)
+**Stage 0 — `expand_search_terms(drug_name, disease_name, drug_profile: RichDrugData) -> list[str]`** (Pre-fetch)
 
-Send the full Drug object (mechanism, drug class, ATC codes, synonyms) to an LLM to generate diverse
-PubMed keyword queries. This runs before `fetch_and_cache`.
+Send the `RichDrugData` object (drug metadata + full target data including pathways, associations,
+and interactions) to an LLM to generate diverse PubMed keyword queries. This runs before `fetch_and_cache`.
 
 ---
 
@@ -198,4 +198,4 @@ volumes:
 8. **Grounded generation with PMIDs** — Claude synthesises from retrieved documents, not training weights; every claim in `EvidenceSummary` is traceable to a real paper
 9. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
 10. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
-11. **Full Drug object for query expansion** — mechanism, drug class, ATC codes, synonyms all inform better PubMed queries than drug name alone
+11. **`RichDrugData` for query expansion** — drug metadata plus full target data (pathways, associations, interactions) inform better PubMed queries than drug name alone

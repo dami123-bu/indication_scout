@@ -14,8 +14,9 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `data_sources/open_targets.py` | Complete | Full GraphQL client; drug, target, disease, disease synonyms; file-based cache |
 | `data_sources/clinical_trials.py` | Complete | ClinicalTrials.gov v2 REST; 5 public methods; whitespace detection, landscape, terminated |
 | `data_sources/pubmed.py` | Complete | PubMed ESearch/EFetch; search (cached), count, fetch abstracts from XML; file-based cache on `search()` |
-| `data_sources/chembl.py` | Stub | `search_compound` and `get_activities` both raise `NotImplementedError` |
+| `data_sources/chembl.py` | Complete | `get_molecule(chembl_id)` — fetches molecule properties via REST GET `/molecule/{id}.json`; returns `MoleculeData` |
 | `data_sources/drugbank.py` | Stub | `get_drug` and `get_interactions` both raise `NotImplementedError` |
+| `models/model_chembl.py` | Complete | `MoleculeData` Pydantic model (molecule_chembl_id, molecule_type, max_phase, atc_classifications, black_box_warning, first_approval, oral) |
 | `models/model_open_targets.py` | Complete | Full Pydantic contract for all OT data types |
 | `models/model_clinical_trials.py` | Complete | Full Pydantic contract for trial, whitespace, landscape, terminated |
 | `models/model_pubmed_abstract.py` | Complete | `PubmedAbstract` model |
@@ -74,6 +75,8 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 | `tests/integration/data_sources/test_open_targets.py` | Extensive integration suite with exact field assertions; doubles as API contract verification |
 | `tests/integration/data_sources/test_pubmed_query.py` | Parametrized integration tests for `get_pubmed_query`; 5 drug-disease pairs; asserts query structure and disease keyword presence |
 | `docs/open_targets.md` | Full data contract documentation for Open Targets client |
+| `docs/chembl.md` | Full data contract documentation for ChEMBL client (method, field mapping, agent usage) |
+| `docs/api_clients.md` | Quick-reference guide for all data source clients; now includes ChEMBLClient section |
 | `docs/rag_details.md` | RAG pipeline implementation details; disease normalizer strategy documented in section 4 |
 | `planning_docs/` | Sprint plans and technical implementation docs |
 
@@ -81,6 +84,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 
 - The Open Targets client resolves drug names to ChEMBL IDs via a GraphQL search before fetching drug data. Names are case-insensitive and fuzzy; the first match wins.
 - `get_rich_drug_data()` fetches all target data in parallel using `asyncio.gather`, benefiting from the file cache for repeated calls.
+- `RichDrugData` (not `DrugData`) is the canonical input type for any agent or service that needs a complete drug profile. `DrugData` contains only drug-level metadata (name, synonyms, ATC codes, mechanisms). `RichDrugData` bundles `DrugData` with full `TargetData` for every target (pathways, disease associations, interactions, expression, safety liabilities). Always use `RichDrugData` when downstream code needs target-level context.
 - `detect_whitespace()` runs three concurrent API calls (exact match, drug-only count, condition-only count) then only fetches full condition trials if whitespace exists. When whitespace exists, `condition_drugs` is populated with Phase 2+ competitors ranked by phase then active status.
 - The ClinicalTrials v2 API uses `AREA[Phase]` syntax for phase filtering embedded in `query.term`, not a dedicated parameter.
 - The `DiseaseSynonyms.all_synonyms` property deliberately excludes `broad` and `narrow` synonyms; it only returns `exact + related + parent_names`.
@@ -98,7 +102,8 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 
 - All five agents (`Orchestrator`, `LiteratureAgent`, `ClinicalTrialsAgent`, `MechanismAgent`, `SafetyAgent`) raise `NotImplementedError` in their `run()` methods — the agent layer is completely unimplemented.
 - The RAG pipeline in `services/retrieval.py` is almost entirely stubbed: `fetch_and_cache`, `semantic_search`, `synthesize`, and `expand_search_terms` all raise `NotImplementedError`. Only `get_disease_synonyms` (which calls an LLM) works.
-- `ChEMBLClient` and `DrugBankClient` are stubs.
+- `DrugBankClient` is a stub (`get_drug` and `get_interactions` raise `NotImplementedError`).
+- `ChEMBLClient` is implemented (`get_molecule` works) but has no integration tests yet.
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.
 - `runners/pubmed_runner.py` uses `print()` instead of the `logging` module, which violates project rules.
