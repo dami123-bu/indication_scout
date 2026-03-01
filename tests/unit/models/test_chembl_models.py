@@ -2,7 +2,6 @@
 
 from indication_scout.models.model_chembl import ATCDescription, MoleculeData
 
-
 # --- ATCDescription ---
 
 

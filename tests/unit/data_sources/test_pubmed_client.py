@@ -157,7 +157,10 @@ def test_valid_xml_parses_book_article():
     article = result[0]
     assert article.pmid == "20301421"
     assert article.title == "ALS2-Related Disorder"
-    assert article.abstract == "CLINICAL CHARACTERISTICS: Spasticity with increased reflexes. MANAGEMENT: Multidisciplinary care."
+    assert (
+        article.abstract
+        == "CLINICAL CHARACTERISTICS: Spasticity with increased reflexes. MANAGEMENT: Multidisciplinary care."
+    )
     assert article.authors == ["Orrell, Richard W"]  # editors excluded
     assert article.journal == "GeneReviews"
     assert article.pub_date == "1993"

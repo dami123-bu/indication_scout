@@ -206,7 +206,10 @@ async def test_expand_search_terms_returns_queries():
             ["A10BA02"],
             ["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
             ["GPD2", "NDUFS1"],
-            ["Mitochondrial complex I (NADH dehydrogenase) inhibitor", "Mitochondrial glycerol-3-phosphate dehydrogenase inhibitor"],
+            [
+                "Mitochondrial complex I (NADH dehydrogenase) inhibitor",
+                "Mitochondrial glycerol-3-phosphate dehydrogenase inhibitor",
+            ],
         ),
         (
             "trastuzumab",
