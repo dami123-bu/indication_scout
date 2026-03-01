@@ -188,9 +188,7 @@ class TerminatedTrial(BaseModel):
     condition: str | None = None
     phase: str | None = None
     why_stopped: str | None = None
-    stop_category: str = (
-        "unknown"  # safety, efficacy, business, enrollment, other, unknown
-    )
+    stop_category: str | None = None  # safety, efficacy, business, enrollment, other, unknown
     enrollment: int | None = None
     sponsor: str | None = None
     start_date: str | None = None

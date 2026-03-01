@@ -205,8 +205,8 @@ async def test_expand_search_terms_returns_queries():
             "Small molecule",
             ["A10BA02"],
             ["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
-            ["PRKAA1", "PRKAA2"],
-            ["AMP-activated protein kinase activator"],
+            ["GPD2", "NDUFS1"],
+            ["Mitochondrial complex I (NADH dehydrogenase) inhibitor", "Mitochondrial glycerol-3-phosphate dehydrogenase inhibitor"],
         ),
         (
             "trastuzumab",

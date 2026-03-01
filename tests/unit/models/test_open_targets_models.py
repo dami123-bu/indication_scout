@@ -110,6 +110,29 @@ def test_drug_data_empty_targets():
     assert drug.targets == []
 
 
+def test_drug_data_coerce_nones_converts_null_lists_to_empty():
+    """DrugData with all list fields set to None must coerce them to []."""
+    drug = DrugData(
+        chembl_id="CHEMBL9999",
+        name="TEST_DRUG",
+        synonyms=None,
+        trade_names=None,
+        warnings=None,
+        indications=None,
+        targets=None,
+        adverse_events=None,
+        atc_classifications=None,
+    )
+
+    assert drug.synonyms == []
+    assert drug.trade_names == []
+    assert drug.warnings == []
+    assert drug.indications == []
+    assert drug.targets == []
+    assert drug.adverse_events == []
+    assert drug.atc_classifications == []
+
+
 def test_approved_disease_ids_returns_phase_4_only(sample_drug_data):
     """approved_disease_ids should return only phase 4+ disease IDs."""
     approved = sample_drug_data.approved_disease_ids

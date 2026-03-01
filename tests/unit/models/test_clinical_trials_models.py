@@ -1,8 +1,6 @@
 """Unit tests for Clinical Trials models."""
 
 import pytest
-from pydantic import ValidationError
-
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
     ConditionDrug,
@@ -479,7 +477,7 @@ def test_terminated_trial_minimal_fields():
     assert trial.condition is None
     assert trial.phase is None
     assert trial.why_stopped is None
-    assert trial.stop_category == "unknown"
+    assert trial.stop_category is None
     assert trial.enrollment is None
     assert trial.sponsor is None
     assert trial.start_date is None

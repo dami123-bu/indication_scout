@@ -178,6 +178,71 @@ class PubMedClient(BaseClient):
                 )
             )
 
+        for book_elem in root.findall(".//PubmedBookArticle"):
+            doc = book_elem.find("BookDocument")
+            if doc is None:
+                continue
+
+            pmid = self._xml_text(doc, ".//PMID")
+            if not pmid:
+                continue
+
+            title = self._xml_text(doc, ".//ArticleTitle")
+
+            # Abstract - may have multiple labelled sections
+            abstract_parts = []
+            for abs_elem in doc.findall(".//AbstractText"):
+                label = abs_elem.get("Label", "")
+                text = "".join(abs_elem.itertext())
+                if label:
+                    abstract_parts.append(f"{label}: {text}")
+                elif text:
+                    abstract_parts.append(text)
+            abstract = " ".join(abstract_parts) if abstract_parts else None
+
+            # Authors only — exclude editors (AuthorList Type="editors")
+            authors = []
+            for author_list in doc.findall("AuthorList"):
+                if author_list.get("Type") == "editors":
+                    continue
+                for author in author_list.findall("Author"):
+                    last_name = self._xml_text(author, "LastName")
+                    fore_name = self._xml_text(author, "ForeName")
+                    if last_name:
+                        name = f"{last_name}, {fore_name}" if fore_name else last_name
+                        authors.append(name)
+
+            journal = self._xml_text(doc, ".//Book/BookTitle")
+
+            # Publication date
+            pub_date = None
+            pub_date_elem = doc.find(".//PubDate")
+            if pub_date_elem is not None:
+                year = self._xml_text(pub_date_elem, "Year")
+                month = self._xml_text(pub_date_elem, "Month")
+                day = self._xml_text(pub_date_elem, "Day")
+                if year:
+                    pub_date = year
+                    if month:
+                        pub_date += f"-{month}"
+                        if day:
+                            pub_date += f"-{day}"
+
+            keywords = [kw.text for kw in doc.findall(".//Keyword") if kw.text]
+
+            articles.append(
+                PubmedAbstract(
+                    pmid=pmid,
+                    title=title,
+                    abstract=abstract,
+                    authors=authors,
+                    journal=journal,
+                    pub_date=pub_date,
+                    mesh_terms=[],
+                    keywords=keywords,
+                )
+            )
+
         return articles
 
     @staticmethod
