@@ -3,6 +3,24 @@
 from pydantic import BaseModel
 
 
+class ATCDescription(BaseModel):
+    """ATC classification hierarchy for a single ATC code.
+
+    Populated from GET /atc_class/{code}.json.
+    """
+
+    level1: str
+    level1_description: str
+    level2: str
+    level2_description: str
+    level3: str
+    level3_description: str
+    level4: str
+    level4_description: str
+    level5: str  # full code, e.g. "A10BA02"
+    who_name: str
+
+
 class MoleculeData(BaseModel):
     """Data returned by the ChEMBL molecule endpoint for a single compound."""
 

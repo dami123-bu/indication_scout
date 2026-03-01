@@ -2,7 +2,7 @@
 
 import pytest
 
-from indication_scout.models.model_chembl import MoleculeData
+from indication_scout.models.model_chembl import ATCDescription, MoleculeData
 
 
 @pytest.mark.parametrize(
@@ -32,3 +32,48 @@ async def test_get_molecule(
     assert result.black_box_warning == expected_black_box
     assert result.first_approval == expected_first_approval
     assert result.oral == expected_oral
+
+
+@pytest.mark.parametrize(
+    "atc_code, level1, level1_description, level2, level2_description, level3, level3_description, level4, level4_description, who_name",
+    [
+        (
+            "A10BA02",
+            "A",
+            "ALIMENTARY TRACT AND METABOLISM",
+            "A10",
+            "DRUGS USED IN DIABETES",
+            "A10B",
+            "BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS",
+            "A10BA",
+            "Biguanides",
+            "metformin",
+        ),
+    ],
+)
+async def test_get_atc_description(
+    chembl_client,
+    atc_code,
+    level1,
+    level1_description,
+    level2,
+    level2_description,
+    level3,
+    level3_description,
+    level4,
+    level4_description,
+    who_name,
+):
+    result = await chembl_client.get_atc_description(atc_code)
+
+    assert isinstance(result, ATCDescription)
+    assert result.level1 == level1
+    assert result.level1_description == level1_description
+    assert result.level2 == level2
+    assert result.level2_description == level2_description
+    assert result.level3 == level3
+    assert result.level3_description == level3_description
+    assert result.level4 == level4
+    assert result.level4_description == level4_description
+    assert result.level5 == atc_code
+    assert result.who_name == who_name
