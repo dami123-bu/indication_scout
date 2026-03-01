@@ -20,7 +20,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `models/model_open_targets.py` | Complete | Full Pydantic contract for all OT data types |
 | `models/model_clinical_trials.py` | Complete | Full Pydantic contract for trial, whitespace, landscape, terminated |
 | `models/model_pubmed_abstract.py` | Complete | `PubmedAbstract` model |
-| `models/model_drug_profile.py` | Complete | `DrugProfile` + `from_rich_drug_data(rich, atc_descriptions)` factory; 7 fields; dedup via `dict.fromkeys`; comments explain rich.targets vs rich.drug.targets distinction and why only ATC level3/4 descriptions are used |
+| `models/model_drug_profile.py` | Complete | `DrugProfile` + `from_rich_drug_data(rich, atc_descriptions=None)` factory; `atc_descriptions` is optional (None → `[]`); 7 fields; dedup via `dict.fromkeys`; comments explain rich.targets vs rich.drug.targets distinction and why only ATC level3/4 descriptions are used |
 | `agents/orchestrator.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/literature.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/clinical_trials.py` | Stub | `run()` raises `NotImplementedError` |
@@ -29,7 +29,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `services/llm.py` | Complete | `query_llm` and `query_small_llm` via Anthropic SDK |
 | `services/disease_normalizer.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
-| `services/retrieval.py` | Partial | `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms` all implemented and cached; `fetch_and_cache`, `semantic_search`, `synthesize` still raise `NotImplementedError` |
+| `services/retrieval.py` | Partial | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms` all implemented and cached; `fetch_and_cache`, `semantic_search`, `synthesize` still raise `NotImplementedError` |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
 | `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
@@ -80,10 +80,10 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 | `scripts/open_target_pipeline.py` | Exploratory async pipeline script; not part of production path |
 | `runners/pubmed_runner.py` | Development/exploration script; uses `print()` in violation of project rules |
 | `tests/integration/data_sources/test_open_targets.py` | Extensive integration suite with exact field assertions; doubles as API contract verification |
-| `tests/integration/data_sources/test_pubmed_query.py` | Parametrized integration tests for `get_pubmed_query`; 5 drug-disease pairs; asserts query structure and disease keyword presence |
-| `tests/integration/llm/test_retrieval.py` | Integration tests for retrieval service; `test_get_disease_synonyms`, `test_extract_organ_term_returns_string`, `test_expand_search_terms_returns_queries` all active |
-| `tests/unit/services/test_retrieval.py` | Unit tests for retrieval service (no network); covers `DrugProfile.from_rich_drug_data` (all 7 fields), `extract_organ_term` (cache + LLM), `expand_search_terms` (cache, prompt content, dedup) |
-| `tests/unit/test_chembl.py` | Unit tests for ChEMBLClient; covers `get_molecule` (parametrized, 5 cases) and `get_atc_description` (parametrized, 2 cases, all 10 fields) |
+| `tests/integration/services/test_pubmed_query.py` | Parametrized integration tests for `get_pubmed_query`; 5 drug-disease pairs; asserts query structure and disease keyword presence |
+| `tests/integration/services/test_retrieval.py` | Integration tests for retrieval service; `test_get_disease_synonyms`, `test_extract_organ_term_returns_string`, `test_expand_search_terms_returns_queries`, and `test_build_drug_profile` (parametrized: metformin, trastuzumab, pembrolizumab) all active |
+| `tests/unit/services/test_retrieval.py` | Unit tests for retrieval service (no network); covers `DrugProfile.from_rich_drug_data` (all 7 fields), `extract_organ_term` (cache + LLM), `expand_search_terms` (cache, prompt content, dedup), `build_drug_profile` (mocked clients, 3 cases) |
+| `tests/unit/data_sources/test_chembl.py` | Unit tests for ChEMBLClient; covers `get_molecule` (parametrized, 5 cases) and `get_atc_description` (parametrized, 2 cases, all 10 fields) |
 | `docs/open_targets.md` | Full data contract documentation for Open Targets client |
 | `docs/chembl.md` | Full data contract documentation for ChEMBL client (method, field mapping, agent usage) |
 | `docs/api_clients.md` | Quick-reference guide for all data source clients; includes ChEMBLClient section |
@@ -96,7 +96,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - The Open Targets client resolves drug names to ChEMBL IDs via a GraphQL search before fetching drug data. Names are case-insensitive and fuzzy; the first match wins.
 - `get_rich_drug_data()` fetches all target data in parallel using `asyncio.gather`, benefiting from the file cache for repeated calls.
 - `RichDrugData` (not `DrugData`) is the canonical input type for any agent or service that needs a complete drug profile. `DrugData` contains only drug-level metadata (name, synonyms, ATC codes, mechanisms). `RichDrugData` bundles `DrugData` with full `TargetData` for every target (pathways, disease associations, interactions, expression, safety liabilities). Always use `RichDrugData` when downstream code needs target-level context.
-- `DrugProfile` (`models/model_drug_profile.py`) is a flat LLM-facing projection of `RichDrugData`: name, synonyms, target gene symbols, mechanisms of action, ATC codes, ATC descriptions (human-readable from `/atc_class/{code}.json`), drug type. Built via `DrugProfile.from_rich_drug_data(rich, atc_descriptions)`. Used as the typed input to `expand_search_terms`. Note: `target_gene_symbols` comes from `rich.targets` (list[TargetData], has `.symbol`); `mechanisms_of_action` comes from `rich.drug.targets` (list[DrugTarget], has `.mechanism_of_action`) — different collections, both needed.
+- `DrugProfile` (`models/model_drug_profile.py`) is a flat LLM-facing projection of `RichDrugData`: name, synonyms, target gene symbols, mechanisms of action, ATC codes, ATC descriptions (human-readable from `/atc_class/{code}.json`), drug type. Built via `DrugProfile.from_rich_drug_data(rich, atc_descriptions=None)` — `atc_descriptions` is optional; omitting it (or passing `[]`) yields `atc_descriptions=[]` on the profile. The preferred way to assemble a profile is via `build_drug_profile(drug_name)` in `services/retrieval.py`, which orchestrates the Open Targets + ChEMBL calls. Used as the typed input to `expand_search_terms`. Note: `target_gene_symbols` comes from `rich.targets` (list[TargetData], has `.symbol`); `mechanisms_of_action` comes from `rich.drug.targets` (list[DrugTarget], has `.mechanism_of_action`) — different collections, both needed.
 - `DrugProfile.atc_descriptions` uses only ATC level3 and level4 descriptions (e.g. "Blood glucose lowering drugs" + "Biguanides"). Level1/2 are too broad for useful PubMed queries and are intentionally excluded.
 - `expand_search_terms` generates diverse PubMed queries across 5 axes (drug name, drug class+organ, mechanism+organ, target gene, synonym) with per-axis caps (total 5–10). Organ term is pre-extracted via a separate Haiku call (`extract_organ_term`). Both functions cache results under `"organ_term"` and `"expand_search_terms"` namespaces. LLM output varies in disease synonym wording — integration tests use axis-level keyword assertions (not exact-match) for `expand_search_terms`; `extract_organ_term` uses exact-match.
 - All three prompt files use `Input: "{var}"` / `Output:` few-shot format to anchor the LLM completion.
@@ -123,5 +123,5 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.
 - `runners/pubmed_runner.py` uses `print()` instead of the `logging` module, which violates project rules.
-- `tests/integration/data_sources/test_pubmed_query.py` contains two tests marked `# TODO delete` (`test_get_single_pubmed_query_returns_drug_and_term`, `test_get_single_disease_synonym`) — these are superseded by the parametrized suite but have not been removed yet.
+- `tests/integration/services/test_pubmed_query.py` contains two tests marked `# TODO delete` (`test_get_single_pubmed_query_returns_drug_and_term`, `test_get_single_disease_synonym`) — these are superseded by the parametrized suite but have not been removed yet.
 - `db/session.py` creates a new engine and session factory on every call to `get_db()` — there is no connection pooling singleton.

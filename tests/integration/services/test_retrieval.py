@@ -215,6 +215,15 @@ async def test_expand_search_terms_returns_queries():
             ["ERBB2"],
             ["Receptor protein-tyrosine kinase erbB-2 inhibitor"],
         ),
+        (
+            "pembrolizumab",
+            "PEMBROLIZUMAB",
+            "Antibody",
+            [],
+            [],
+            ["PDCD1"],
+            ["Programmed cell death protein 1 inhibitor"],
+        ),
     ],
 )
 async def test_build_drug_profile(

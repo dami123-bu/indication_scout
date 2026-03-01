@@ -34,11 +34,20 @@ Should include - the mechanism, drug class, ATC codes, synonyms
 
 **fetch → embed → search → stuff into prompt → generate grounded summary**
 
-1. **Expand search terms** — given a drug+disease, query an LLM with the full Drug object (mechanism, drug class, ATC codes, synonyms) to generate diverse PubMed keyword queries. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, …
-2. **Fetch & cache** — hit PubMed E-utilities with each query (up to 500 PMIDs), fetch abstracts for any not already stored, embed with BioLORD-2023, store in pgvector
-3. **Semantic search** — embed the drug+disease query with BioLORD-2023, run cosine similarity over pgvector, return top 20 abstracts. Finds conceptually relevant papers even without exact keyword matches (e.g. "biguanide antineoplastic mechanisms" matches a metformin/cancer query)
-4. **Re-rank** — reduce top 20 → top 5 using a cross-encoder or LLM reranker
-5. **Augment + generate** — stuff the top 5 abstracts into a Claude prompt. Claude reads the actual retrieved papers, not training data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim — every finding is traceable to a real paper
+1. **Build drug profile** — fetch structured drug data needed for search term expansion. Calls `OpenTargetsClient.get_rich_drug_data()` for targets, mechanisms, indications, and synonyms; then enriches ATC codes with human-readable descriptions via `ChEMBLClient.get_atc_description()`. Returns a `DrugProfile` used in the next step.
+
+   ```python
+   # services/retrieval.py
+   profile = await build_drug_profile("metformin")
+   # profile.synonyms, profile.target_gene_symbols, profile.mechanisms_of_action,
+   # profile.atc_codes, profile.atc_descriptions, profile.drug_type
+   ```
+
+2. **Expand search terms** — given a drug+disease, query an LLM with the full Drug object (mechanism, drug class, ATC codes, synonyms) to generate diverse PubMed keyword queries. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, …
+3. **Fetch & cache** — hit PubMed E-utilities with each query (up to 500 PMIDs), fetch abstracts for any not already stored, embed with BioLORD-2023, store in pgvector
+4. **Semantic search** — embed the drug+disease query with BioLORD-2023, run cosine similarity over pgvector, return top 20 abstracts. Finds conceptually relevant papers even without exact keyword matches (e.g. "biguanide antineoplastic mechanisms" matches a metformin/cancer query)
+5. **Re-rank** — reduce top 20 → top 5 using a cross-encoder or LLM reranker
+6. **Augment + generate** — stuff the top 5 abstracts into a Claude prompt. Claude reads the actual retrieved papers, not training data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim — every finding is traceable to a real paper
 
 ```
 PubMed E-utilities (keyword search)
