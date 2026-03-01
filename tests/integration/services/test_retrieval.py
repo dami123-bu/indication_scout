@@ -5,9 +5,11 @@ import logging
 import pytest
 from sqlalchemy import text
 
+from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.retrieval import (
     build_drug_profile,
+    embed_abstracts,
     expand_search_terms,
     extract_organ_term,
     fetch_and_cache,
@@ -254,6 +256,35 @@ async def test_build_drug_profile(
     assert set(expected_mechanisms_of_action).issubset(
         set(profile.mechanisms_of_action)
     )
+
+
+# --- embed_abstracts ---
+
+# PMID 21133896: sildenafil + diabetic nephropathy — stable journal article with title and abstract.
+_EMBED_TEST_PMID = "21133896"
+
+
+async def test_embed_abstracts_returns_768_dim_vectors():
+    """embed_abstracts produces one 768-dim vector per abstract, aligned by index.
+
+    Fetches one real abstract from PubMed and embeds it. Verifies:
+    - result length equals input length
+    - the paired abstract pmid matches the input
+    - the vector has exactly 768 dimensions (BioLORD-2023 output dim)
+    - all vector values are finite floats
+    """
+    async with PubMedClient() as client:
+        abstracts = await client.fetch_abstracts([_EMBED_TEST_PMID])
+
+    assert len(abstracts) == 1
+
+    result = embed_abstracts(abstracts)
+
+    assert len(result) == 1
+    abstract, vector = result[0]
+    assert abstract.pmid == _EMBED_TEST_PMID
+    assert len(vector) == 768
+    assert all(isinstance(v, float) for v in vector)
 
 
 # --- get_stored_pmids ---

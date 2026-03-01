@@ -12,6 +12,7 @@ from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
+from indication_scout.services.embeddings import embed
 from indication_scout.services.llm import parse_llm_response, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
 
@@ -93,6 +94,29 @@ async def fetch_new_abstracts(
     logger.debug("Fetching %d new abstracts from PubMed", len(new_pmids))
     async with PubMedClient() as client:
         return await client.fetch_abstracts(new_pmids)
+
+
+def embed_abstracts(
+    abstracts: list[PubmedAbstract],
+) -> list[tuple[PubmedAbstract, list[float]]]:
+    """Embed a list of PubMed abstracts using BioLORD-2023.
+
+    Builds embed text as "<title>. <abstract>" for each abstract and calls
+    embed() in a single batch. Returns (abstract, vector) pairs aligned by index.
+
+    Args:
+        abstracts: Abstracts to embed.
+
+    Returns:
+        List of (PubmedAbstract, embedding vector) pairs in the same order as input.
+        Empty list if abstracts is empty (embed() is not called).
+    """
+    if not abstracts:
+        return []
+
+    texts = [f"{a.title}. {a.abstract or ''}" for a in abstracts]
+    vectors = embed(texts)
+    return list(zip(abstracts, vectors))
 
 
 async def fetch_and_cache(queries: list[str]) -> list[str]:

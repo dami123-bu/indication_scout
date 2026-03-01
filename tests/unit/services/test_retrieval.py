@@ -8,6 +8,7 @@ import pytest
 
 from indication_scout.models.model_chembl import ATCDescription
 from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.models.model_open_targets import (
     DrugData,
     DrugTarget,
@@ -16,6 +17,7 @@ from indication_scout.models.model_open_targets import (
 )
 from indication_scout.services.retrieval import (
     build_drug_profile,
+    embed_abstracts,
     expand_search_terms,
     extract_organ_term,
     fetch_new_abstracts,
@@ -571,3 +573,63 @@ async def test_fetch_new_abstracts(all_pmids, stored_pmids, expected_fetched):
     else:
         mock_client.fetch_abstracts.assert_called_once_with(expected_fetched)
         assert [r.pmid for r in result] == expected_fetched
+
+
+# --- embed_abstracts ---
+
+
+def _make_abstract(pmid: str, title: str, abstract: str | None) -> PubmedAbstract:
+    return PubmedAbstract(pmid=pmid, title=title, abstract=abstract)
+
+
+def test_embed_abstracts_texts_contain_title_and_abstract():
+    """embed() is called with '<title>. <abstract>' for each abstract."""
+    abstracts = [_make_abstract("1", "My Title", "My abstract text.")]
+    mock_vectors = [[0.1] * 768]
+
+    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors) as mock_embed:
+        result = embed_abstracts(abstracts)
+
+    mock_embed.assert_called_once_with(["My Title. My abstract text."])
+    assert len(result) == 1
+    assert result[0][0].pmid == "1"
+    assert result[0][1] == mock_vectors[0]
+
+
+def test_embed_abstracts_none_abstract_produces_title_dot_space():
+    """An abstract of None produces '<title>. ' without crashing."""
+    abstracts = [_make_abstract("2", "Only Title", None)]
+    mock_vectors = [[0.2] * 768]
+
+    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors) as mock_embed:
+        result = embed_abstracts(abstracts)
+
+    mock_embed.assert_called_once_with(["Only Title. "])
+    assert result[0][0].pmid == "2"
+
+
+def test_embed_abstracts_empty_input_skips_embed():
+    """Empty input returns [] without calling embed()."""
+    with patch("indication_scout.services.retrieval.embed") as mock_embed:
+        result = embed_abstracts([])
+
+    mock_embed.assert_not_called()
+    assert result == []
+
+
+def test_embed_abstracts_vectors_align_to_abstracts_by_index():
+    """Each abstract is paired with the vector at the same index."""
+    abstracts = [
+        _make_abstract("10", "Title A", "Abstract A"),
+        _make_abstract("20", "Title B", "Abstract B"),
+        _make_abstract("30", "Title C", "Abstract C"),
+    ]
+    mock_vectors = [[float(i)] * 768 for i in range(3)]
+
+    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors):
+        result = embed_abstracts(abstracts)
+
+    assert len(result) == 3
+    for i, (abstract, vector) in enumerate(result):
+        assert abstract.pmid == abstracts[i].pmid
+        assert vector == mock_vectors[i]
