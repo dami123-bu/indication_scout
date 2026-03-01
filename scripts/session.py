@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SESSION_BAK = PROJECT_ROOT / "session_bak"
-MAX_AGE_MINUTES = 30
+MAX_AGE_MINUTES = 20
 MAX_BAK_FILES = 5
 
 
