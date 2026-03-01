@@ -9,15 +9,14 @@ Three methods:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import xml.etree.ElementTree as ET
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
+from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 
 
@@ -37,45 +36,6 @@ class PubMedClient(BaseClient):
     def _source_name(self) -> str:
         return "pubmed"
 
-    def _cache_key(self, namespace: str, params: dict[str, Any]) -> str:
-        raw = json.dumps({"ns": namespace, **params}, sort_keys=True, default=str)
-        return hashlib.sha256(raw.encode()).hexdigest()
-
-    def _cache_path(self, key: str) -> Path:
-        return self.cache_dir / f"{key}.json"
-
-    def _cache_get(self, namespace: str, params: dict[str, Any]) -> Any | None:
-        if not self.cache_dir:
-            return None
-        path = self._cache_path(self._cache_key(namespace, params))
-        if not path.exists():
-            return None
-        try:
-            entry = json.loads(path.read_text())
-            cached_at = datetime.fromisoformat(entry["cached_at"])
-            age = (datetime.now() - cached_at).total_seconds()
-            if age > entry.get("ttl", CACHE_TTL):
-                path.unlink(missing_ok=True)
-                return None
-            return entry["data"]
-        except (json.JSONDecodeError, KeyError, ValueError):
-            path.unlink(missing_ok=True)
-            return None
-
-    def _cache_set(
-        self, namespace: str, params: dict[str, Any], data: Any, ttl: int | None = None
-    ) -> None:
-        if not self.cache_dir:
-            return
-        entry = {
-            "data": data,
-            "cached_at": datetime.now().isoformat(),
-            "ttl": ttl or CACHE_TTL,
-        }
-        self._cache_path(self._cache_key(namespace, params)).write_text(
-            json.dumps(entry, default=str)
-        )
-
     async def search(
         self, query: str, max_results: int = 50, date_before: date | None = None
     ) -> list[str]:
@@ -85,7 +45,7 @@ class PubMedClient(BaseClient):
             "max_results": max_results,
             "date_before": date_before,
         }
-        cached = self._cache_get("pubmed_search", cache_params)
+        cached = cache_get("pubmed_search", cache_params, self.cache_dir) if self.cache_dir else None
         if cached is not None:
             return cached
 
@@ -101,7 +61,8 @@ class PubMedClient(BaseClient):
         data = await self._rest_get(self.SEARCH_URL, params)
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
 
-        self._cache_set("pubmed_search", cache_params, pmids)
+        if self.cache_dir:
+            cache_set("pubmed_search", cache_params, pmids, self.cache_dir)
         return pmids
 
     async def get_count(self, query: str, date_before: date | None = None) -> int:

@@ -8,19 +8,17 @@ Strategy: LLM normalize → verify with PubMed count → cache everything.
 """
 
 import asyncio
-import hashlib
 import json
 import logging
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
-from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
+from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.services.llm import (
     query_small_llm,
 )  # Adjust import path as needed
+from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -64,47 +62,6 @@ NORMALIZE_PROMPT = (
 )
 
 
-# ── Cache ────────────────────────────────────────────────────────────────────
-
-
-def _cache_key(namespace: str, params: dict[str, Any]) -> str:
-    raw = json.dumps({"ns": namespace, **params}, sort_keys=True, default=str)
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
-def _cache_get(
-    namespace: str, params: dict[str, Any], cache_dir: Path = DEFAULT_CACHE_DIR
-) -> Any | None:
-    path = cache_dir / f"{_cache_key(namespace, params)}.json"
-    if not path.exists():
-        return None
-    try:
-        entry = json.loads(path.read_text())
-        age = (
-            datetime.now() - datetime.fromisoformat(entry["cached_at"])
-        ).total_seconds()
-        if age > entry.get("ttl", CACHE_TTL):
-            path.unlink(missing_ok=True)
-            return None
-        return entry["data"]
-    except (json.JSONDecodeError, KeyError, ValueError):
-        path.unlink(missing_ok=True)
-        return None
-
-
-def _cache_set(
-    namespace: str,
-    params: dict[str, Any],
-    data: Any,
-    cache_dir: Path = DEFAULT_CACHE_DIR,
-) -> None:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    entry = {"data": data, "cached_at": datetime.now().isoformat(), "ttl": CACHE_TTL}
-    (cache_dir / f"{_cache_key(namespace, params)}.json").write_text(
-        json.dumps(entry, default=str)
-    )
-
-
 # ── LLM Normalize ───────────────────────────────────────────────────────────
 
 
@@ -119,7 +76,7 @@ async def llm_normalize_disease(raw_term: str) -> str:
         "renal tubular dysgenesis"              → "kidney disease"
         "CML"                                   → "chronic myeloid leukemia"
     """
-    cached = _cache_get("disease_norm", {"raw_term": raw_term})
+    cached = cache_get("disease_norm", {"raw_term": raw_term}, DEFAULT_CACHE_DIR)
     if cached is not None:
         return cached
 
@@ -127,7 +84,7 @@ async def llm_normalize_disease(raw_term: str) -> str:
     response = await query_small_llm(prompt)
     normalized = response.strip().strip('"').strip("'")
 
-    _cache_set("disease_norm", {"raw_term": raw_term}, normalized)
+    cache_set("disease_norm", {"raw_term": raw_term}, normalized, DEFAULT_CACHE_DIR)
     return normalized
 
 
@@ -136,7 +93,7 @@ async def llm_normalize_disease(raw_term: str) -> str:
 
 async def pubmed_count(query: str) -> int:
     """Return the number of PubMed results for a query string."""
-    cached = _cache_get("pubmed_count", {"query": query})
+    cached = cache_get("pubmed_count", {"query": query}, DEFAULT_CACHE_DIR)
     if cached is not None:
         return cached
 
@@ -158,7 +115,7 @@ async def pubmed_count(query: str) -> int:
             return 0
 
     count = int(data.get("esearchresult", {}).get("count", 0))
-    _cache_set("pubmed_count", {"query": query}, count)
+    cache_set("pubmed_count", {"query": query}, count, DEFAULT_CACHE_DIR)
     return count
 
 

@@ -9,10 +9,7 @@ Plus convenience accessors for specific target data slices.
 """
 
 import asyncio
-import hashlib
-import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +19,7 @@ from indication_scout.constants import (
     INTERACTION_TYPE_MAP,
     OPEN_TARGETS_BASE_URL,
 )
+from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.helpers.drug_helpers import normalize_drug_name
@@ -67,47 +65,6 @@ class OpenTargetsClient(BaseClient):
     def _source_name(self) -> str:
         return "open_targets"
 
-    # -- Cache ---------------------------------------------------------------
-
-    def _cache_key(self, namespace: str, params: dict[str, Any]) -> str:
-        raw = json.dumps({"ns": namespace, **params}, sort_keys=True, default=str)
-        return hashlib.sha256(raw.encode()).hexdigest()
-
-    def _cache_path(self, key: str) -> Path:
-        return self.cache_dir / f"{key}.json"
-
-    def _cache_get(self, namespace: str, params: dict[str, Any]) -> Any | None:
-        if not self.cache_dir:
-            return None
-        path = self._cache_path(self._cache_key(namespace, params))
-        if not path.exists():
-            return None
-        try:
-            entry = json.loads(path.read_text())
-            cached_at = datetime.fromisoformat(entry["cached_at"])
-            age = (datetime.now() - cached_at).total_seconds()
-            if age > entry.get("ttl", CACHE_TTL):
-                path.unlink(missing_ok=True)
-                return None
-            return entry["data"]
-        except (json.JSONDecodeError, KeyError, ValueError):
-            path.unlink(missing_ok=True)
-            return None
-
-    def _cache_set(
-        self, namespace: str, params: dict[str, Any], data: Any, ttl: int | None = None
-    ) -> None:
-        if not self.cache_dir:
-            return
-        entry = {
-            "data": data,
-            "cached_at": datetime.now().isoformat(),
-            "ttl": ttl or CACHE_TTL,
-        }
-        self._cache_path(self._cache_key(namespace, params)).write_text(
-            json.dumps(entry, default=str)
-        )
-
     # ------------------------------------------------------------------
     # Public: get_drug and get_target and get_rich_drug_data
     # ------------------------------------------------------------------
@@ -124,7 +81,7 @@ class OpenTargetsClient(BaseClient):
         """Fetch drug data by name, enriched with ATC codes from ChEMBL."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
-        cached = self._cache_get("drug", {"chembl_id": chembl_id})
+        cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir) if self.cache_dir else None
         if cached:
             return DrugData.model_validate(cached)
 
@@ -143,12 +100,8 @@ class OpenTargetsClient(BaseClient):
         else:
             drug_data.atc_classifications = molecule.atc_classifications
 
-        self._cache_set(
-            "drug",
-            {"chembl_id": chembl_id},
-            drug_data.model_dump(),
-            ttl=CACHE_TTL,
-        )
+        if self.cache_dir:
+            cache_set("drug", {"chembl_id": chembl_id}, drug_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
 
         return drug_data
 
@@ -207,18 +160,14 @@ class OpenTargetsClient(BaseClient):
 
     async def get_target_data(self, target_id: str) -> TargetData:
         """Fetch target data by ID."""
-        cached = self._cache_get("target", {"target_id": target_id})
+        cached = cache_get("target", {"target_id": target_id}, self.cache_dir) if self.cache_dir else None
         if cached:
             return TargetData.model_validate(cached)
 
         target_data = await self._fetch_target(target_id)
 
-        self._cache_set(
-            "target",
-            {"target_id": target_id},
-            target_data.model_dump(),
-            ttl=CACHE_TTL,
-        )
+        if self.cache_dir:
+            cache_set("target", {"target_id": target_id}, target_data.model_dump(), self.cache_dir, ttl=CACHE_TTL)
 
         return target_data
 
@@ -270,7 +219,7 @@ class OpenTargetsClient(BaseClient):
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
-        cached = self._cache_get("disease_drugs", {"disease_id": disease_id})
+        cached = cache_get("disease_drugs", {"disease_id": disease_id}, self.cache_dir) if self.cache_dir else None
         if cached:
             return [DrugSummary.model_validate(d) for d in cached]
 
@@ -279,11 +228,8 @@ class OpenTargetsClient(BaseClient):
         )
         result = self._parse_disease_drugs(data["data"])
 
-        self._cache_set(
-            "disease_drugs",
-            {"disease_id": disease_id},
-            [d.model_dump() for d in result],
-        )
+        if self.cache_dir:
+            cache_set("disease_drugs", {"disease_id": disease_id}, [d.model_dump() for d in result], self.cache_dir)
 
         return result
 
@@ -291,7 +237,7 @@ class OpenTargetsClient(BaseClient):
         """Fetch exact and related synonyms for a disease by name."""
         disease_id = await self._resolve_disease_name(disease_name)
 
-        cached = self._cache_get("disease_synonyms", {"disease_id": disease_id})
+        cached = cache_get("disease_synonyms", {"disease_id": disease_id}, self.cache_dir) if self.cache_dir else None
         if cached:
             return DiseaseSynonyms.model_validate(cached)
 
@@ -325,11 +271,8 @@ class OpenTargetsClient(BaseClient):
             **grouped,
         )
 
-        self._cache_set(
-            "disease_synonyms",
-            {"disease_id": disease_id},
-            result.model_dump(),
-        )
+        if self.cache_dir:
+            cache_set("disease_synonyms", {"disease_id": disease_id}, result.model_dump(), self.cache_dir)
 
         return result
 
