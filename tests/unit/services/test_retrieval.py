@@ -18,6 +18,7 @@ from indication_scout.services.retrieval import (
     build_drug_profile,
     expand_search_terms,
     extract_organ_term,
+    fetch_new_abstracts,
     get_stored_pmids,
 )
 
@@ -366,8 +367,13 @@ async def test_build_drug_profile_returns_profile(rich_metformin, atc_metformin)
     mock_chembl.get_atc_description = AsyncMock(return_value=atc_metformin)
 
     with (
-        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
-        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+        patch(
+            "indication_scout.services.retrieval.OpenTargetsClient",
+            return_value=mock_open_targets,
+        ),
+        patch(
+            "indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl
+        ),
     ):
         profile = await build_drug_profile("metformin")
 
@@ -396,8 +402,13 @@ async def test_build_drug_profile_fetches_atc_per_code(rich_metformin, atc_metfo
     mock_chembl.get_atc_description = AsyncMock(return_value=atc_metformin)
 
     with (
-        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
-        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+        patch(
+            "indication_scout.services.retrieval.OpenTargetsClient",
+            return_value=mock_open_targets,
+        ),
+        patch(
+            "indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl
+        ),
     ):
         await build_drug_profile("metformin")
 
@@ -418,8 +429,13 @@ async def test_build_drug_profile_no_atc_codes(rich_metformin):
     mock_chembl = AsyncMock()
 
     with (
-        patch("indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_open_targets),
-        patch("indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl),
+        patch(
+            "indication_scout.services.retrieval.OpenTargetsClient",
+            return_value=mock_open_targets,
+        ),
+        patch(
+            "indication_scout.services.retrieval.ChEMBLClient", return_value=mock_chembl
+        ),
     ):
         profile = await build_drug_profile("metformin")
 
@@ -496,3 +512,62 @@ def test_get_stored_pmids_passes_pmids_to_query():
     # Second positional arg is the params dict
     params = call_kwargs[0][1]
     assert params["pmids"] == pmids
+
+
+# --- fetch_new_abstracts ---
+
+
+def _make_pubmed_abstract(pmid: str) -> MagicMock:
+    """Return a mock PubmedAbstract with a known pmid."""
+    m = MagicMock()
+    m.pmid = pmid
+    return m
+
+
+@pytest.mark.parametrize(
+    "all_pmids, stored_pmids, expected_fetched",
+    [
+        # Case 1: all PMIDs are new → fetch all
+        (
+            ["111", "222", "333"],
+            set(),
+            ["111", "222", "333"],
+        ),
+        # Case 2: all PMIDs already stored → no fetch
+        (
+            ["111", "222"],
+            {"111", "222"},
+            [],
+        ),
+        # Case 3: mixed → fetch only the new subset
+        (
+            ["111", "222", "333"],
+            {"111"},
+            ["222", "333"],
+        ),
+    ],
+)
+async def test_fetch_new_abstracts(all_pmids, stored_pmids, expected_fetched):
+    """fetch_new_abstracts calls fetch_abstracts with only the new PMIDs.
+
+    Three cases: all new, all stored, mixed. When stored_pmids covers everything
+    the network call is skipped entirely (fetch_abstracts not called).
+    """
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.fetch_abstracts = AsyncMock(
+        return_value=[_make_pubmed_abstract(p) for p in expected_fetched]
+    )
+
+    with patch(
+        "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+    ):
+        result = await fetch_new_abstracts(all_pmids, stored_pmids)
+
+    if not expected_fetched:
+        mock_client.fetch_abstracts.assert_not_called()
+        assert result == []
+    else:
+        mock_client.fetch_abstracts.assert_called_once_with(expected_fetched)
+        assert [r.pmid for r in result] == expected_fetched

@@ -11,6 +11,7 @@ from indication_scout.services.retrieval import (
     expand_search_terms,
     extract_organ_term,
     fetch_and_cache,
+    fetch_new_abstracts,
     get_disease_synonyms,
     get_stored_pmids,
     semantic_search,
@@ -247,7 +248,9 @@ async def test_build_drug_profile(
     assert profile.atc_codes == expected_atc_codes
     assert profile.atc_descriptions == expected_atc_descriptions
     assert set(expected_target_gene_symbols).issubset(set(profile.target_gene_symbols))
-    assert set(expected_mechanisms_of_action).issubset(set(profile.mechanisms_of_action))
+    assert set(expected_mechanisms_of_action).issubset(
+        set(profile.mechanisms_of_action)
+    )
 
 
 # --- get_stored_pmids ---
@@ -274,3 +277,38 @@ def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
 
     assert result == {"10000001", "10000002"}
 
+
+# --- fetch_new_abstracts ---
+
+# PMID 20301421: "Metformin inhibits hepatic gluconeogenesis..." — a stable, well-known paper.
+_KNOWN_NEW_PMID = "20301421"
+
+
+async def test_fetch_new_abstracts_skips_stored_pmid():
+    """fetch_new_abstracts returns only abstracts for PMIDs not in stored_pmids.
+
+    Passes _KNOWN_NEW_PMID as the only new PMID (stored_pmids contains a
+    fake PMID that would never appear on PubMed). Asserts exactly one abstract
+    is returned and its pmid matches the requested one.
+    """
+    stored = {"10000001"}  # fake pre-stored PMID — not on PubMed
+    all_pmids = ["10000001", _KNOWN_NEW_PMID]
+
+    abstracts = await fetch_new_abstracts(all_pmids, stored)
+
+    assert len(abstracts) == 1
+    assert abstracts[0].pmid == _KNOWN_NEW_PMID
+
+
+async def test_fetch_new_abstracts_all_stored_skips_network():
+    """When all PMIDs are already stored, no network call is made and [] is returned.
+
+    Uses only fake PMIDs that are all marked as stored, so fetch_abstracts
+    must not be called at all — the function must return an empty list.
+    """
+    stored = {"10000001", "10000002"}
+    all_pmids = ["10000001", "10000002"]
+
+    abstracts = await fetch_new_abstracts(all_pmids, stored)
+
+    assert abstracts == []

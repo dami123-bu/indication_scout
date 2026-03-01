@@ -6,6 +6,24 @@ import pytest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query, expected_pmids",
+    [
+        (
+            "sildenafil AND diabetic nephropathy",
+            ["21133896", "18812693", "35671809", "27261587"],
+        ),
+    ],
+)
+async def test_search_returns_known_pmids(pubmed_client, query, expected_pmids):
+    """Search results must include all known PMIDs for a specific query."""
+    pmids = await pubmed_client.search(query, max_results=50)
+
+    for pmid in expected_pmids:
+        assert pmid in pmids
+
+
+@pytest.mark.asyncio
 async def test_search_returns_pmids(pubmed_client):
     """Test search returns a list of PMIDs for a query."""
     pmids = await pubmed_client.search("semaglutide diabetes", max_results=10)

@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
+from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.services.llm import parse_llm_response, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
 
@@ -64,6 +66,33 @@ def get_stored_pmids(pmids: list[str], db: Session) -> set[str]:
     ).fetchall()
 
     return {row[0] for row in rows}
+
+
+async def fetch_new_abstracts(
+    all_pmids: list[str], stored_pmids: set[str]
+) -> list[PubmedAbstract]:
+    """Fetch PubMed abstracts for PMIDs not already in the database.
+
+    Computes the set difference between all_pmids and stored_pmids, then
+    calls PubMedClient.fetch_abstracts on only the new ones. If there are
+    no new PMIDs the network call is skipped entirely.
+
+    Args:
+        all_pmids: Full list of PMIDs from a PubMed search result.
+        stored_pmids: PMIDs already present in pubmed_abstracts (from get_stored_pmids).
+
+    Returns:
+        List of PubmedAbstract objects for each newly fetched PMID.
+        Empty list if all PMIDs were already stored.
+    """
+    new_pmids = [p for p in all_pmids if p not in stored_pmids]
+    if not new_pmids:
+        logger.debug("All %d PMIDs already stored; skipping fetch", len(all_pmids))
+        return []
+
+    logger.debug("Fetching %d new abstracts from PubMed", len(new_pmids))
+    async with PubMedClient() as client:
+        return await client.fetch_abstracts(new_pmids)
 
 
 async def fetch_and_cache(queries: list[str]) -> list[str]:
