@@ -136,7 +136,7 @@ async def semantic_search(disease: str, drug: str, top_k: int = 20) -> list[dict
     raise NotImplementedError
 
 
-def synthesize(drug, disease, top_5_abstracts):
+def synthesize(drug: str, disease: str, top_5_abstracts: list[str]) -> dict:
     """get back a structured evidence summary with PMIDs
     Summarize the evidence for Metformin treating colorectal cancer based on these papers" and it returns a structured summary
      — study count, study types, strength assessment, key findings, and the PMIDs it drew from.
@@ -225,7 +225,7 @@ async def expand_search_terms(
     return deduped
 
 
-async def get_disease_synonyms(disease):
+async def get_disease_synonyms(disease: str) -> list[str]:
     template = (_PROMPTS_DIR / "disease_synonyms.txt").read_text()
     prompt = template.format(disease=disease)
 

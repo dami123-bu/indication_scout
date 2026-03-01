@@ -10,11 +10,10 @@ Strategy: LLM normalize → verify with PubMed count → cache everything.
 import asyncio
 import json
 import logging
-from typing import Optional
 
 import httpx
 
-from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.constants import DEFAULT_CACHE_DIR, NCBI_BASE_URL
 from indication_scout.services.llm import (
     query_small_llm,
 )  # Adjust import path as needed
@@ -22,7 +21,6 @@ from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
-NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 MIN_RESULTS = 3  # Minimum PubMed hits to consider a term useful
 
 # Terms that are too generic to be useful as a broadened disease search term.
@@ -97,7 +95,7 @@ async def pubmed_count(query: str) -> int:
     if cached is not None:
         return cached
 
-    url = f"{NCBI_BASE}/esearch.fcgi"
+    url = f"{NCBI_BASE_URL}/esearch.fcgi"
     params = {
         "db": "pubmed",
         "term": query,
@@ -122,7 +120,7 @@ async def pubmed_count(query: str) -> int:
 # ── Main Orchestrator ────────────────────────────────────────────────────────
 
 
-async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -> str:
+async def normalize_for_pubmed(raw_term: str, drug_name: str | None = None) -> str:
     """
     Short set of queries
     e.g. hepatocellular carcinoma -> 'liver cancer OR hepatocellular carcinoma'
@@ -183,7 +181,7 @@ async def normalize_for_pubmed(raw_term: str, drug_name: Optional[str] = None) -
 
 
 async def normalize_batch(
-    terms: list[str], drug_name: Optional[str] = None
+    terms: list[str], drug_name: str | None = None
 ) -> dict[str, str]:
     """
     Normalize a list of disease terms. Returns dict of raw → normalized.

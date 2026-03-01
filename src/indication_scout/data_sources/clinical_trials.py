@@ -15,7 +15,15 @@ import asyncio
 from datetime import date
 from typing import Any
 
-from indication_scout.constants import STOP_KEYWORDS
+from indication_scout.constants import (
+    CLINICAL_TRIALS_BASE_URL,
+    CLINICAL_TRIALS_RECENT_START_YEAR,
+    CLINICAL_TRIALS_WHITESPACE_CONDITION_MAX,
+    CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
+    CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
+    CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS,
+    STOP_KEYWORDS,
+)
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 
 from indication_scout.models.model_clinical_trials import (
@@ -43,7 +51,7 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
 
 
 class ClinicalTrialsClient(BaseClient):
-    BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
+    BASE_URL = CLINICAL_TRIALS_BASE_URL
     PAGE_SIZE = 100
 
     @property
@@ -138,7 +146,7 @@ class ClinicalTrialsClient(BaseClient):
         """
         # All three are independent — run concurrently
         exact_task = self.search_trials(
-            drug=drug, condition=condition, date_before=date_before, max_results=50
+            drug=drug, condition=condition, date_before=date_before, max_results=CLINICAL_TRIALS_WHITESPACE_EXACT_MAX
         )
         drug_count_task = self._count_trials(
             drug=drug, condition=None, date_before=date_before
@@ -158,8 +166,8 @@ class ClinicalTrialsClient(BaseClient):
             condition_trials = await self._fetch_all_condition_trials(
                 condition,
                 date_before=date_before,
-                max_results=500,
-                phase_filter="(PHASE2 OR PHASE3 OR PHASE4)",
+                max_results=CLINICAL_TRIALS_WHITESPACE_CONDITION_MAX,
+                phase_filter=CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
             )
 
             # Collect drug/biologic trials as candidates
@@ -200,7 +208,7 @@ class ClinicalTrialsClient(BaseClient):
                     seen_drugs.add(cd.drug_name)
                     unique_candidates.append(cd)
 
-            condition_drugs = unique_candidates[:50]
+            condition_drugs = unique_candidates[:CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS]
 
         return WhitespaceResult(
             is_whitespace=len(exact_trials) == 0,
@@ -484,7 +492,7 @@ class ClinicalTrialsClient(BaseClient):
             phase_dist[t.phase] = phase_dist.get(t.phase, 0) + 1
 
             # Recent starts (last 2 years)
-            if t.start_date and t.start_date >= "2024":
+            if t.start_date and t.start_date >= CLINICAL_TRIALS_RECENT_START_YEAR:
                 recent_starts.append(
                     RecentStart(
                         nct_id=t.nct_id,

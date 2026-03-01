@@ -14,7 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.constants import DEFAULT_CACHE_DIR, PUBMED_FETCH_URL, PUBMED_SEARCH_URL
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
@@ -23,8 +23,8 @@ from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 class PubMedClient(BaseClient):
     """Client for querying PubMed/NCBI APIs."""
 
-    SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    SEARCH_URL = PUBMED_SEARCH_URL
+    FETCH_URL = PUBMED_FETCH_URL
 
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR) -> None:
         super().__init__()

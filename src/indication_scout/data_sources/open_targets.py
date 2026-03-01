@@ -18,6 +18,7 @@ from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     INTERACTION_TYPE_MAP,
     OPEN_TARGETS_BASE_URL,
+    OPEN_TARGETS_PAGE_SIZE,
 )
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 class OpenTargetsClient(BaseClient):
     BASE_URL = OPEN_TARGETS_BASE_URL
-    PAGE_SIZE = 500
+    PAGE_SIZE = OPEN_TARGETS_PAGE_SIZE
 
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
         super().__init__()
