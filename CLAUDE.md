@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Session Startup
 
-At the start of every session, read `PROJECT_STATE.md`, `SESSION.md` and `README.md` from the project root.
+At the start of every session, read `PROJECT_STATE.md`, the most recent `session_*.md` file in the project root, and `README.md`.
+
+## Session File Workflow
+
+- Session files are named `session_{datetime}.md` (e.g. `session_2026-02-28_14-31.md`) and live in the project root.
+- Append to the current session file throughout the session.
 
 ## Build & Development Commands
 
