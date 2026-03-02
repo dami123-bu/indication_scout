@@ -328,7 +328,8 @@ async def test_fetch_new_abstracts_skips_stored_pmid():
     stored = {"10000001"}  # fake pre-stored PMID — not on PubMed
     all_pmids = ["10000001", _KNOWN_NEW_PMID]
 
-    abstracts = await fetch_new_abstracts(all_pmids, stored)
+    async with PubMedClient() as client:
+        abstracts = await fetch_new_abstracts(all_pmids, stored, client)
 
     assert len(abstracts) == 1
     assert abstracts[0].pmid == _KNOWN_NEW_PMID
@@ -343,6 +344,38 @@ async def test_fetch_new_abstracts_all_stored_skips_network():
     stored = {"10000001", "10000002"}
     all_pmids = ["10000001", "10000002"]
 
-    abstracts = await fetch_new_abstracts(all_pmids, stored)
+    async with PubMedClient() as client:
+        abstracts = await fetch_new_abstracts(all_pmids, stored, client)
 
     assert abstracts == []
+
+
+# --- fetch_and_cache ---
+
+# Query with a small, stable result set verified live on 2026-03-01.
+# "biguanides AND colon cancer" returns (at least) these 3 PMIDs.
+_FETCH_AND_CACHE_QUERY = "biguanides AND colon cancer"
+_FETCH_AND_CACHE_PMIDS = {"40670504", "39215927", "31438832"}
+
+
+async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncating):
+    """fetch_and_cache fetches abstracts, embeds them, and persists rows to pubmed_abstracts.
+
+    Uses a single stable PubMed query with a known small result set. Verifies:
+    - the known PMIDs are present in the returned list
+    - each returned PMID has a row in pubmed_abstracts with a non-null embedding
+    - no duplicate PMIDs in the result
+    """
+    pmids = await fetch_and_cache([_FETCH_AND_CACHE_QUERY], db_session_truncating)
+
+    assert _FETCH_AND_CACHE_PMIDS.issubset(set(pmids))
+    assert len(pmids) == len(set(pmids))
+
+    rows = db_session_truncating.execute(
+        text("SELECT pmid, embedding FROM pubmed_abstracts WHERE pmid = ANY(:pmids)"),
+        {"pmids": list(_FETCH_AND_CACHE_PMIDS)},
+    ).fetchall()
+
+    assert len(rows) == len(_FETCH_AND_CACHE_PMIDS)
+    for pmid, embedding in rows:
+        assert embedding is not None, f"embedding is null for pmid {pmid}"

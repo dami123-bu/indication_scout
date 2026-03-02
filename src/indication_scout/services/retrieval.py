@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
@@ -12,6 +13,7 @@ from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
+from indication_scout.sqlalchemy.pubmed_abstracts import PubmedAbstracts
 from indication_scout.services.embeddings import embed
 from indication_scout.services.llm import parse_llm_response, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
@@ -70,17 +72,18 @@ def get_stored_pmids(pmids: list[str], db: Session) -> set[str]:
 
 
 async def fetch_new_abstracts(
-    all_pmids: list[str], stored_pmids: set[str]
+    all_pmids: list[str], stored_pmids: set[str], client: PubMedClient
 ) -> list[PubmedAbstract]:
     """Fetch PubMed abstracts for PMIDs not already in the database.
 
     Computes the set difference between all_pmids and stored_pmids, then
-    calls PubMedClient.fetch_abstracts on only the new ones. If there are
+    calls client.fetch_abstracts on only the new ones. If there are
     no new PMIDs the network call is skipped entirely.
 
     Args:
         all_pmids: Full list of PMIDs from a PubMed search result.
         stored_pmids: PMIDs already present in pubmed_abstracts (from get_stored_pmids).
+        client: Open PubMedClient session to reuse (owned by the caller).
 
     Returns:
         List of PubmedAbstract objects for each newly fetched PMID.
@@ -92,8 +95,7 @@ async def fetch_new_abstracts(
         return []
 
     logger.debug("Fetching %d new abstracts from PubMed", len(new_pmids))
-    async with PubMedClient() as client:
-        return await client.fetch_abstracts(new_pmids)
+    return await client.fetch_abstracts(new_pmids)
 
 
 def embed_abstracts(
@@ -119,9 +121,89 @@ def embed_abstracts(
     return list(zip(abstracts, vectors))
 
 
-async def fetch_and_cache(queries: list[str]) -> list[str]:
-    """Hit PubMed for each query, fetch new abstracts, embed, cache in pgvector. Return PMIDs."""
-    raise NotImplementedError
+def insert_abstracts(
+    pairs: list[tuple[PubmedAbstract, list[float]]],
+    db: Session,
+) -> None:
+    """Bulk-insert (abstract, embedding) pairs into pubmed_abstracts.
+
+    Uses INSERT ... ON CONFLICT DO NOTHING so re-running with already-stored
+    PMIDs is safe and idempotent. Does nothing when pairs is empty.
+
+    Args:
+        pairs: Output of embed_abstracts — (PubmedAbstract, vector) tuples.
+        db: Active SQLAlchemy session.
+    """
+    if not pairs:
+        return
+
+    rows = [
+        {
+            "pmid": abstract.pmid,
+            "title": abstract.title,
+            "abstract": abstract.abstract,
+            "authors": abstract.authors or [],
+            "journal": abstract.journal,
+            "pub_date": abstract.pub_date,
+            "mesh_terms": abstract.mesh_terms or [],
+            "embedding": vector,
+        }
+        for abstract, vector in pairs
+    ]
+
+    stmt = (
+        insert(PubmedAbstracts)
+        .values(rows)
+        .on_conflict_do_nothing(index_elements=["pmid"])
+    )
+    db.execute(stmt)
+    db.commit()
+    logger.debug("Inserted %d abstracts into pubmed_abstracts", len(rows))
+
+
+async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
+    """Hit PubMed for each query, fetch new abstracts, embed, cache in pgvector.
+
+    For each keyword query:
+      1. Search PubMed → up to 500 PMIDs
+      2. Filter to PMIDs not already in pgvector
+      3. Fetch abstracts for new PMIDs
+      4. Embed each abstract with BioLORD-2023
+      5. Bulk INSERT into pgvector (ON CONFLICT DO NOTHING)
+
+    Returns the deduplicated union of all PMIDs across all queries.
+
+    Args:
+        queries: PubMed keyword queries (e.g. from expand_search_terms).
+        db: Active SQLAlchemy session.
+
+    Returns:
+        Deduplicated list of all PMIDs (cached + newly inserted).
+    """
+    all_pmids: list[str] = []
+
+    async with PubMedClient() as client:
+        for query in queries:
+            # For this query, gets upto 500 pmids
+            pmids = await client.search(query, max_results=500)
+
+            # Check what pmids are already in the db
+            stored = get_stored_pmids(pmids, db)
+
+            # For pmids not in db, get the abstracts from pubmed
+            new_abstracts = await fetch_new_abstracts(pmids, stored, client)
+
+            # create embeddings - embed abstracts returns a tuple
+            # fields from actual abstract, and the embedding
+            pairs = embed_abstracts(new_abstracts)
+
+            # put the new abstract/embedding in the ab
+            insert_abstracts(pairs, db)
+
+            # all pmids, whether inserted or no
+            all_pmids.extend(pmids)
+
+    return list(dict.fromkeys(all_pmids))
 
 
 async def semantic_search(disease: str, drug: str, top_k: int = 20) -> list[dict]:

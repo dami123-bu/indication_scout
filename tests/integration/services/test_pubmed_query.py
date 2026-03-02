@@ -106,6 +106,7 @@ async def test_get_pubmed_query_edge():
         assert disease_part.strip() != ""
         assert drug_part.strip() == "bupropion"
 
+
 # TODO delete
 @no_review
 async def test_get_single_disease_synonym():

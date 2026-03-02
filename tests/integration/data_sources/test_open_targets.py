@@ -23,7 +23,8 @@ async def test_sildenafil_drug_data(open_targets_client):
     approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
     logger.info(drug.indications)
 
-#TODO delete
+
+# TODO delete
 @no_review
 async def test_single_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
@@ -170,6 +171,7 @@ async def test_special_characters_drug_name_raises_error(open_targets_client):
 
 
 # --- get_disease_synonyms ---
+
 
 # TODO delete
 @no_review

@@ -12,6 +12,7 @@ from indication_scout.services.disease_normalizer import (
 
 logger = logging.getLogger(__name__)
 
+
 @no_review
 # Exclude from testing rules, TODO delete
 async def test_single_disease_normalizer():
@@ -19,6 +20,7 @@ async def test_single_disease_normalizer():
     drug = ""
     result = await normalize_for_pubmed(disease, drug)
     assert result
+
 
 @no_review
 # Exclude from testing rules, TODO delete

@@ -20,8 +20,10 @@ from indication_scout.services.retrieval import (
     embed_abstracts,
     expand_search_terms,
     extract_organ_term,
+    fetch_and_cache,
     fetch_new_abstracts,
     get_stored_pmids,
+    insert_abstracts,
 )
 
 # --- Fixtures ---
@@ -556,16 +558,11 @@ async def test_fetch_new_abstracts(all_pmids, stored_pmids, expected_fetched):
     the network call is skipped entirely (fetch_abstracts not called).
     """
     mock_client = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
     mock_client.fetch_abstracts = AsyncMock(
         return_value=[_make_pubmed_abstract(p) for p in expected_fetched]
     )
 
-    with patch(
-        "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
-    ):
-        result = await fetch_new_abstracts(all_pmids, stored_pmids)
+    result = await fetch_new_abstracts(all_pmids, stored_pmids, mock_client)
 
     if not expected_fetched:
         mock_client.fetch_abstracts.assert_not_called()
@@ -587,7 +584,9 @@ def test_embed_abstracts_texts_contain_title_and_abstract():
     abstracts = [_make_abstract("1", "My Title", "My abstract text.")]
     mock_vectors = [[0.1] * 768]
 
-    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors) as mock_embed:
+    with patch(
+        "indication_scout.services.retrieval.embed", return_value=mock_vectors
+    ) as mock_embed:
         result = embed_abstracts(abstracts)
 
     mock_embed.assert_called_once_with(["My Title. My abstract text."])
@@ -601,7 +600,9 @@ def test_embed_abstracts_none_abstract_produces_title_dot_space():
     abstracts = [_make_abstract("2", "Only Title", None)]
     mock_vectors = [[0.2] * 768]
 
-    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors) as mock_embed:
+    with patch(
+        "indication_scout.services.retrieval.embed", return_value=mock_vectors
+    ) as mock_embed:
         result = embed_abstracts(abstracts)
 
     mock_embed.assert_called_once_with(["Only Title. "])
@@ -633,3 +634,153 @@ def test_embed_abstracts_vectors_align_to_abstracts_by_index():
     for i, (abstract, vector) in enumerate(result):
         assert abstract.pmid == abstracts[i].pmid
         assert vector == mock_vectors[i]
+
+
+# --- insert_abstracts ---
+
+
+def _make_pair(pmid: str) -> tuple[PubmedAbstract, list[float]]:
+    abstract = PubmedAbstract(
+        pmid=pmid,
+        title="Title",
+        abstract="Abstract text",
+        authors=["Author A"],
+        journal="Journal X",
+        pub_date="2024",
+        mesh_terms=["MeSH term"],
+    )
+    vector = [0.1] * 768
+    return abstract, vector
+
+
+def test_insert_abstracts_calls_execute_and_commit():
+    """session.execute() and session.commit() are called when pairs is non-empty."""
+    mock_db = MagicMock()
+    pairs = [_make_pair("111"), _make_pair("222")]
+
+    with patch("indication_scout.services.retrieval.insert") as mock_insert:
+        mock_stmt = MagicMock()
+        mock_insert.return_value.values.return_value.on_conflict_do_nothing.return_value = (
+            mock_stmt
+        )
+        insert_abstracts(pairs, mock_db)
+
+    mock_db.execute.assert_called_once_with(mock_stmt)
+    mock_db.commit.assert_called_once()
+
+
+def test_insert_abstracts_empty_pairs_skips_db():
+    """Empty pairs list does not touch the DB."""
+    mock_db = MagicMock()
+
+    insert_abstracts([], mock_db)
+
+    mock_db.execute.assert_not_called()
+    mock_db.commit.assert_not_called()
+
+
+def test_insert_abstracts_rows_contain_all_fields():
+    """Each row passed to insert() contains all expected fields including embedding."""
+    mock_db = MagicMock()
+    abstract = PubmedAbstract(
+        pmid="999",
+        title="My Title",
+        abstract="My abstract",
+        authors=["Author A"],
+        journal="Nature",
+        pub_date="2023",
+        mesh_terms=["Diabetes"],
+    )
+    vector = [0.5] * 768
+    captured_rows = {}
+
+    def capture_values(rows):
+        captured_rows["rows"] = rows
+        stmt = MagicMock()
+        stmt.on_conflict_do_nothing.return_value = MagicMock()
+        return stmt
+
+    with patch("indication_scout.services.retrieval.insert") as mock_insert:
+        mock_insert.return_value.values.side_effect = capture_values
+        insert_abstracts([(abstract, vector)], mock_db)
+
+    row = captured_rows["rows"][0]
+    assert row["pmid"] == "999"
+    assert row["title"] == "My Title"
+    assert row["abstract"] == "My abstract"
+    assert row["authors"] == ["Author A"]
+    assert row["journal"] == "Nature"
+    assert row["pub_date"] == "2023"
+    assert row["mesh_terms"] == ["Diabetes"]
+    assert row["embedding"] == vector
+
+
+# --- fetch_and_cache ---
+
+
+async def test_fetch_and_cache_returns_deduped_pmids():
+    """PMIDs shared across queries appear exactly once in the result."""
+    mock_db = MagicMock()
+    mock_db.execute.return_value.fetchall.return_value = []
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    # Two queries share PMID "111"
+    mock_client.search = AsyncMock(side_effect=[["111", "222"], ["111", "333"]])
+    mock_client.fetch_abstracts = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+        ),
+        patch("indication_scout.services.retrieval.embed", return_value=[]),
+        patch("indication_scout.services.retrieval.insert"),
+    ):
+        result = await fetch_and_cache(["query1", "query2"], mock_db)
+
+    assert result == ["111", "222", "333"]
+    assert len(result) == len(set(result))
+
+
+async def test_fetch_and_cache_calls_search_per_query():
+    """search() is called once for each query string."""
+    mock_db = MagicMock()
+    mock_db.execute.return_value.fetchall.return_value = []
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.search = AsyncMock(return_value=[])
+    mock_client.fetch_abstracts = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+        ),
+        patch("indication_scout.services.retrieval.insert"),
+    ):
+        await fetch_and_cache(["q1", "q2", "q3"], mock_db)
+
+    assert mock_client.search.call_count == 3
+    mock_client.search.assert_any_call("q1", max_results=500)
+    mock_client.search.assert_any_call("q2", max_results=500)
+    mock_client.search.assert_any_call("q3", max_results=500)
+
+
+async def test_fetch_and_cache_empty_queries_returns_empty():
+    """Empty query list returns [] without hitting PubMed."""
+    mock_db = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.search = AsyncMock(return_value=[])
+
+    with patch(
+        "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+    ):
+        result = await fetch_and_cache([], mock_db)
+
+    assert result == []
+    mock_client.search.assert_not_called()
