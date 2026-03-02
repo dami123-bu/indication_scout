@@ -85,18 +85,25 @@ For each PubMed keyword query:
   1. Search PubMed E-utilities → up to 500 PMIDs
   2. Filter to PMIDs not already in pgvector
   3. Fetch abstracts for new PMIDs (batch)
-  4. Embed each abstract with BioLORD-2023
-  5. Store (pmid, title, abstract, authors, journal, pub_date, embedding) in pgvector
-  6. Return full list of PMIDs (cached + newly added)
+  4. Discard abstract-less articles (letters, editorials) — no text to embed
+  5. Embed each remaining abstract with BioLORD-2023
+  6. Store (pmid, title, abstract, authors, journal, pub_date, embedding) in pgvector
+  7. Return full list of PMIDs (cached + newly added)
 ```
 
-**Stage 2 — `semantic_search(disease: str, drug: str, top_k: int = 20) -> list[dict]`**
+**Note:** Not every returned PMID has a row in `pubmed_abstracts`. Articles without an abstract are excluded before insert. Callers that pass this list to `semantic_search` will see those PMIDs silently skipped by the `WHERE pmid = ANY(:pmids)` clause, which is intentional.
+
+**Stage 2 — `semantic_search(disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 20) -> list[dict]`**
 
 ```
 1. Build therapeutic query: "Evidence for {drug} as a treatment for {disease}, ..."
 2. Embed query with BioLORD-2023
-3. Run cosine similarity search over pgvector
-4. Return top_k abstracts ranked by similarity score
+3. Format query vector as canonical pgvector string: "[v1,v2,...,v768]"
+4. Run cosine similarity search over pgvector, scoped to the provided PMIDs:
+   - Inner query: compute 1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
+   - WHERE pmid = ANY(:pmids) restricts to the current drug-disease PMID set
+   - Outer query: ORDER BY similarity DESC, LIMIT top_k
+5. Return top_k abstracts as dicts with pmid, title, abstract, similarity
 ```
 
 **Stage 3 — Re-rank (top 20 → top 5)**
@@ -133,7 +140,7 @@ Converts raw Open Targets disease names (e.g. `"narcolepsy-cataplexy syndrome"`)
 **Two-step LLM strategy:**
 
 1. **Normalize** — Haiku prompt strips subtypes, staging, etiology, and genetic qualifiers while preserving organ specificity. If the disease has a well-known synonym, both are returned joined with `OR` (e.g. `"eczema OR dermatitis"`).
-2. **Verify** — If a `drug_name` is provided, the normalized term is verified with a PubMed count (`drug AND disease`). If the count is below `MIN_RESULTS` (3), a second Haiku call generalises to a broader category. The broader term is used only if it also has `>= MIN_RESULTS` hits and does not collapse to an over-generic term in `BROADENING_BLOCKLIST` (e.g. `"cancer"`, `"disease"`, `"syndrome"`).
+2. **Verify** — If a `drug_name` is provided, the normalized term is verified with a PubMed count (`drug AND disease`). If the count is below `MIN_RESULTS` (3), a second Haiku call generalises to a broader category. The broader term is used only if it also has `>= MIN_RESULTS` hits and does not collapse to an over-generic term in `BROADENING_BLOCKLIST` (defined in `constants.py`; e.g. `"cancer"`, `"carcinoma"`, `"disease"`, `"syndrome"`).
 
 **File-based cache (`_cache/`, 5-day TTL):**
 
@@ -176,7 +183,7 @@ volumes:
 | Abstract caching schema | Sprint 1 | Complete (SQLAlchemy ORM in `sqlalchemy/pubmed_abstracts.py`) |
 | BioLORD-2023 embedding integration | Sprint 1 | Complete (`services/embeddings.py`, lazy singleton) |
 | `fetch_and_cache` implementation | Sprint 1 | Complete (`get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache` all implemented; integration tests for steps 5-7 pending) |
-| `semantic_search` implementation | Sprint 1-2 | Not started |
+| `semantic_search` implementation | Sprint 1-2 | Complete (`services/retrieval.py`, subquery with `CAST(:query_vec AS vector)`, scoped by PMID list) |
 | Re-ranking function | Sprint 2 | Not started |
 | `expand_search_terms` implementation | Sprint 2 | Complete (`services/retrieval.py`, 5-axis LLM generation with caching) |
 | Disease name normalization (Haiku) | Sprint 2 | Complete (`services/disease_normalizer.py`, two-step LLM with blocklist) |
