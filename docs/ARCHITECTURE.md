@@ -41,7 +41,7 @@ indication_scout/
 | Data Models | **Complete** | Pydantic models for all data contracts (Open Targets, ClinicalTrials, PubMed, ChEMBL, DrugProfile) |
 | BaseClient | **Complete** | Retry with exponential backoff, session management via aiohttp |
 | File Cache | **Complete** | Shared `utils/cache.py` used by all clients and services (`_cache/` dir, SHA-256 keys, 5-day TTL) |
-| Services | **Partial** | `llm.py`, `embeddings.py`, `disease_normalizer.py`, `pubmed_query.py` complete; `retrieval.py` partial (expand/extract done, fetch_and_cache/semantic_search/synthesize stubbed) |
+| Services | **Partial** | `llm.py`, `embeddings.py`, `disease_normalizer.py`, `pubmed_query.py` complete; `retrieval.py` partial (`build_drug_profile`, `expand_search_terms`, `extract_organ_term`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache` all complete; `semantic_search` and `synthesize` still stubbed) |
 | Agents | Stub | Orchestrator, LiteratureAgent, ClinicalTrialsAgent, MechanismAgent, SafetyAgent -- all `run()` raise `NotImplementedError` |
 | API | Minimal | FastAPI with `/health` endpoint only; routes/ and schemas/ are empty |
 | CLI | Referenced | Defined in pyproject.toml but CLI module does not exist |
@@ -545,7 +545,7 @@ The `PubMedClient` provides access to scientific literature via NCBI E-utilities
 ```
 PubmedAbstract
  |-- pmid: str = ""                # PubMed ID
- |-- title: str | None = None      # Article title
+ |-- title: str = ""               # Article title
  |-- abstract: str | None = None   # Abstract text (may have labelled sections)
  |-- authors: list[str] = []       # Author names ("Last, First" format)
  |-- journal: str | None = None    # Journal name

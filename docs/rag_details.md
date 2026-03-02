@@ -175,7 +175,7 @@ volumes:
 | Docker + pgvector setup | Sprint 1 | Not started |
 | Abstract caching schema | Sprint 1 | Complete (SQLAlchemy ORM in `sqlalchemy/pubmed_abstracts.py`) |
 | BioLORD-2023 embedding integration | Sprint 1 | Complete (`services/embeddings.py`, lazy singleton) |
-| `fetch_and_cache` implementation | Sprint 1 | Partial (steps 1-3 done: `get_stored_pmids`, `fetch_new_abstracts`; steps 4-7 pending: embed, insert, wire) |
+| `fetch_and_cache` implementation | Sprint 1 | Complete (`get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache` all implemented; integration tests for steps 5-7 pending) |
 | `semantic_search` implementation | Sprint 1-2 | Not started |
 | Re-ranking function | Sprint 2 | Not started |
 | `expand_search_terms` implementation | Sprint 2 | Complete (`services/retrieval.py`, 5-axis LLM generation with caching) |
