@@ -178,7 +178,11 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
         db: Active SQLAlchemy session.
 
     Returns:
-        Deduplicated list of all PMIDs (cached + newly inserted).
+        Deduplicated list of all PMIDs returned by PubMed search across all queries.
+        Note: not every returned PMID has a row in pubmed_abstracts — articles without
+        an abstract (letters, editorials) are excluded from the vector store. Callers
+        that pass this list to semantic_search will see those PMIDs silently skipped
+        by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
     """
     all_pmids: list[str] = []
 
@@ -193,9 +197,13 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
             # For pmids not in db, get the abstracts from pubmed
             new_abstracts = await fetch_new_abstracts(pmids, stored, client)
 
+            # Articles with no abstract (letters, editorials) are excluded —
+            # they have no text to embed meaningfully.
+            abstracts_with_text = [a for a in new_abstracts if a.abstract]
+
             # create embeddings - embed abstracts returns a tuple
             # fields from actual abstract, and the embedding
-            pairs = embed_abstracts(new_abstracts)
+            pairs = embed_abstracts(abstracts_with_text)
 
             # put the new abstract/embedding in the ab
             insert_abstracts(pairs, db)
@@ -206,16 +214,51 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
     return list(dict.fromkeys(all_pmids))
 
 
-async def semantic_search(disease: str, drug: str, top_k: int = 20) -> list[dict]:
+async def semantic_search(
+    disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 20
+) -> list[dict]:
     """Create a query from drug + disease, embed it, search pgvector, return ranked abstracts.
     [
         {"pmid": "29734553", "title": "Metformin suppresses colorectal...", "abstract": "...", "similarity": 0.89},
         {"pmid": "31245678", "title": "AMPK activation in colon...", "abstract": "...", "similarity": 0.85},
         {"pmid": "30198432", "title": "Biguanide compounds inhibit...", "abstract": "...", "similarity": 0.82},
-    ...
     ]
     """
-    raise NotImplementedError
+    query_string = (
+        f"Evidence for {drug} as a treatment for {disease}, "
+        "including clinical trials, efficacy data, mechanism of action, "
+        "and preclinical studies"
+    )
+    query_vector = embed([query_string])[0]
+
+    rows = db.execute(
+        text("""
+            SELECT pmid, title, abstract, similarity
+            FROM (
+                SELECT pmid, title, abstract,
+                       1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
+                FROM pubmed_abstracts
+                WHERE pmid = ANY(:pmids)
+            ) sub
+            ORDER BY similarity DESC
+            LIMIT :top_k
+        """),
+        {
+            "query_vec": "[" + ",".join(str(x) for x in query_vector) + "]",
+            "pmids": pmids,
+            "top_k": top_k,
+        },
+    ).fetchall()
+
+    return [
+        {
+            "pmid": row[0],
+            "title": row[1],
+            "abstract": row[2],
+            "similarity": float(row[3]),
+        }
+        for row in rows
+    ]
 
 
 def synthesize(drug: str, disease: str, top_5_abstracts: list[str]) -> dict:

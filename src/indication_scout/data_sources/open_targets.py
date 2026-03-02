@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from indication_scout.constants import (
+    BROADENING_BLOCKLIST,
     CACHE_TTL,
     DEFAULT_CACHE_DIR,
     INTERACTION_TYPE_MAP,
@@ -139,6 +140,14 @@ class OpenTargetsClient(BaseClient):
         for key in list(siblings):
             val = siblings[key]
             if name in val:
+                del siblings[key]
+
+        # Remove overly broad disease terms (e.g. "cancer", "carcinoma") that
+        # produce noisy, unfocused PubMed queries.
+        for key in list(siblings):
+            words = {w.lower() for w in key.split()}
+            if words & BROADENING_BLOCKLIST:
+                logger.debug("Filtered broad disease term '%s' from competitors", key)
                 del siblings[key]
 
         sorted_data = dict(

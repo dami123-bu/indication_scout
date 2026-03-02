@@ -109,6 +109,10 @@ src/indication_scout/
 └── constants.py     # URLs, timeouts, lookup maps
 ```
 
+## Known Limitations
+
+- **Abstract-only indexing**: PubMed articles without an abstract (letters, editorials, conference summaries) are excluded from the vector store and will not appear in semantic search results. Only articles with a non-empty abstract are embedded and cached.
+
 ### Citations
 Open Targets: Ochoa, D. et al. (2023). The next-generation Open Targets Platform: reimagined, redesigned, rebuilt. 
 Nucleic Acids Research, 51(D1), D1353–D1359. DOI: 10.1093/nar/gkac1037. 

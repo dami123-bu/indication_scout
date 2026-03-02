@@ -43,6 +43,22 @@ INTERACTION_TYPE_MAP: dict[str, str] = {
     "string": "functional",
 }
 
+# -- Overly broad disease terms (used for filtering in competitors and normalization) --
+BROADENING_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "cancer",
+        "carcinoma",
+        "tumor",
+        "tumour",
+        "neoplasm",
+        "malignancy",
+        "disease",
+        "disorder",
+        "syndrome",
+        "condition",
+    }
+)
+
 # -- Stop-reason keywords → category (ClinicalTrials.gov) ------------------
 STOP_KEYWORDS: dict[str, str] = {
     "efficacy": "efficacy",

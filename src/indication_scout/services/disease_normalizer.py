@@ -13,7 +13,11 @@ import logging
 
 import httpx
 
-from indication_scout.constants import DEFAULT_CACHE_DIR, NCBI_BASE_URL
+from indication_scout.constants import (
+    BROADENING_BLOCKLIST,
+    DEFAULT_CACHE_DIR,
+    NCBI_BASE_URL,
+)
 from indication_scout.services.llm import (
     query_small_llm,
 )  # Adjust import path as needed
@@ -23,22 +27,6 @@ logger = logging.getLogger(__name__)
 
 MIN_RESULTS = 3  # Minimum PubMed hits to consider a term useful
 
-# Terms that are too generic to be useful as a broadened disease search term.
-# If the LLM fallback generalizes to one of these, we discard it and keep the
-# more specific first result.
-BROADENING_BLOCKLIST: frozenset[str] = frozenset(
-    {
-        "cancer",
-        "tumor",
-        "tumour",
-        "neoplasm",
-        "malignancy",
-        "disease",
-        "disorder",
-        "syndrome",
-        "condition",
-    }
-)
 
 NORMALIZE_PROMPT = (
     "Convert this disease term into a PubMed search term. "

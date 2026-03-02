@@ -5,6 +5,7 @@ import logging
 import pytest
 
 
+from indication_scout.constants import BROADENING_BLOCKLIST
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.markers import no_review
 
@@ -618,6 +619,36 @@ async def test_get_rich_drug_data_null_interactions(open_targets_client):
         assert isinstance(
             t.drug_summaries, list
         ), f"{t.symbol} drug_summaries is not a list"
+
+
+async def test_get_drug_competitors_colchicine_filters_broad_terms(open_targets_client):
+    """get_drug_competitors must exclude disease names that contain blocklisted broad terms.
+
+    Colchicine's tubulin targets are shared with many chemotherapy drugs, so the raw
+    competitor map contains entries like 'cancer' and 'carcinoma'. After filtering,
+    only specific disease names should remain.
+    """
+    result = await open_targets_client.get_drug_competitors("colchicine")
+
+    assert set(result.keys()) == {
+        "HIV-1 infection",
+        "Hodgkins lymphoma",
+        "adenocarcinoma",
+        "alveolar rhabdomyosarcoma",
+        "breast adenocarcinoma",
+        "diffuse large B-cell lymphoma",
+        "liposarcoma",
+        "lymphoma",
+        "prostate adenocarcinoma",
+        "unspecified peripheral T-cell lymphoma",
+    }
+
+    # No disease name may contain a blocklisted word as a standalone token.
+    for disease in result:
+        words = {w.lower() for w in disease.split()}
+        assert (
+            not words & BROADENING_BLOCKLIST
+        ), f"Broad term found in disease name: '{disease}'"
 
 
 # TODO rework

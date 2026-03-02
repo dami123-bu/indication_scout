@@ -24,6 +24,7 @@ from indication_scout.services.retrieval import (
     fetch_new_abstracts,
     get_stored_pmids,
     insert_abstracts,
+    semantic_search,
 )
 
 # --- Fixtures ---
@@ -784,3 +785,104 @@ async def test_fetch_and_cache_empty_queries_returns_empty():
 
     assert result == []
     mock_client.search.assert_not_called()
+
+
+# --- semantic_search ---
+
+
+def _make_db_with_rows(rows: list[tuple]) -> MagicMock:
+    """Return a mock Session whose execute().fetchall() yields the given rows."""
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = rows
+    mock_db = MagicMock()
+    mock_db.execute.return_value = mock_result
+    return mock_db
+
+
+async def test_semantic_search_returns_ranked_dicts():
+    """Returns list of dicts with pmid, title, abstract, similarity for each DB row."""
+    db_rows = [
+        ("111", "Title A", "Abstract A", 0.92),
+        ("222", "Title B", "Abstract B", 0.85),
+    ]
+    mock_db = _make_db_with_rows(db_rows)
+    mock_vector = [0.1] * 768
+
+    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+        result = await semantic_search(
+            "colorectal cancer", "metformin", ["111", "222"], mock_db
+        )
+
+    assert len(result) == 2
+    assert result[0] == {
+        "pmid": "111",
+        "title": "Title A",
+        "abstract": "Abstract A",
+        "similarity": 0.92,
+    }
+    assert result[1] == {
+        "pmid": "222",
+        "title": "Title B",
+        "abstract": "Abstract B",
+        "similarity": 0.85,
+    }
+
+
+async def test_semantic_search_embeds_therapeutic_query():
+    """embed() is called with the therapeutic intent query string."""
+    mock_db = _make_db_with_rows([])
+    mock_vector = [0.1] * 768
+    captured = {}
+
+    def capture_embed(texts: list[str]) -> list[list[float]]:
+        captured["texts"] = texts
+        return [mock_vector]
+
+    with patch("indication_scout.services.retrieval.embed", side_effect=capture_embed):
+        await semantic_search("obesity", "bupropion", ["111"], mock_db)
+
+    assert len(captured["texts"]) == 1
+    assert "bupropion" in captured["texts"][0]
+    assert "obesity" in captured["texts"][0]
+
+
+async def test_semantic_search_passes_pmids_to_query():
+    """The pmids list is passed as a bind parameter to the SQL query."""
+    mock_db = _make_db_with_rows([])
+    mock_vector = [0.1] * 768
+    pmids = ["111", "222", "333"]
+
+    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+        await semantic_search("diabetes", "metformin", pmids, mock_db)
+
+    call_kwargs = mock_db.execute.call_args
+    params = call_kwargs[0][1]
+    assert params["pmids"] == pmids
+
+
+async def test_semantic_search_respects_top_k():
+    """top_k is passed as a bind parameter to the SQL LIMIT clause."""
+    mock_db = _make_db_with_rows([])
+    mock_vector = [0.1] * 768
+
+    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+        await semantic_search("diabetes", "metformin", ["111"], mock_db, top_k=5)
+
+    call_kwargs = mock_db.execute.call_args
+    params = call_kwargs[0][1]
+    assert params["top_k"] == 5
+
+
+async def test_semantic_search_similarity_is_float():
+    """similarity values in returned dicts are plain Python floats."""
+    from decimal import Decimal
+
+    db_rows = [("111", "Title", "Abstract", Decimal("0.8765"))]
+    mock_db = _make_db_with_rows(db_rows)
+    mock_vector = [0.1] * 768
+
+    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+        result = await semantic_search("diabetes", "metformin", ["111"], mock_db)
+
+    assert isinstance(result[0]["similarity"], float)
+    assert result[0]["similarity"] == float(Decimal("0.8765"))
