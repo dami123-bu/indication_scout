@@ -217,12 +217,23 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
 async def semantic_search(
     disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 20
 ) -> list[dict]:
-    """Create a query from drug + disease, embed it, search pgvector, return ranked abstracts.
-    [
-        {"pmid": "29734553", "title": "Metformin suppresses colorectal...", "abstract": "...", "similarity": 0.89},
-        {"pmid": "31245678", "title": "AMPK activation in colon...", "abstract": "...", "similarity": 0.85},
-        {"pmid": "30198432", "title": "Biguanide compounds inhibit...", "abstract": "...", "similarity": 0.82},
-    ]
+    """Embed a drug-disease query and return the top-k most similar abstracts from pgvector.
+
+    Constructs a natural-language query from drug and disease (e.g. "Evidence for metformin
+    as a treatment for colorectal cancer..."), embeds it with BioLORD-2023, then runs a
+    cosine similarity search restricted to the given PMIDs.
+
+    Args:
+        disease: Target indication (e.g. "colorectal cancer").
+        drug: Drug name (e.g. "metformin").
+        pmids: Candidate PMIDs to search within (typically from fetch_and_cache).
+            Example: ["29734553", "31245678", "30198432"]
+        db: Active SQLAlchemy session.
+        top_k: Maximum number of results to return (default 20).
+
+    Returns:
+        List of dicts ranked by descending similarity, e.g.:
+        [{"pmid": "29734553", "title": "Metformin suppresses colorectal...", "abstract": "...", "similarity": 0.89}, ...]
     """
     query_string = (
         f"Evidence for {drug} as a treatment for {disease}, "
@@ -296,7 +307,40 @@ async def extract_organ_term(disease_name: str) -> str:
 async def expand_search_terms(
     drug_name: str, disease_name: str, drug_profile: DrugProfile
 ) -> list[str]:
-    """Use LLM to generate diverse PubMed search queries from a drug-disease pair."""
+    """Use LLM to generate diverse PubMed search queries from a drug-disease pair.
+
+    Combines the drug's synonyms, gene targets, mechanisms of action, and ATC
+    classifications with the organ term extracted from the disease name to produce
+    a broad set of complementary PubMed queries. Results are cached by drug/disease
+    pair and deduplicated (case-insensitive) before return.
+
+    Args:
+        drug_name: Common drug name (e.g. "metformin").
+        disease_name: Target indication (e.g. "colorectal cancer").
+        drug_profile: DrugProfile built from Open Targets + ChEMBL data.
+
+    Returns:
+        Deduplicated list of PubMed keyword queries ready to pass to fetch_and_cache.
+
+    Examples:
+        >>> # metformin × colorectal cancer might return:
+        >>> [
+        ...     "metformin colorectal cancer",
+        ...     "metformin colon tumor",
+        ...     "AMPK colorectal cancer",
+        ...     "biguanide colon neoplasm",
+        ...     "metformin PRKAB1 cancer",
+        ... ]
+
+        >>> # semaglutide × non-alcoholic steatohepatitis might return:
+        >>> [
+        ...     "semaglutide NASH",
+        ...     "GLP-1 receptor agonist liver fibrosis",
+        ...     "semaglutide non-alcoholic fatty liver disease",
+        ...     "ozempic hepatic steatosis",
+        ...     "GLP1R liver inflammation",
+        ... ]
+    """
     cached = cache_get(
         "expand_search_terms",
         {"drug_name": drug_name, "disease_name": disease_name},
@@ -351,6 +395,14 @@ async def expand_search_terms(
 
 
 async def get_disease_synonyms(disease: str) -> list[str]:
+    """Return alternate names for a disease via LLM.
+
+    Args:
+        disease: Disease name (e.g. "colorectal cancer").
+
+    Returns:
+        List of synonyms (e.g. ["colon cancer", "bowel cancer", "CRC"]).
+    """
     template = (_PROMPTS_DIR / "disease_synonyms.txt").read_text()
     prompt = template.format(disease=disease)
 

@@ -173,26 +173,7 @@ volumes:
   pgdata:
 ```
 
----
-
-## 6. Sprint Mapping
-
-| Task | Sprint | Status |
-|------|--------|--------|
-| Docker + pgvector setup | Sprint 1 | Not started |
-| Abstract caching schema | Sprint 1 | Complete (SQLAlchemy ORM in `sqlalchemy/pubmed_abstracts.py`) |
-| BioLORD-2023 embedding integration | Sprint 1 | Complete (`services/embeddings.py`, lazy singleton) |
-| `fetch_and_cache` implementation | Sprint 1 | Complete (`get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache` all implemented; integration tests for steps 5-7 pending) |
-| `semantic_search` implementation | Sprint 1-2 | Complete (`services/retrieval.py`, subquery with `CAST(:query_vec AS vector)`, scoped by PMID list) |
-| Re-ranking function | Sprint 2 | Not started |
-| `expand_search_terms` implementation | Sprint 2 | Complete (`services/retrieval.py`, 5-axis LLM generation with caching) |
-| Disease name normalization (Haiku) | Sprint 2 | Complete (`services/disease_normalizer.py`, two-step LLM with blocklist) |
-| `synthesize` / Literature Agent integration | Sprint 2 | Not started |
-| Full pipeline wiring | Sprint 2-3 | Not started |
-
----
-
-## 7. Key Design Decisions
+## 6. Key Design Decisions
 
 1. **pgvector over dedicated vector DB** — simplicity; dataset is small enough (~10k-50k abstracts)
 2. **BioLORD-2023 for embeddings** — trained on UMLS + SNOMED-CT + biomedical definitions; sentence-level embedding model; state-of-the-art on biomedical similarity benchmarks; 768-dim vectors

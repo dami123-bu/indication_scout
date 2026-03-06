@@ -357,6 +357,19 @@ async def test_fetch_new_abstracts_all_stored_skips_network():
 _FETCH_AND_CACHE_QUERY = "biguanides AND colon cancer"
 _FETCH_AND_CACHE_PMIDS = {"40670504", "39215927", "31438832"}
 
+# Two overlapping queries verified live on 2026-03-06.
+# Query A returns 500 PMIDs, Query B returns 79 PMIDs.
+# 25 PMIDs appear in both — used to assert deduplication and idempotency.
+_QUERY_A = "metformin AND colorectal cancer"
+_QUERY_B = "metformin AND AMPK AND colon"
+_OVERLAP_PMIDS = {
+    "24157941", "24251703", "24716225", "25416412", "25892866",
+    "27123089", "27585117", "27845068", "27919208", "28114961",
+    "28618116", "29059169", "30087121", "30359174", "30483811",
+    "31612008", "31661292", "31818851", "32248666", "32533543",
+    "34564972", "34749618", "35740547", "36983040", "38132178",
+}
+
 
 async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncating):
     """fetch_and_cache fetches abstracts, embeds them, and persists rows to pubmed_abstracts.
@@ -379,3 +392,41 @@ async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncat
     assert len(rows) == len(_FETCH_AND_CACHE_PMIDS)
     for pmid, embedding in rows:
         assert embedding is not None, f"embedding is null for pmid {pmid}"
+
+
+async def test_fetch_and_cache_deduplicates_overlapping_queries(db_session_truncating):
+    """PMIDs returned by two overlapping queries appear exactly once in the result.
+
+    Query A (metformin AND colorectal cancer) and Query B (metformin AND AMPK AND colon)
+    share 25 known PMIDs verified live on 2026-03-06. Asserts:
+    - all returned PMIDs are digit-only strings
+    - no duplicate PMIDs in the result list
+    - the 25 known overlap PMIDs are each present exactly once
+    """
+    pmids = await fetch_and_cache([_QUERY_A, _QUERY_B], db_session_truncating)
+
+    assert all(p.isdigit() for p in pmids)
+    assert len(pmids) == len(set(pmids))
+    assert _OVERLAP_PMIDS.issubset(set(pmids))
+
+
+async def test_fetch_and_cache_is_idempotent(db_session_truncating):
+    """Running fetch_and_cache twice with the same query does not insert duplicate rows.
+
+    Calls fetch_and_cache with a single stable query, records the row count,
+    then calls it again. Asserts the row count in pubmed_abstracts is unchanged
+    after the second call (ON CONFLICT DO NOTHING is exercised end-to-end).
+    """
+    queries = [_FETCH_AND_CACHE_QUERY]
+
+    await fetch_and_cache(queries, db_session_truncating)
+    count_after_first = db_session_truncating.execute(
+        text("SELECT COUNT(*) FROM pubmed_abstracts")
+    ).scalar()
+
+    await fetch_and_cache(queries, db_session_truncating)
+    count_after_second = db_session_truncating.execute(
+        text("SELECT COUNT(*) FROM pubmed_abstracts")
+    ).scalar()
+
+    assert count_after_second == count_after_first
