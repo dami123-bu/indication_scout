@@ -46,8 +46,14 @@ Required environment variables:
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string (e.g. `postgresql+psycopg2://scout:scout@localhost:5438/scout`) |
 | `DB_PASSWORD` | Yes | Database password |
+| `TEST_DATABASE_URL` | No | Separate PostgreSQL URL for integration tests (e.g. `postgresql+psycopg2://scout:scout@localhost:5438/scout_test`) |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude LLM calls |
 | `NCBI_API_KEY` | No | NCBI API key for PubMed (increases rate limits) |
+| `OPENAI_API_KEY` | No | OpenAI API key |
+| `OPENFDA_API_KEY` | No | OpenFDA API key |
+| `LLM_MODEL` | No | Primary LLM model (default: `claude-sonnet-4-6`) |
+| `SMALL_LLM_MODEL` | No | Lightweight LLM model (default: `claude-haiku-4-5-20251001`) |
+| `EMBEDDING_MODEL` | No | Embedding model (default: `FremyCompany/BioLORD-2023`) |
 
 The project requires a PostgreSQL database with the `pgvector` extension for storing PubMed abstract embeddings. See `docs/rag_details.md` for the Docker setup.
 
@@ -102,7 +108,7 @@ src/indication_scout/
 ├── models/          # Pydantic data contracts (model_open_targets, model_clinical_trials, model_pubmed_abstract, model_chembl, model_drug_profile)
 ├── prompts/         # LLM prompt templates (extract_organ_term, expand_search_terms, disease_synonyms)
 ├── runners/         # Standalone runner/exploration scripts
-├── services/        # Business logic -- LLM calls, embeddings, disease normalization, PubMed query building, retrieval
+├── services/        # Business logic -- LLM calls (llm.py), embeddings (embeddings.py), disease normalization (disease_normalizer.py), PubMed query building (pubmed_query.py), RAG pipeline (retrieval.py)
 ├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts with pgvector embedding)
 ├── utils/           # Shared file-based cache utility (cache_key, cache_get, cache_set)
 ├── config.py        # Settings via pydantic-settings, loaded from .env

@@ -29,7 +29,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `services/llm.py` | Complete | `query_llm` and `query_small_llm` via Anthropic SDK |
 | `services/disease_normalizer.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
-| `services/retrieval.py` | Partial | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts` all implemented; `fetch_and_cache`, `semantic_search`, `synthesize` still raise `NotImplementedError` |
+| `services/retrieval.py` | Partial | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search` all implemented; `synthesize` still raises `NotImplementedError` |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
 | `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
@@ -73,7 +73,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 | `src/indication_scout/data_sources/open_targets.py` | Most complex client; GraphQL queries are defined as module-level strings at the bottom of the file |
 | `src/indication_scout/data_sources/clinical_trials.py` | `detect_whitespace()` runs 3 concurrent API calls; `get_landscape()` aggregates trials into a competitive map |
 | `src/indication_scout/services/disease_normalizer.py` | LLM-driven disease term normalization; two-step strategy (normalize then verify/broaden); uses `cache_get`/`cache_set` from `utils/cache.py` |
-| `src/indication_scout/services/retrieval.py` | RAG pipeline; `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms` all implemented; `fetch_and_cache`, `semantic_search`, `synthesize` still stubbed |
+| `src/indication_scout/services/retrieval.py` | RAG pipeline; Stage 0 (`expand_search_terms`, `extract_organ_term`) and Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`) and Stage 2 (`semantic_search`) all implemented; `synthesize` still stubbed |
 | `src/indication_scout/models/model_drug_profile.py` | `DrugProfile` — flat LLM-facing projection of `RichDrugData`; built via `from_rich_drug_data(rich, atc_descriptions)` |
 | `src/indication_scout/prompts/` | All LLM prompt templates; `extract_organ_term.txt`, `expand_search_terms.txt`, `disease_synonyms.txt` |
 | `src/indication_scout/sqlalchemy/pubmed_abstracts.py` | ORM model for the `pubmed_abstracts` pgvector table |
@@ -127,7 +127,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 ## Known Issues / Caveats
 
 - All five agents (`Orchestrator`, `LiteratureAgent`, `ClinicalTrialsAgent`, `MechanismAgent`, `SafetyAgent`) raise `NotImplementedError` in their `run()` methods — the agent layer is completely unimplemented.
-- The RAG pipeline in `services/retrieval.py` is partially implemented: `fetch_and_cache`, `semantic_search`, `synthesize` all raise `NotImplementedError`. Stage 0 (`expand_search_terms` + `extract_organ_term`) is complete. Stage 1 steps 1–3 are complete (`embed`, `get_stored_pmids`, `fetch_new_abstracts`).
+- The RAG pipeline in `services/retrieval.py` is partially implemented: `synthesize` still raises `NotImplementedError`. Stage 0 (`expand_search_terms` + `extract_organ_term`), Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`), and Stage 2 (`semantic_search`) are all complete.
 - `DrugBankClient` is a stub (`get_drug` and `get_interactions` raise `NotImplementedError`).
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.

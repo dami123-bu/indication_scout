@@ -30,7 +30,8 @@ CREATE TABLE pubmed_abstracts (
 CREATE INDEX ON pubmed_abstracts USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 
--- Track which drug-disease queries have been run
+-- Track which drug-disease queries have been run (not yet implemented --
+-- no ORM model or migration exists for this table)
 CREATE TABLE search_queries (
     id            SERIAL PRIMARY KEY,
     drug_name     TEXT NOT NULL,
@@ -93,7 +94,7 @@ For each PubMed keyword query:
 
 **Note:** Not every returned PMID has a row in `pubmed_abstracts`. Articles without an abstract are excluded before insert. Callers that pass this list to `semantic_search` will see those PMIDs silently skipped by the `WHERE pmid = ANY(:pmids)` clause, which is intentional.
 
-**Stage 2 — `semantic_search(disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 20) -> list[dict]`**
+**Stage 2 — `semantic_search(disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5) -> list[dict]`**
 
 ```
 1. Build therapeutic query: "Evidence for {drug} as a treatment for {disease}, ..."
@@ -160,7 +161,7 @@ services:
       POSTGRES_USER: scout
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "5438:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 

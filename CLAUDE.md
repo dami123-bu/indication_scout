@@ -44,9 +44,9 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 ### Layered structure (`src/indication_scout/`)
 
 - **data_sources/** — Async API clients for external biomedical databases. Each extends `BaseClient` (async context manager with retry/backoff). Current clients: `OpenTargetsClient` (GraphQL), `ClinicalTrialsClient` (REST), `PubMedClient` (REST+XML), `ChEMBLClient`, `DrugBankClient`. Errors surface as `DataSourceError`.
-- **models/** — Pydantic `BaseModel` contracts between data sources and agents. Organized per source: `model_open_targets.py` (TargetData, DrugData and their nested models), `model_clinical_trials.py` (Trial, WhitespaceResult, ConditionLandscape, TerminatedTrial), `model_pubmed.py` (PubMedArticle). Agents never see raw API responses.
+- **models/** — Pydantic `BaseModel` contracts between data sources and agents. Organized per source: `model_open_targets.py` (TargetData, DrugData and their nested models), `model_clinical_trials.py` (Trial, WhitespaceResult, ConditionLandscape, TerminatedTrial), `model_pubmed_abstract.py` (PubmedAbstract), `model_chembl.py` (MoleculeData, ATCDescription), `model_drug_profile.py` (DrugProfile). Agents never see raw API responses.
 - **agents/** — AI agents that each own a slice of analysis. All extend `BaseAgent` (single `async run()` method). Agents: `orchestrator`, `literature`, `clinical_trials`, `mechanism`, `safety`. The `Orchestrator` coordinates the specialist agents.
-- **services/** — Business logic layer (LLM calls, embeddings, scoring). Currently scaffolded.
+- **services/** — Business logic layer. Implemented: `llm.py` (Anthropic SDK), `embeddings.py` (BioLORD-2023), `disease_normalizer.py` (LLM normalization), `pubmed_query.py` (query building), `retrieval.py` (RAG pipeline -- `synthesize` still stubbed).
 - **api/** — FastAPI app (`api/main.py`). Routes in `api/routes/`, request/response schemas in `api/schemas/`.
 - **config.py** — `pydantic_settings.BaseSettings` loaded from `.env`. Access via `get_settings()`.
 - **constants.py** — All magic numbers, URLs, and lookup maps.
