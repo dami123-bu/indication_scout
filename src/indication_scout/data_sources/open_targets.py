@@ -113,23 +113,26 @@ class OpenTargetsClient(BaseClient):
 
         return drug_data
 
-    @no_review
-    # TODO needs rework
-    async def get_drug_competitors(self, name: str) -> dict[str, set[str]]:
-        """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
-        name = name.lower()
-        drug = await self.get_drug(name)
+
+    async def get_drug_competitors(self, name: str, drug_phase: str = 3) -> dict[str, set[str]]:
+        """Fetch competitor drugs for a given drug, grouped by disease."""
+        normalized_name = normalize_drug_name(name)
+        drug = await self.get_drug(normalized_name)
         targets = drug.targets
 
         siblings: dict[str, set[str]] = {}
 
+        # TODO in the future, currently we only compare against disease, in future may
+        # want to normalize on disease name e.g. 'narcolepsy' and 'narcolepsy-cataplexy syndrome' should be
+        # in same bucket
         for t in targets:
             logger.info(t.mechanism_of_action)
             summaries = await self.get_target_data_drug_summaries(t.target_id)
+            # TODO remove, for debugging
             # drugs = set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
             # diseases = set([s.disease_name.lower() for s in summaries])
             for summary in summaries:
-                if summary.phase >= 3:
+                if summary.phase >= drug_phase:
                     disease = summary.disease_name
                     drug_name = normalize_drug_name(summary.drug_name)
                     if disease in siblings:
@@ -139,7 +142,7 @@ class OpenTargetsClient(BaseClient):
 
         for key in list(siblings):
             val = siblings[key]
-            if name in val:
+            if normalized_name in val:
                 del siblings[key]
 
         # Remove overly broad disease terms (e.g. "cancer", "carcinoma") that

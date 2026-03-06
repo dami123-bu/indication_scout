@@ -106,14 +106,9 @@ For each PubMed keyword query:
 5. Return top_k abstracts as dicts with pmid, title, abstract, similarity
 ```
 
-**Stage 3 — Re-rank (top 20 → top 5)**
+**Stage 3 — `synthesize(drug, disease, top_abstracts) -> EvidenceSummary`**
 
-After `semantic_search` returns 20 candidates, a re-ranker reduces to 5. Cross-encoder or LLM-based
-reranker (TBD). Top 5 are passed to the Literature Agent.
-
-**Stage 4 — `synthesize(drug, disease, top_5_abstracts) -> EvidenceSummary`**
-
-Top 5 abstracts are stuffed into a Claude prompt. Claude reads the actual retrieved papers — not training
+Top 20 abstracts are stuffed into a Claude prompt. Claude reads the actual retrieved papers — not training
 data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim.
 
 ```python
@@ -180,9 +175,8 @@ volumes:
 3. **SentenceTransformer loading** — standard interface; BioLORD-2023 is a SentenceTransformer-compatible model
 4. **Therapeutic query framing** — embed intent ("evidence for X as treatment for Y") not just keywords; enables conceptual matches
 5. **Fetch → embed → store at ingest time** — embeddings computed once and cached; semantic search only needs to embed the query
-6. **500 PMIDs per keyword query** — wider initial retrieval net; semantic search + re-rank handle noise reduction
-7. **Two-stage reduction (20 → 5)** — semantic search casts a wide net; re-ranker applies precision filter before the LLM
-8. **Grounded generation with PMIDs** — Claude synthesises from retrieved documents, not training weights; every claim in `EvidenceSummary` is traceable to a real paper
-9. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
-10. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
-11. **`DrugProfile` for query expansion** — flat LLM-facing projection of `RichDrugData` (name, synonyms, target gene symbols, mechanisms, ATC codes/descriptions, drug type) inform better PubMed queries than drug name alone
+6. **500 PMIDs per keyword query** — wider initial retrieval net; semantic search handles noise reduction
+7. **Grounded generation with PMIDs** — Claude synthesises from retrieved documents, not training weights; every claim in `EvidenceSummary` is traceable to a real paper
+8. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
+9. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
+10. **`DrugProfile` for query expansion** — flat LLM-facing projection of `RichDrugData` (name, synonyms, target gene symbols, mechanisms, ATC codes/descriptions, drug type) inform better PubMed queries than drug name alone

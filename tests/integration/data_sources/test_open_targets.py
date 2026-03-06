@@ -621,6 +621,38 @@ async def test_get_rich_drug_data_null_interactions(open_targets_client):
         ), f"{t.symbol} drug_summaries is not a list"
 
 
+async def test_get_drug_competitors_bupropion(open_targets_client):
+    """get_drug_competitors returns candidate diseases with correct competitor drugs.
+
+    Bupropion acts on monoamine transporters (SLC6A2, SLC6A3, SLC6A4). Its sibling
+    drugs treat fatigue, fibromyalgia, pain, and drug dependence — all verified live
+    on 2026-03-06. Asserts:
+    - result is a non-empty dict of at most 10 diseases
+    - bupropion itself does not appear as a competitor in any disease
+    - known candidate diseases are present with expected sibling drugs
+    """
+    result = await open_targets_client.get_drug_competitors("bupropion")
+
+    assert isinstance(result, dict)
+    assert 1 <= len(result) <= 10
+
+    # bupropion must not appear as a competitor in any disease
+    for disease, competitors in result.items():
+        assert "bupropion" not in competitors, f"bupropion found in competitors for '{disease}'"
+
+    # Fatigue: armodafinil, methylphenidate, modafinil all share monoamine targets
+    assert "Fatigue" in result
+    assert {"armodafinil", "methylphenidate", "modafinil"}.issubset(result["Fatigue"])
+
+    # Fibromyalgia: duloxetine, milnacipran, levomilnacipran (SNRI class on same targets)
+    assert "fibromyalgia" in result
+    assert {"duloxetine", "milnacipran", "levomilnacipran"}.issubset(result["fibromyalgia"])
+
+    # drug dependence: dopamine reuptake signal
+    assert "drug dependence" in result
+    assert {"dextroamphetamine", "lisdexamfetamine"}.issubset(result["drug dependence"])
+
+
 async def test_get_drug_competitors_colchicine_filters_broad_terms(open_targets_client):
     """get_drug_competitors must exclude disease names that contain blocklisted broad terms.
 

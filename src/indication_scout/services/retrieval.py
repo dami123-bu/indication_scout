@@ -215,7 +215,7 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
 
 
 async def semantic_search(
-    disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 20
+    disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
 ) -> list[dict]:
     """Embed a drug-disease query and return the top-k most similar abstracts from pgvector.
 
