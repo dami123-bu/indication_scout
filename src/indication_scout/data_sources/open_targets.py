@@ -114,7 +114,7 @@ class OpenTargetsClient(BaseClient):
         return drug_data
 
 
-    async def get_drug_competitors(self, name: str, drug_phase: str = 3) -> dict[str, set[str]]:
+    async def get_drug_competitors(self, name: str, drug_phase: int = 3) -> dict[str, set[str]]:
         """Fetch competitor drugs for a given drug, grouped by disease."""
         normalized_name = normalize_drug_name(name)
         drug = await self.get_drug(normalized_name)

@@ -229,7 +229,7 @@ async def semantic_search(
         pmids: Candidate PMIDs to search within (typically from fetch_and_cache).
             Example: ["29734553", "31245678", "30198432"]
         db: Active SQLAlchemy session.
-        top_k: Maximum number of results to return (default 20).
+        top_k: Maximum number of results to return (default 5).
 
     Returns:
         List of dicts ranked by descending similarity, e.g.:
