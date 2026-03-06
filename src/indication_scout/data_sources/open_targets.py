@@ -125,9 +125,11 @@ class OpenTargetsClient(BaseClient):
         # TODO in the future, currently we only compare against disease, in future may
         # want to normalize on disease name e.g. 'narcolepsy' and 'narcolepsy-cataplexy syndrome' should be
         # in same bucket
-        for t in targets:
-            logger.info(t.mechanism_of_action)
-            summaries = await self.get_target_data_drug_summaries(t.target_id)
+        all_summaries = await asyncio.gather(
+            *[self.get_target_data_drug_summaries(t.target_id) for t in targets]
+        )
+        for t, summaries in zip(targets, all_summaries):
+            logger.debug(t.mechanism_of_action)
             # TODO remove, for debugging
             # drugs = set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
             # diseases = set([s.disease_name.lower() for s in summaries])
