@@ -15,6 +15,7 @@ from indication_scout.models.model_open_targets import (
     RichDrugData,
     TargetData,
 )
+from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import (
     build_drug_profile,
     embed_abstracts,
@@ -25,6 +26,7 @@ from indication_scout.services.retrieval import (
     get_stored_pmids,
     insert_abstracts,
     semantic_search,
+    synthesize,
 )
 
 # --- Fixtures ---
@@ -886,3 +888,90 @@ async def test_semantic_search_similarity_is_float():
 
     assert isinstance(result[0]["similarity"], float)
     assert result[0]["similarity"] == float(Decimal("0.8765"))
+
+
+# --- synthesize ---
+
+_SAMPLE_ABSTRACTS = [
+    {
+        "pmid": "11111111",
+        "title": "Metformin reduces colorectal cancer risk",
+        "abstract": "This RCT showed significant reduction in CRC incidence.",
+        "similarity": 0.95,
+    },
+    {
+        "pmid": "22222222",
+        "title": "AMPK activation and colon cancer",
+        "abstract": "Preclinical data demonstrating AMPK-mediated apoptosis.",
+        "similarity": 0.88,
+    },
+]
+
+_SAMPLE_LLM_RESPONSE = json.dumps(
+    {
+        "summary": "Two studies support metformin for colorectal cancer.",
+        "study_count": 2,
+        "study_types": ["RCT", "preclinical"],
+        "strength": "moderate",
+        "has_adverse_effects": False,
+        "key_findings": [
+            "Significant CRC risk reduction in RCT (PMID: 11111111)",
+            "AMPK-mediated apoptosis in colon cancer cells (PMID: 22222222)",
+        ],
+        "supporting_pmids": ["11111111", "22222222"],
+    }
+)
+
+
+async def test_synthesize_calls_llm_with_correct_prompt():
+    """query_llm is called with a prompt containing drug, disease, and abstract content."""
+    captured = {}
+
+    async def capture_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return _SAMPLE_LLM_RESPONSE
+
+    with patch("indication_scout.services.retrieval.query_llm", new=capture_llm):
+        await synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
+
+    assert "metformin" in captured["prompt"]
+    assert "colorectal cancer" in captured["prompt"]
+    assert "PMID: 11111111" in captured["prompt"]
+    assert "Metformin reduces colorectal cancer risk" in captured["prompt"]
+    assert (
+        "This RCT showed significant reduction in CRC incidence." in captured["prompt"]
+    )
+
+
+async def test_synthesize_strips_markdown_fences():
+    """synthesize handles LLM responses wrapped in ```json ... ``` code fences."""
+    fenced = f"```json\n{_SAMPLE_LLM_RESPONSE}\n```"
+    with patch(
+        "indication_scout.services.retrieval.query_llm",
+        new=AsyncMock(return_value=fenced),
+    ):
+        result = await synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
+
+    assert result.strength == "moderate"
+    assert result.supporting_pmids == ["11111111", "22222222"]
+
+
+async def test_synthesize_parses_llm_response():
+    """synthesize returns an EvidenceSummary with all fields matching the LLM JSON output."""
+    with patch(
+        "indication_scout.services.retrieval.query_llm",
+        new=AsyncMock(return_value=_SAMPLE_LLM_RESPONSE),
+    ):
+        result = await synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
+
+    assert isinstance(result, EvidenceSummary)
+    assert result.summary == "Two studies support metformin for colorectal cancer."
+    assert result.study_count == 2
+    assert result.study_types == ["RCT", "preclinical"]
+    assert result.strength == "moderate"
+    assert result.has_adverse_effects is False
+    assert result.key_findings == [
+        "Significant CRC risk reduction in RCT (PMID: 11111111)",
+        "AMPK-mediated apoptosis in colon cancer cells (PMID: 22222222)",
+    ]
+    assert result.supporting_pmids == ["11111111", "22222222"]

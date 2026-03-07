@@ -1,5 +1,6 @@
 """Retrieval service: PubMed fetch/embed/cache and semantic search via pgvector."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -15,7 +16,8 @@ from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.sqlalchemy.pubmed_abstracts import PubmedAbstracts
 from indication_scout.services.embeddings import embed
-from indication_scout.services.llm import parse_llm_response, query_small_llm
+from indication_scout.models.model_evidence_summary import EvidenceSummary
+from indication_scout.services.llm import parse_llm_response, query_llm, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -272,13 +274,41 @@ async def semantic_search(
     ]
 
 
-def synthesize(drug: str, disease: str, top_5_abstracts: list[str]) -> dict:
-    """get back a structured evidence summary with PMIDs
-    Summarize the evidence for Metformin treating colorectal cancer based on these papers" and it returns a structured summary
-     — study count, study types, strength assessment, key findings, and the PMIDs it drew from.
-    That evidence summary is the final output of the RAG pipeline for one drug-disease pair.
+async def synthesize(
+    drug: str, disease: str, top_abstracts: list[dict]
+) -> EvidenceSummary:
+    """Summarize PubMed evidence for a drug-disease pair using an LLM.
+
+    Formats the top abstracts from semantic_search into a prompt, calls the LLM,
+    and parses the JSON response into an EvidenceSummary.
+
+    Args:
+        drug: Drug name (e.g. "metformin").
+        disease: Candidate disease (e.g. "colorectal cancer").
+        top_abstracts: Output of semantic_search — list of dicts with keys
+            "pmid", "title", "abstract", "similarity".
+
+    Returns:
+        EvidenceSummary with all fields populated from the LLM response.
     """
-    raise NotImplementedError
+    formatted = "\n\n".join(
+        f"PMID: {r['pmid']}\nTitle: {r['title']}\nAbstract: {r['abstract']}"
+        for r in top_abstracts
+    )
+
+    template = (_PROMPTS_DIR / "synthesize.txt").read_text()
+    prompt = template.format(drug_name=drug, disease_name=disease, abstracts=formatted)
+
+    response = await query_llm(prompt)
+    # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
+    stripped = response.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("```", 2)[1]
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.rsplit("```", 1)[0].strip()
+    data = json.loads(stripped)
+    return EvidenceSummary(**data)
 
 
 async def extract_organ_term(disease_name: str) -> str:

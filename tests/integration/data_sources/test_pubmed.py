@@ -49,33 +49,28 @@ async def test_fetch_articles_parses_correctly(pubmed_client):
     articles = await pubmed_client.fetch_abstracts(pmids)
 
     assert len(articles) == 5
-    [article] = [a for a in articles if a.pmid == "41754149"]
+    [article] = [a for a in articles if a.pmid == "41664890"]
 
     assert article.pmid.isdigit()
     assert (
         article.title
-        == "A Narrative Review on GLP-1 Receptor Agonists for Obesity in Older Women: Maximizing Weight Loss While Preserving Lean Mass."
+        == "Who Wins the Battle Against Obesity? A Network Meta-Analysis Comparing Tirzepatide and Semaglutide."
     )
     assert isinstance(article.authors, list)
-    assert "Menichelli, Danilo" in article.authors
+    assert "Huntermann, Ramon" in article.authors
     expected_keywords = [
-        "GLP-1 receptor agonist",
-        "cardiovascular prevention",
-        "lifestyle for prevention",
-        "obesity",
-        "old women",
-        "sarcopenia prevention",
+        "obese patients",
+        "semaglutide",
+        "tirzepatide",
     ]
     for k in expected_keywords:
         assert k in article.keywords
+
     expected_fields = [
-        "cardiovascular disease",
-        "GLP-1 RAs",
         "obesity",
-        "phase 3",
-        "weight loss",
-        "osteoarthritis",
-        "muscle mass",
+        "absolute weight loss",
+        "GLP-1",
+        "percentage weight reduction",
     ]
     for e in expected_fields:
         assert e in article.abstract

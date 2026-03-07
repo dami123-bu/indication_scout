@@ -22,6 +22,7 @@ from indication_scout.constants import (
     OPEN_TARGETS_PAGE_SIZE,
 )
 from indication_scout.markers import no_review
+from indication_scout.services.disease_helper import merge_duplicate_diseases
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.data_sources.chembl import ChEMBLClient
@@ -113,8 +114,9 @@ class OpenTargetsClient(BaseClient):
 
         return drug_data
 
-
-    async def get_drug_competitors(self, name: str, drug_phase: int = 3) -> dict[str, set[str]]:
+    async def get_drug_competitors(
+        self, name: str, drug_phase: int = 3
+    ) -> dict[str, set[str]]:
         """Fetch competitor drugs for a given drug, grouped by disease."""
         normalized_name = normalize_drug_name(name)
         drug = await self.get_drug(normalized_name)
@@ -122,9 +124,6 @@ class OpenTargetsClient(BaseClient):
 
         siblings: dict[str, set[str]] = {}
 
-        # TODO in the future, currently we only compare against disease, in future may
-        # want to normalize on disease name e.g. 'narcolepsy' and 'narcolepsy-cataplexy syndrome' should be
-        # in same bucket
         all_summaries = await asyncio.gather(
             *[self.get_target_data_drug_summaries(t.target_id) for t in targets]
         )
@@ -134,8 +133,8 @@ class OpenTargetsClient(BaseClient):
             # drugs = set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
             # diseases = set([s.disease_name.lower() for s in summaries])
             for summary in summaries:
-                if summary.phase >= drug_phase:
-                    disease = summary.disease_name
+                if summary.phase is not None and summary.phase >= drug_phase:
+                    disease = summary.disease_name.lower()
                     drug_name = normalize_drug_name(summary.drug_name)
                     if disease in siblings:
                         siblings[disease].add(drug_name)
@@ -158,7 +157,39 @@ class OpenTargetsClient(BaseClient):
         sorted_data = dict(
             sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
         )
+
+        indications = [i.disease_name.lower() for i in drug.indications]
+        drug_indications = list(set(indications))
+        top_30 = dict(list(sorted_data.items())[:30])
+        disease_names = list(top_30.keys())
+        result = await merge_duplicate_diseases(disease_names, drug_indications)
+
+        for name in result["remove"]:
+            if name.lower() in top_30:
+                del top_30[name.lower()]
+
+        # Combine sibling sets for merged diseases
+        removed = {n.lower() for n in result["remove"]}
+        for canonical, aliases in result["merge"].items():
+            canonical = canonical.lower()
+            if canonical in removed:
+                continue
+            aliases = [a.lower() for a in aliases]
+            combined = set()
+            for name in [canonical] + aliases:
+                if name in top_30:
+                    combined |= top_30[name]
+                    if name != canonical:
+                        del top_30[name]
+            if combined:
+                top_30[canonical] = combined
+
+        # Re-sort and take top 10
+        sorted_data = dict(
+            sorted(top_30.items(), key=lambda item: len(item[1]), reverse=True)
+        )
         top_10 = dict(list(sorted_data.items())[:10])
+
         return top_10
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
