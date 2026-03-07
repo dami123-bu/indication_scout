@@ -3,6 +3,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
@@ -23,6 +24,13 @@ from indication_scout.utils.cache import cache_get, cache_set
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+
+
+class AbstractResult(TypedDict):
+    pmid: str
+    title: str
+    abstract: str
+    similarity: float
 
 
 async def build_drug_profile(drug_name: str) -> DrugProfile:
@@ -218,7 +226,7 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
 
 async def semantic_search(
     disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
-) -> list[dict]:
+) -> list[AbstractResult]:
     """Embed a drug-disease query and return the top-k most similar abstracts from pgvector.
 
     Constructs a natural-language query from drug and disease (e.g. "Evidence for metformin
@@ -275,7 +283,7 @@ async def semantic_search(
 
 
 async def synthesize(
-    drug: str, disease: str, top_abstracts: list[dict]
+    drug: str, disease: str, top_abstracts: list[AbstractResult]
 ) -> EvidenceSummary:
     """Summarize PubMed evidence for a drug-disease pair using an LLM.
 
@@ -307,7 +315,15 @@ async def synthesize(
         if stripped.startswith("json"):
             stripped = stripped[4:]
         stripped = stripped.rsplit("```", 1)[0].strip()
-    data = json.loads(stripped)
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as e:
+        logger.error(
+            "synthesize: failed to parse LLM response: %s\nResponse was: %s",
+            e,
+            response,
+        )
+        raise
     return EvidenceSummary(**data)
 
 

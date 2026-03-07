@@ -975,3 +975,13 @@ async def test_synthesize_parses_llm_response():
         "AMPK-mediated apoptosis in colon cancer cells (PMID: 22222222)",
     ]
     assert result.supporting_pmids == ["11111111", "22222222"]
+
+
+async def test_synthesize_raises_on_invalid_json():
+    """synthesize raises json.JSONDecodeError when the LLM returns unparseable JSON."""
+    with patch(
+        "indication_scout.services.retrieval.query_llm",
+        new=AsyncMock(return_value="not valid json at all"),
+    ):
+        with pytest.raises(json.JSONDecodeError):
+            await synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)

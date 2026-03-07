@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import TypedDict
 
 import httpx
 
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 MIN_RESULTS = 3  # Minimum PubMed hits to consider a term useful
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+
+
+class MergeResult(TypedDict):
+    merge: dict[str, list[str]]
+    remove: list[str]
 
 
 # ── LLM Normalize ───────────────────────────────────────────────────────────
@@ -61,7 +67,7 @@ async def llm_normalize_disease(raw_term: str) -> str:
 
 async def merge_duplicate_diseases(
     diseases: list[str], drug_indications: list[str]
-) -> dict:
+) -> MergeResult:
     prompt = (
         (_PROMPTS_DIR / "merge_diseases.txt")
         .read_text()
@@ -71,10 +77,10 @@ async def merge_duplicate_diseases(
     cleaned = response.strip()
     # Strip markdown code fences if present
     if cleaned.startswith("```"):
-        cleaned = cleaned.split("```")[1]
+        cleaned = cleaned.split("```", 2)[1]
         if cleaned.startswith("json"):
             cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
+        cleaned = cleaned.rsplit("```", 1)[0].strip()
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:

@@ -171,18 +171,20 @@ class OpenTargetsClient(BaseClient):
         # Combine sibling sets for merged diseases
         removed = {n.lower() for n in result["remove"]}
         for canonical, aliases in result["merge"].items():
-            canonical = canonical.lower()
-            if canonical in removed:
+            canonical_lower = canonical.lower()
+            if canonical_lower in removed:
                 continue
             aliases = [a.lower() for a in aliases]
             combined = set()
-            for name in [canonical] + aliases:
+            for name in [canonical_lower] + aliases:
+                if name in removed:
+                    continue
                 if name in top_30:
                     combined |= top_30[name]
-                    if name != canonical:
+                    if name != canonical_lower:
                         del top_30[name]
             if combined:
-                top_30[canonical] = combined
+                top_30[canonical_lower] = combined
 
         # Re-sort and take top 10
         sorted_data = dict(
