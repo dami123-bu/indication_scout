@@ -79,7 +79,7 @@ Encode therapeutic intent, not just keywords:
 
 ## 3. Stage Specifications
 
-**Stage 1 — `fetch_and_cache(queries: list[str]) -> list[str]`**
+**Stage 1 — `fetch_and_cache(queries: list[str], db: Session) -> list[str]`**
 
 ```
 For each PubMed keyword query:
@@ -109,15 +109,15 @@ For each PubMed keyword query:
 
 **Stage 3 — `synthesize(drug, disease, top_abstracts) -> EvidenceSummary`**
 
-Top 20 abstracts are stuffed into a Claude prompt. Claude reads the actual retrieved papers — not training
-data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim.
+Top abstracts from `semantic_search` (default 5) are stuffed into a Claude prompt. Claude reads the actual retrieved papers — not training data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim.
 
 ```python
 EvidenceSummary(
     summary: str,
     study_count: int,
     study_types: list[str],
-    strength: str,
+    strength: Literal["strong", "moderate", "weak", "none"],
+    has_adverse_effects: bool,
     key_findings: list[str],
     supporting_pmids: list[str],
 )

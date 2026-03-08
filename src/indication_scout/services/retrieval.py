@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
+from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR, PUBMED_MAX_RESULTS
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.data_sources.pubmed import PubMedClient
@@ -199,7 +199,7 @@ async def fetch_and_cache(queries: list[str], db: Session) -> list[str]:
     async with PubMedClient() as client:
         for query in queries:
             # For this query, gets upto 500 pmids
-            pmids = await client.search(query, max_results=500)
+            pmids = await client.search(query, max_results=PUBMED_MAX_RESULTS)
 
             # Check what pmids are already in the db
             stored = get_stored_pmids(pmids, db)

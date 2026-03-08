@@ -766,9 +766,11 @@ async def test_fetch_and_cache_calls_search_per_query():
         await fetch_and_cache(["q1", "q2", "q3"], mock_db)
 
     assert mock_client.search.call_count == 3
-    mock_client.search.assert_any_call("q1", max_results=500)
-    mock_client.search.assert_any_call("q2", max_results=500)
-    mock_client.search.assert_any_call("q3", max_results=500)
+    from indication_scout.constants import PUBMED_MAX_RESULTS
+
+    mock_client.search.assert_any_call("q1", max_results=PUBMED_MAX_RESULTS)
+    mock_client.search.assert_any_call("q2", max_results=PUBMED_MAX_RESULTS)
+    mock_client.search.assert_any_call("q3", max_results=PUBMED_MAX_RESULTS)
 
 
 async def test_fetch_and_cache_empty_queries_returns_empty():

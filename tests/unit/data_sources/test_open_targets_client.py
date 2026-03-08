@@ -73,7 +73,11 @@ async def test_get_drug_competitors_alias_in_removed_not_merged():
     )
     summaries = [
         DrugSummary(drug_name="competitor_a", disease_name="narcolepsy", phase=3),
-        DrugSummary(drug_name="competitor_b", disease_name="narcolepsy-cataplexy syndrome", phase=3),
+        DrugSummary(
+            drug_name="competitor_b",
+            disease_name="narcolepsy-cataplexy syndrome",
+            phase=3,
+        ),
     ]
     # LLM says: merge narcolepsy-cataplexy into narcolepsy, but also remove narcolepsy-cataplexy
     merge_result = {

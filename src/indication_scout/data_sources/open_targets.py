@@ -122,7 +122,7 @@ class OpenTargetsClient(BaseClient):
         drug = await self.get_drug(normalized_name)
         targets = drug.targets
 
-        siblings: dict[str, set[str]] = {}
+        siblings_with_phase: dict[str, dict[str, int]] = {}
 
         all_summaries = await asyncio.gather(
             *[self.get_target_data_drug_summaries(t.target_id) for t in targets]
@@ -136,37 +136,45 @@ class OpenTargetsClient(BaseClient):
                 if summary.phase is not None and summary.phase >= drug_phase:
                     disease = summary.disease_name.lower()
                     drug_name = normalize_drug_name(summary.drug_name)
-                    if disease in siblings:
-                        siblings[disease].add(drug_name)
-                    else:
-                        siblings[disease] = {drug_name}
+                    if disease not in siblings_with_phase:
+                        siblings_with_phase[disease] = {}
+                    existing = siblings_with_phase[disease].get(drug_name, 0)
+                    siblings_with_phase[disease][drug_name] = max(
+                        existing, summary.phase
+                    )
 
-        for key in list(siblings):
-            val = siblings[key]
-            if normalized_name in val:
-                del siblings[key]
+        for key in list(siblings_with_phase):
+            drug_phases = siblings_with_phase[key]
+            if normalized_name in drug_phases:
+                if drug_phases[normalized_name] >= 4:
+                    del siblings_with_phase[key]
+
+        siblings: dict[str, set[str]] = {
+            disease: set(drugs.keys()) for disease, drugs in siblings_with_phase.items()
+        }
 
         # Remove overly broad disease terms (e.g. "cancer", "carcinoma") that
         # produce noisy, unfocused PubMed queries.
         for key in list(siblings):
             words = {w.lower() for w in key.split()}
-            if words & BROADENING_BLOCKLIST:
-                logger.debug("Filtered broad disease term '%s' from competitors", key)
+            if words <= BROADENING_BLOCKLIST:
                 del siblings[key]
 
-        sorted_data = dict(
+        sorted_siblings = dict(
             sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
         )
 
-        indications = [i.disease_name.lower() for i in drug.indications]
+        indications = [
+            i.disease_name.lower() for i in drug.indications if i.max_phase >= 4
+        ]
         drug_indications = list(set(indications))
-        top_30 = dict(list(sorted_data.items())[:30])
-        disease_names = list(top_30.keys())
+        top_40 = dict(list(sorted_siblings.items())[:40])
+        disease_names = list(top_40.keys())
         result = await merge_duplicate_diseases(disease_names, drug_indications)
 
         for name in result["remove"]:
-            if name.lower() in top_30:
-                del top_30[name.lower()]
+            if name.lower() in top_40:
+                del top_40[name.lower()]
 
         # Combine sibling sets for merged diseases
         removed = {n.lower() for n in result["remove"]}
@@ -179,20 +187,20 @@ class OpenTargetsClient(BaseClient):
             for name in [canonical_lower] + aliases:
                 if name in removed:
                     continue
-                if name in top_30:
-                    combined |= top_30[name]
+                if name in top_40:
+                    combined |= top_40[name]
                     if name != canonical_lower:
-                        del top_30[name]
+                        del top_40[name]
             if combined:
-                top_30[canonical_lower] = combined
+                top_40[canonical_lower] = combined
 
         # Re-sort and take top 10
         sorted_data = dict(
-            sorted(top_30.items(), key=lambda item: len(item[1]), reverse=True)
+            sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
-        top_10 = dict(list(sorted_data.items())[:10])
-
-        return top_10
+        sorted_data_2 = dict(sorted(top_40.items(), key=lambda item: item[0]))
+        top_15 = dict(list(sorted_data.items())[:15])
+        return top_15
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
         drug = await self.get_drug(drug_name)

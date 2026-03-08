@@ -34,6 +34,7 @@ CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
+PUBMED_MAX_RESULTS: int = 200
 
 # -- Interaction type mapping (Open Targets) --------------------------------
 INTERACTION_TYPE_MAP: dict[str, str] = {
