@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/dgupta/.claude/plans/**)",
+      "Bash(source:*)",
+      "Bash(alembic current:*)",
+      "Bash(git -C /Users/dgupta/code/portfolio/IndicationScout/indication_scout check-ignore -v .claude/agents/code-reviewer.md)",
+      "Bash(git -C /Users/dgupta/code/portfolio/IndicationScout/indication_scout add -f .claude/)"
+    ],
+    "additionalDirectories": [
+      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/skills"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/session.py\" startup",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
