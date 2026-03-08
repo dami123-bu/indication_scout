@@ -1,6 +1,6 @@
 # RAG Pipeline — Implementation Details
 
-See [rag.md](rag.md) for the conceptual overview and pipeline fit.
+See [rag_basics.md](rag_basics.md) for the conceptual overview and pipeline fit.
 
 ---
 
@@ -83,7 +83,7 @@ Encode therapeutic intent, not just keywords:
 
 ```
 For each PubMed keyword query:
-  1. Search PubMed E-utilities → up to 500 PMIDs
+  1. Search PubMed E-utilities → up to 200 PMIDs (PUBMED_MAX_RESULTS constant)
   2. Filter to PMIDs not already in pgvector
   3. Fetch abstracts for new PMIDs (batch)
   4. Discard abstract-less articles (letters, editorials) — no text to embed
@@ -176,7 +176,7 @@ volumes:
 3. **SentenceTransformer loading** — standard interface; BioLORD-2023 is a SentenceTransformer-compatible model
 4. **Therapeutic query framing** — embed intent ("evidence for X as treatment for Y") not just keywords; enables conceptual matches
 5. **Fetch → embed → store at ingest time** — embeddings computed once and cached; semantic search only needs to embed the query
-6. **500 PMIDs per keyword query** — wider initial retrieval net; semantic search handles noise reduction
+6. **200 PMIDs per keyword query** (`PUBMED_MAX_RESULTS`) — wider initial retrieval net; semantic search handles noise reduction; reduced from 500 to limit embedding time on cold cache
 7. **Grounded generation with PMIDs** — Claude synthesises from retrieved documents, not training weights; every claim in `EvidenceSummary` is traceable to a real paper
 8. **Cache-first retrieval** — avoid redundant PubMed API calls and re-embedding
 9. **LLM disease name normalization** — cheap Haiku calls instead of building a synonym dictionary or ontology traversal
