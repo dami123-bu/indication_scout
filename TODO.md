@@ -1,12 +1,18 @@
 # TODO
 
+Active tasks organized by component. Items here are actionable and derived from stubs, known gaps, and code issues in the codebase.
+
+---
+
 ## RAG Pipeline
 
-- [ ] Implement `synthesize()` in `services/retrieval.py` -- last remaining stub in the RAG pipeline
-- [ ] Define `EvidenceSummary` Pydantic model in `models/model_evidence_summary.py`
-- [ ] Write `prompts/synthesize.txt` prompt template
-- [ ] Implement `run_rag()` end-to-end orchestration in `services/retrieval.py`
-- [ ] Unit and integration tests for `synthesize` and `run_rag`
+- [x] Implement `synthesize()` in `services/retrieval.py`
+- [x] Define `EvidenceSummary` Pydantic model in `models/model_evidence_summary.py`
+- [x] Write `prompts/synthesize.txt` prompt template
+- [x] Implement `run_rag()` in `runners/rag_runner.py`
+- [x] Unit tests for `run_rag` in `tests/unit/runners/test_rag_runner.py`
+- [ ] Integration tests for `synthesize` in `tests/integration/services/test_retrieval.py`
+- [ ] Integration test for `run_rag` in `tests/integration/services/test_retrieval.py`
 
 ## Agents
 

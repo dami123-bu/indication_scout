@@ -42,6 +42,20 @@
 - **Decision**: Shared file-based cache in `_cache/` directory with SHA-256-keyed JSON files and 5-day TTL. Centralized in `utils/cache.py`.
 - **Rationale**: Simple, filesystem-based, no additional infrastructure. Namespaced to avoid collisions. TTL prevents stale data. Shared utility eliminates per-module cache duplication.
 
+## EvidenceSummary strength as Literal type
+- **Date**: 2026-03
+- **Status**: Accepted
+- **Context**: The `synthesize` LLM prompt constrains evidence strength to one of four values ("strong", "moderate", "weak", "none"). Needed the Pydantic model to enforce this constraint.
+- **Decision**: Use `Literal["strong", "moderate", "weak", "none"]` for `EvidenceSummary.strength` with default `"none"`.
+- **Rationale**: Compile-time and runtime validation that the LLM output conforms to the expected vocabulary. Prevents silent acceptance of unexpected strength labels.
+
+## run_rag iterates over diseases (not single drug-disease pair)
+- **Date**: 2026-03
+- **Status**: Accepted
+- **Context**: The RAG pipeline needed an entry point that runs the full pipeline. Initial plan had `run_rag(drug_name, disease_name, db)` for a single pair.
+- **Decision**: `run_rag(drug_name, db)` fetches top 10 disease indications via `get_drug_competitors` and iterates over all of them, returning `dict[str, EvidenceSummary]`.
+- **Rationale**: The primary use case is exploring all promising indications for a drug, not a single pair. Callers can still run a single disease by calling the underlying pipeline functions directly.
+
 ## Separate test database (scout_test)
 - **Date**: 2026-02
 - **Status**: Accepted

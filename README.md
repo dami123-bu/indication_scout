@@ -49,6 +49,7 @@ Required environment variables:
 | `TEST_DATABASE_URL` | No | Separate PostgreSQL URL for integration tests (e.g. `postgresql+psycopg2://scout:scout@localhost:5438/scout_test`) |
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude LLM calls |
 | `NCBI_API_KEY` | No | NCBI API key for PubMed (increases rate limits) |
+| `PUBMED_API_KEY` | No | PubMed API key (separate from NCBI key in config) |
 | `OPENAI_API_KEY` | No | OpenAI API key |
 | `OPENFDA_API_KEY` | No | OpenFDA API key |
 | `LLM_MODEL` | No | Primary LLM model (default: `claude-sonnet-4-6`) |
@@ -105,10 +106,10 @@ src/indication_scout/
 ├── db/              # SQLAlchemy session factory and declarative base
 ├── helpers/         # Utility functions (drug name normalization)
 ├── markers.py       # Code review exclusion markers (@no_review decorator)
-├── models/          # Pydantic data contracts (model_open_targets, model_clinical_trials, model_pubmed_abstract, model_chembl, model_drug_profile)
-├── prompts/         # LLM prompt templates (extract_organ_term, expand_search_terms, disease_synonyms)
-├── runners/         # Standalone runner/exploration scripts
-├── services/        # Business logic -- LLM calls (llm.py), embeddings (embeddings.py), disease normalization (disease_normalizer.py), PubMed query building (pubmed_query.py), RAG pipeline (retrieval.py)
+├── models/          # Pydantic data contracts (model_open_targets, model_clinical_trials, model_pubmed_abstract, model_chembl, model_drug_profile, model_evidence_summary)
+├── prompts/         # LLM prompt templates (extract_organ_term, expand_search_terms, disease_synonyms, synthesize)
+├── runners/         # Pipeline runners (rag_runner.py) and exploration scripts (pubmed_runner.py)
+├── services/        # Business logic -- LLM calls (llm.py, parse_llm_response), embeddings (embeddings.py), disease normalization (disease_normalizer.py), PubMed query building (pubmed_query.py), RAG pipeline (retrieval.py -- fetch_and_cache, semantic_search, synthesize)
 ├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts with pgvector embedding)
 ├── utils/           # Shared file-based cache utility (cache_key, cache_get, cache_set)
 ├── config.py        # Settings via pydantic-settings, loaded from .env

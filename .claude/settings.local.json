@@ -46,7 +46,8 @@
       "/Users/dgupta/.claude/agents",
       "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude",
       "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/agents",
-      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/commands"
+      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/commands",
+      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout"
     ]
   },
   "hooks": {

@@ -21,15 +21,16 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `models/model_clinical_trials.py` | Complete | Full Pydantic contract for trial, whitespace, landscape, terminated |
 | `models/model_pubmed_abstract.py` | Complete | `PubmedAbstract` model |
 | `models/model_drug_profile.py` | Complete | `DrugProfile` + `from_rich_drug_data(rich, atc_descriptions=None)` factory; `atc_descriptions` is optional (None → `[]`); 7 fields; dedup via `dict.fromkeys`; comments explain rich.targets vs rich.drug.targets distinction and why only ATC level3/4 descriptions are used |
+| `models/model_evidence_summary.py` | Complete | `EvidenceSummary` with 7 fields: `summary`, `study_count`, `study_types`, `strength` (Literal), `has_adverse_effects`, `key_findings`, `supporting_pmids`; `coerce_nones` validator applied |
 | `agents/orchestrator.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/literature.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/clinical_trials.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/mechanism.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/safety.py` | Stub | `run()` raises `NotImplementedError` |
-| `services/llm.py` | Complete | `query_llm` and `query_small_llm` via Anthropic SDK |
+| `services/llm.py` | Complete | `query_llm`, `query_small_llm`, and `parse_llm_response` via Anthropic SDK |
 | `services/disease_normalizer.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
-| `services/retrieval.py` | Partial | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search` all implemented; `synthesize` still raises `NotImplementedError` |
+| `services/retrieval.py` | Complete | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search`, `synthesize` all implemented |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
 | `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
@@ -38,8 +39,10 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `prompts/extract_organ_term.txt` | Complete | Haiku prompt; Input/Output few-shot format; returns single organ term |
 | `prompts/expand_search_terms.txt` | Complete | Full prompt with 9 template variables; 5-axis structure with per-axis caps; JSON array output |
 | `prompts/disease_synonyms.txt` | Complete | Input/Output few-shot format (updated to match other prompts) |
+| `prompts/synthesize.txt` | Complete | Evidence synthesis prompt; takes `drug_name`, `disease_name`, `abstracts`; outputs JSON matching `EvidenceSummary` fields |
 | `scripts/session.py` | Complete | Session file manager: `startup` (create/rotate/print) and `append` subcommands; rotation to `session_bak/` with 5-file cap |
 | `scripts/open_target_pipeline.py` | Complete | Exploratory pipeline: fetches bupropion competitors, builds PubMed queries, fetches abstracts; proper async with client context managers, `asyncio.run` under `__main__`, uses logging |
+| `runners/rag_runner.py` | Complete | End-to-end RAG pipeline runner; `run_rag(drug_name, db)` iterates over top 10 disease indications from `get_drug_competitors`, runs full pipeline per disease, returns `dict[str, EvidenceSummary]` |
 | `runners/pubmed_runner.py` | Partial | Development/exploration script; uses `print()` which violates project rules |
 | `config.py` | Complete | Pydantic settings from `.env`; LLM model, DB URL, API keys |
 | `constants.py` | Complete | Timeout, cache TTL, OT URL, interaction type map, stop-reason keywords |
@@ -73,12 +76,14 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 | `src/indication_scout/data_sources/open_targets.py` | Most complex client; GraphQL queries are defined as module-level strings at the bottom of the file |
 | `src/indication_scout/data_sources/clinical_trials.py` | `detect_whitespace()` runs 3 concurrent API calls; `get_landscape()` aggregates trials into a competitive map |
 | `src/indication_scout/services/disease_normalizer.py` | LLM-driven disease term normalization; two-step strategy (normalize then verify/broaden); uses `cache_get`/`cache_set` from `utils/cache.py` |
-| `src/indication_scout/services/retrieval.py` | RAG pipeline; Stage 0 (`expand_search_terms`, `extract_organ_term`) and Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`) and Stage 2 (`semantic_search`) all implemented; `synthesize` still stubbed |
+| `src/indication_scout/services/retrieval.py` | RAG pipeline; Stage 0 (`expand_search_terms`, `extract_organ_term`), Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`), Stage 2 (`semantic_search`), and Stage 3 (`synthesize`) all implemented |
 | `src/indication_scout/models/model_drug_profile.py` | `DrugProfile` — flat LLM-facing projection of `RichDrugData`; built via `from_rich_drug_data(rich, atc_descriptions)` |
-| `src/indication_scout/prompts/` | All LLM prompt templates; `extract_organ_term.txt`, `expand_search_terms.txt`, `disease_synonyms.txt` |
+| `src/indication_scout/prompts/` | All LLM prompt templates; `extract_organ_term.txt`, `expand_search_terms.txt`, `disease_synonyms.txt`, `synthesize.txt` |
 | `src/indication_scout/sqlalchemy/pubmed_abstracts.py` | ORM model for the `pubmed_abstracts` pgvector table |
 | `scripts/open_target_pipeline.py` | Exploratory async pipeline script; not part of production path |
 | `runners/pubmed_runner.py` | Development/exploration script; uses `print()` in violation of project rules |
+| `src/indication_scout/runners/rag_runner.py` | End-to-end RAG pipeline runner; `run_rag(drug_name, db)` orchestrates `get_drug_competitors` then per-disease: `build_drug_profile` -> `expand_search_terms` -> `fetch_and_cache` -> `semantic_search` -> `synthesize` |
+| `tests/unit/runners/test_rag_runner.py` | Unit tests for `run_rag`; 4 tests covering pipeline ordering, argument passing between stages |
 | `tests/integration/data_sources/test_open_targets.py` | Extensive integration suite with exact field assertions; doubles as API contract verification |
 | `tests/integration/services/test_pubmed_query.py` | Parametrized integration tests for `get_pubmed_query`; 5 drug-disease pairs; asserts query structure and disease keyword presence |
 | `tests/integration/services/test_retrieval.py` | Integration tests for retrieval service; `test_get_disease_synonyms`, `test_extract_organ_term_returns_string`, `test_expand_search_terms_returns_queries`, `test_build_drug_profile` (parametrized), `test_get_stored_pmids_returns_only_inserted_pmids`, `test_fetch_new_abstracts_skips_stored_pmid`, `test_fetch_new_abstracts_all_stored_skips_network` |
@@ -127,7 +132,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 ## Known Issues / Caveats
 
 - All five agents (`Orchestrator`, `LiteratureAgent`, `ClinicalTrialsAgent`, `MechanismAgent`, `SafetyAgent`) raise `NotImplementedError` in their `run()` methods — the agent layer is completely unimplemented.
-- The RAG pipeline in `services/retrieval.py` is partially implemented: `synthesize` still raises `NotImplementedError`. Stage 0 (`expand_search_terms` + `extract_organ_term`), Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`), and Stage 2 (`semantic_search`) are all complete.
+- The RAG pipeline in `services/retrieval.py` is fully implemented: Stage 0 (`expand_search_terms` + `extract_organ_term`), Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`), Stage 2 (`semantic_search`), and Stage 3 (`synthesize`) are all complete.
 - `DrugBankClient` is a stub (`get_drug` and `get_interactions` raise `NotImplementedError`).
 - The CLI module referenced in `pyproject.toml` (`indication_scout.cli.cli`) does not exist.
 - `tests/integration/data_sources/test_open_targets.py` contains two tests marked `# TODO rework` (`test_surfacing_pipeline`, `test_get_drug_target_competitors_semaglutide`) — they call the partially-implemented `get_drug_competitors()` method and may be fragile.
