@@ -4,12 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Session Startup
 
-At the start of every session, read `PROJECT_STATE.md`, the most recent `session_*.md` file in the project root, and `README.md`.
+At the start of every session, read `PROJECT_STATE.md`, the most recent `session_*.md` file in the project root, `README.md`, and `docs/findings.md`.
+
+## Findings Workflow
+
+- When a non-obvious finding is confirmed (API behaviour, naming discrepancy, architectural decision, pattern, project rule), append it to `docs/findings.md` under the appropriate section with a date.
+- `docs/findings.md` is the single source of truth for findings, decisions, and patterns — not `MEMORY.md`.
 
 ## Session File Workflow
 
 - Session files are named `session_{datetime}.md` (e.g. `session_2026-02-28_14-31.md`) and live in the project root.
-- Append to the current session file throughout the session.
+- Append to the current session file throughout the session. See `skills/session.md` for when and how.
 
 ## Build & Development Commands
 
@@ -36,6 +41,8 @@ uvicorn indication_scout.api.main:app --reload
 # CLI
 scout find -d "metformin"
 ```
+## Testing
+When writing or modifying any test files, first read skills/testing.md
 
 ## Architecture
 

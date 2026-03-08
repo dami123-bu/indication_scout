@@ -134,3 +134,25 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - `runners/pubmed_runner.py` uses `print()` instead of the `logging` module, which violates project rules.
 - `tests/integration/services/test_pubmed_query.py` contains two tests marked `# TODO delete` (`test_get_single_pubmed_query_returns_drug_and_term`, `test_get_single_disease_synonym`) — these are superseded by the parametrized suite but have not been removed yet.
 - `db/session.py` creates a new engine and session factory on every call to `get_db()` — there is no connection pooling singleton.
+
+---
+
+## Update (2026-03-07)
+
+### Implementation Status Changes
+- `docs/claude_code_tooling.md` — Complete. New file documenting the full Claude Code setup for this project.
+- `.claude/skills/session.md` — Complete. New skill file defining session continuation format, rules, and when-to-write guidance.
+- `.claude/commands/remember.md` — Complete. Updated to write session entry per `skills/session.md` and invoke the `project-state-updater` agent.
+- `project-state-updater` agent — Complete. Updated model to haiku; description clarified as invoked by `/remember`.
+- `CLAUDE.md` — Partial. Session File Workflow section updated to reference `skills/session.md` for format and timing rules.
+- `.claude/rules/testing.md` (formerly `skills/testing.md`) — Partial. Removed `globs: tests/**` frontmatter; file is now a plain reference file with no slash-command role.
+
+### New Patterns / Decisions
+- `/remember` is the single end-of-session command: writes a session entry then auto-triggers the `project-state-updater` agent.
+- Session writing rules live exclusively in `skills/session.md`; `CLAUDE.md` references it rather than duplicating content.
+- `project-state-updater` agent uses haiku — the append-only curator task requires no deep reasoning.
+- Agents are auto-invoked via their `description` field and can also be called explicitly from slash commands.
+- `skills/testing.md` is a plain reference file, not a slash-command skill — no frontmatter needed.
+
+### Known Issues / Caveats Added
+- None discovered this session.
