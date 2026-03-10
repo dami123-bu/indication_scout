@@ -1,8 +1,8 @@
 """Pydantic model for the synthesized evidence summary produced by the RAG pipeline."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class EvidenceSummary(BaseModel):
@@ -13,6 +13,13 @@ class EvidenceSummary(BaseModel):
     has_adverse_effects: bool = False
     key_findings: list[str] = []
     supporting_pmids: list[str] = []
+
+    @field_validator("supporting_pmids", mode="before")
+    @classmethod
+    def coerce_pmids_to_str(cls, v: Any) -> list[str]:
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return v
 
     @model_validator(mode="before")
     @classmethod

@@ -119,6 +119,12 @@ class OpenTargetsClient(BaseClient):
     ) -> dict[str, set[str]]:
         """Fetch competitor drugs for a given drug, grouped by disease."""
         normalized_name = normalize_drug_name(name)
+
+        cache_params = {"drug_name": normalized_name, "drug_phase": drug_phase}
+        cached = cache_get("drug_competitors", cache_params, self.cache_dir)
+        if cached is not None:
+            return {disease: set(drugs) for disease, drugs in cached.items()}
+
         drug = await self.get_drug(normalized_name)
         targets = drug.targets
 
@@ -200,6 +206,14 @@ class OpenTargetsClient(BaseClient):
         )
         sorted_data_2 = dict(sorted(top_40.items(), key=lambda item: item[0]))
         top_15 = dict(list(sorted_data.items())[:15])
+
+        cache_set(
+            "drug_competitors",
+            cache_params,
+            {disease: list(drugs) for disease, drugs in top_15.items()},
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
         return top_15
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:

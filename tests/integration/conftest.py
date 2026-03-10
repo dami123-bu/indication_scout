@@ -55,10 +55,22 @@ def db_session_truncating():
     engine = create_engine(settings.test_database_url)
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
+    session.execute(text("TRUNCATE TABLE pubmed_abstracts"))
+    session.commit()
     yield session
     session.execute(text("TRUNCATE TABLE pubmed_abstracts"))
     session.commit()
     session.close()
+
+
+@pytest.fixture()
+def test_cache_dir():
+    """Return TEST_CACHE_DIR for use in integration tests.
+
+    Centralises the cache directory decision so individual tests don't
+    need to import or reference TEST_CACHE_DIR directly.
+    """
+    return TEST_CACHE_DIR
 
 
 @pytest.fixture

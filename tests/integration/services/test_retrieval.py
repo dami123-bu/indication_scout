@@ -5,24 +5,20 @@ import logging
 import pytest
 from sqlalchemy import text
 
+from indication_scout.constants import TEST_CACHE_DIR
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
-from indication_scout.services.retrieval import (
-    build_drug_profile,
-    embed_abstracts,
-    expand_search_terms,
-    extract_organ_term,
-    fetch_and_cache,
-    fetch_new_abstracts,
-    get_disease_synonyms,
-    get_stored_pmids,
-    semantic_search,
-    synthesize,
-)
+from indication_scout.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
 # db_session fixture is defined in tests/integration/conftest.py and
 # connects to scout_test (TEST_DATABASE_URL). It rolls back after each test.
+
+
+@pytest.fixture
+def svc(test_cache_dir):
+    """RetrievalService bound to the test cache directory."""
+    return RetrievalService(test_cache_dir)
 
 
 @pytest.mark.parametrize(
@@ -51,9 +47,9 @@ logger = logging.getLogger(__name__)
         ),
     ],
 )
-async def test_get_disease_synonyms(disease, synonyms):
+async def test_get_disease_synonyms(disease, synonyms, svc):
     """Returned synonyms should include all expected terms for the given disease."""
-    result = await get_disease_synonyms(disease)
+    result = await svc.get_disease_synonyms(disease)
 
     assert set(synonyms).issubset(set(result))
 
@@ -147,14 +143,14 @@ async def test_get_disease_synonyms(disease, synonyms):
 #     assert "pmid" in str(result) or hasattr(result, "pmids")
 
 
-async def test_extract_organ_term_returns_string():
+async def test_extract_organ_term_returns_string(svc):
     """extract_organ_term should return the primary organ for a known disease."""
-    result = await extract_organ_term("colorectal cancer")
+    result = await svc.extract_organ_term("colorectal cancer")
 
     assert result == "colon"
 
 
-async def test_expand_search_terms_returns_queries():
+async def test_expand_search_terms_returns_queries(svc):
     """expand_search_terms should return queries covering all 5 prompt axes."""
     profile = DrugProfile(
         name="metformin",
@@ -168,7 +164,7 @@ async def test_expand_search_terms_returns_queries():
         atc_descriptions=["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
         drug_type="Small molecule",
     )
-    queries = await expand_search_terms("metformin", "colorectal cancer", profile)
+    queries = await svc.expand_search_terms("metformin", "colorectal cancer", profile)
     queries_lower = [q.lower() for q in queries]
 
     assert 5 <= len(queries) <= 10
@@ -240,6 +236,7 @@ async def test_expand_search_terms_returns_queries():
     ],
 )
 async def test_build_drug_profile(
+    svc,
     drug_name,
     expected_name,
     expected_drug_type,
@@ -249,7 +246,7 @@ async def test_build_drug_profile(
     expected_mechanisms_of_action,
 ):
     """build_drug_profile assembles a complete DrugProfile from live Open Targets + ChEMBL data."""
-    profile = await build_drug_profile(drug_name)
+    profile = await svc.build_drug_profile(drug_name)
 
     assert profile.name == expected_name
     assert profile.drug_type == expected_drug_type
@@ -281,7 +278,7 @@ async def test_embed_abstracts_returns_768_dim_vectors():
 
     assert len(abstracts) == 1
 
-    result = embed_abstracts(abstracts)
+    result = RetrievalService(TEST_CACHE_DIR).embed_abstracts(abstracts)
 
     assert len(result) == 1
     abstract, vector = result[0]
@@ -308,7 +305,7 @@ def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
         )
     )
 
-    result = get_stored_pmids(
+    result = RetrievalService(TEST_CACHE_DIR).get_stored_pmids(
         ["10000001", "10000002", "99999991", "99999992"], db_session
     )
 
@@ -332,7 +329,7 @@ async def test_fetch_new_abstracts_skips_stored_pmid():
     all_pmids = ["10000001", _KNOWN_NEW_PMID]
 
     async with PubMedClient() as client:
-        abstracts = await fetch_new_abstracts(all_pmids, stored, client)
+        abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
 
     assert len(abstracts) == 1
     assert abstracts[0].pmid == _KNOWN_NEW_PMID
@@ -348,7 +345,7 @@ async def test_fetch_new_abstracts_all_stored_skips_network():
     all_pmids = ["10000001", "10000002"]
 
     async with PubMedClient() as client:
-        abstracts = await fetch_new_abstracts(all_pmids, stored, client)
+        abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
 
     assert abstracts == []
 
@@ -394,7 +391,7 @@ _OVERLAP_PMIDS = {
 }
 
 
-async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncating):
+async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncating, test_cache_dir):
     """fetch_and_cache fetches abstracts, embeds them, and persists rows to pubmed_abstracts.
 
     Uses a single stable PubMed query with a known small result set. Verifies:
@@ -402,7 +399,7 @@ async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncat
     - each returned PMID has a row in pubmed_abstracts with a non-null embedding
     - no duplicate PMIDs in the result
     """
-    pmids = await fetch_and_cache([_FETCH_AND_CACHE_QUERY], db_session_truncating)
+    pmids = await RetrievalService(test_cache_dir).fetch_and_cache([_FETCH_AND_CACHE_QUERY], db_session_truncating)
 
     assert _FETCH_AND_CACHE_PMIDS.issubset(set(pmids))
     assert len(pmids) == len(set(pmids))
@@ -417,7 +414,7 @@ async def test_fetch_and_cache_inserts_rows_and_returns_pmids(db_session_truncat
         assert embedding is not None, f"embedding is null for pmid {pmid}"
 
 
-async def test_fetch_and_cache_deduplicates_overlapping_queries(db_session_truncating):
+async def test_fetch_and_cache_deduplicates_overlapping_queries(db_session_truncating, test_cache_dir):
     """PMIDs returned by two overlapping queries appear exactly once in the result.
 
     Query A (metformin AND colorectal cancer) and Query B (metformin AND AMPK AND colon)
@@ -426,14 +423,14 @@ async def test_fetch_and_cache_deduplicates_overlapping_queries(db_session_trunc
     - no duplicate PMIDs in the result list
     - the 25 known overlap PMIDs are each present exactly once
     """
-    pmids = await fetch_and_cache([_QUERY_A, _QUERY_B], db_session_truncating)
+    pmids = await RetrievalService(test_cache_dir).fetch_and_cache([_QUERY_A, _QUERY_B], db_session_truncating)
 
     assert all(p.isdigit() for p in pmids)
     assert len(pmids) == len(set(pmids))
     assert _OVERLAP_PMIDS.issubset(set(pmids))
 
 
-async def test_fetch_and_cache_is_idempotent(db_session_truncating):
+async def test_fetch_and_cache_is_idempotent(db_session_truncating, test_cache_dir):
     """Running fetch_and_cache twice with the same query does not insert duplicate rows.
 
     Calls fetch_and_cache with a single stable query, records the row count,
@@ -441,13 +438,14 @@ async def test_fetch_and_cache_is_idempotent(db_session_truncating):
     after the second call (ON CONFLICT DO NOTHING is exercised end-to-end).
     """
     queries = [_FETCH_AND_CACHE_QUERY]
+    svc = RetrievalService(test_cache_dir)
 
-    await fetch_and_cache(queries, db_session_truncating)
+    await svc.fetch_and_cache(queries, db_session_truncating)
     count_after_first = db_session_truncating.execute(
         text("SELECT COUNT(*) FROM pubmed_abstracts")
     ).scalar()
 
-    await fetch_and_cache(queries, db_session_truncating)
+    await svc.fetch_and_cache(queries, db_session_truncating)
     count_after_second = db_session_truncating.execute(
         text("SELECT COUNT(*) FROM pubmed_abstracts")
     ).scalar()
