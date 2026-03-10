@@ -27,7 +27,7 @@ def test_default_config():
 # --- get_drug_competitors: None phase guard ---
 
 
-async def test_get_drug_competitors_skips_summary_with_none_phase():
+async def test_get_drug_competitors_skips_summary_with_none_phase(tmp_path):
     """Summaries with phase=None must be skipped without raising TypeError."""
     drug = DrugData(
         chembl_id="CHEMBL1",
@@ -40,7 +40,7 @@ async def test_get_drug_competitors_skips_summary_with_none_phase():
         DrugSummary(drug_name="competitor_b", disease_name="anxiety", phase=None),
     ]
 
-    client = OpenTargetsClient()
+    client = OpenTargetsClient(cache_dir=tmp_path)
     with (
         patch.object(client, "get_drug", new=AsyncMock(return_value=drug)),
         patch.object(
@@ -63,7 +63,7 @@ async def test_get_drug_competitors_skips_summary_with_none_phase():
 # --- get_drug_competitors: alias-in-removed edge case ---
 
 
-async def test_get_drug_competitors_alias_in_removed_not_merged():
+async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
     """When an alias appears in both merge values and remove, its data must not be merged in."""
     drug = DrugData(
         chembl_id="CHEMBL1",
@@ -85,7 +85,7 @@ async def test_get_drug_competitors_alias_in_removed_not_merged():
         "remove": ["narcolepsy-cataplexy syndrome"],
     }
 
-    client = OpenTargetsClient()
+    client = OpenTargetsClient(cache_dir=tmp_path)
     with (
         patch.object(client, "get_drug", new=AsyncMock(return_value=drug)),
         patch.object(

@@ -53,6 +53,25 @@ def evidence_breast() -> EvidenceSummary:
     )
 
 
+def _make_mock_svc(
+    top_indications: dict,
+    drug_profile: DrugProfile,
+    expand_return: list[str],
+    fetch_return: list[str],
+    search_side_effect,
+    synthesize_side_effect,
+) -> MagicMock:
+    """Return a mock RetrievalService with all pipeline methods pre-configured."""
+    mock_svc = MagicMock()
+    mock_svc.get_drug_competitors = AsyncMock(return_value=top_indications)
+    mock_svc.build_drug_profile = AsyncMock(return_value=drug_profile)
+    mock_svc.expand_search_terms = AsyncMock(return_value=expand_return)
+    mock_svc.fetch_and_cache = AsyncMock(return_value=fetch_return)
+    mock_svc.semantic_search = AsyncMock(side_effect=search_side_effect)
+    mock_svc.synthesize = AsyncMock(side_effect=synthesize_side_effect)
+    return mock_svc
+
+
 # --- Tests ---
 
 
@@ -60,58 +79,19 @@ async def test_run_rag_returns_evidence_per_disease(
     mock_db, drug_profile, evidence_colorectal, evidence_breast
 ):
     """run_rag returns a dict mapping each disease to its EvidenceSummary."""
-    top_10 = {"colorectal cancer": {"aspirin"}, "breast cancer": {"tamoxifen"}}
+    top_indications = {"colorectal cancer": {"aspirin"}, "breast cancer": {"tamoxifen"}}
+    abstracts = [{"pmid": "11111111", "title": "T", "abstract": "A", "similarity": 0.9}]
 
-    mock_ot = AsyncMock()
-    mock_ot.__aenter__ = AsyncMock(return_value=mock_ot)
-    mock_ot.__aexit__ = AsyncMock(return_value=None)
-    mock_ot.get_drug_competitors = AsyncMock(return_value=top_10)
+    mock_svc = _make_mock_svc(
+        top_indications=top_indications,
+        drug_profile=drug_profile,
+        expand_return=["metformin AND colorectal cancer"],
+        fetch_return=["11111111", "22222222"],
+        search_side_effect=[abstracts, abstracts],
+        synthesize_side_effect=[evidence_colorectal, evidence_breast],
+    )
 
-    with (
-        patch(
-            "indication_scout.runners.rag_runner.OpenTargetsClient",
-            return_value=mock_ot,
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.build_drug_profile",
-            new=AsyncMock(return_value=drug_profile),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.expand_search_terms",
-            new=AsyncMock(return_value=["metformin AND colorectal cancer"]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.fetch_and_cache",
-            new=AsyncMock(return_value=["11111111", "22222222"]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.semantic_search",
-            new=AsyncMock(
-                side_effect=[
-                    [
-                        {
-                            "pmid": "11111111",
-                            "title": "T",
-                            "abstract": "A",
-                            "similarity": 0.9,
-                        }
-                    ],
-                    [
-                        {
-                            "pmid": "22222222",
-                            "title": "T2",
-                            "abstract": "A2",
-                            "similarity": 0.8,
-                        }
-                    ],
-                ]
-            ),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.synthesize",
-            new=AsyncMock(side_effect=[evidence_colorectal, evidence_breast]),
-        ),
-    ):
+    with patch("indication_scout.runners.rag_runner.RetrievalService", return_value=mock_svc):
         results = await run_rag("metformin", mock_db)
 
     assert set(results.keys()) == {"colorectal cancer", "breast cancer"}
@@ -119,130 +99,69 @@ async def test_run_rag_returns_evidence_per_disease(
     assert results["breast cancer"] is evidence_breast
 
 
-async def test_run_rag_passes_drug_profile_to_expand_search_terms(
-    mock_db, drug_profile
-):
+async def test_run_rag_passes_drug_profile_to_expand_search_terms(mock_db, drug_profile):
     """expand_search_terms receives the DrugProfile returned by build_drug_profile."""
-    top_10 = {"colorectal cancer": {"aspirin"}}
+    top_indications = {"colorectal cancer": {"aspirin"}}
+    evidence = EvidenceSummary()
 
-    mock_ot = AsyncMock()
-    mock_ot.__aenter__ = AsyncMock(return_value=mock_ot)
-    mock_ot.__aexit__ = AsyncMock(return_value=None)
-    mock_ot.get_drug_competitors = AsyncMock(return_value=top_10)
+    mock_svc = _make_mock_svc(
+        top_indications=top_indications,
+        drug_profile=drug_profile,
+        expand_return=["q"],
+        fetch_return=[],
+        search_side_effect=[[]],
+        synthesize_side_effect=[evidence],
+    )
 
-    mock_expand = AsyncMock(return_value=["q"])
-
-    with (
-        patch(
-            "indication_scout.runners.rag_runner.OpenTargetsClient",
-            return_value=mock_ot,
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.build_drug_profile",
-            new=AsyncMock(return_value=drug_profile),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.expand_search_terms", new=mock_expand
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.fetch_and_cache",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.semantic_search",
-            new=AsyncMock(return_value=[]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.synthesize",
-            new=AsyncMock(return_value=EvidenceSummary()),
-        ),
-    ):
+    with patch("indication_scout.runners.rag_runner.RetrievalService", return_value=mock_svc):
         await run_rag("metformin", mock_db)
 
-    mock_expand.assert_called_once_with("metformin", "colorectal cancer", drug_profile)
+    mock_svc.expand_search_terms.assert_called_once_with(
+        "metformin", "colorectal cancer", drug_profile
+    )
 
 
 async def test_run_rag_passes_pmids_to_semantic_search(mock_db, drug_profile):
     """semantic_search receives the PMID list returned by fetch_and_cache."""
-    top_10 = {"colorectal cancer": {"aspirin"}}
+    top_indications = {"colorectal cancer": {"aspirin"}}
     pmids = ["11111111", "22222222", "33333333"]
+    evidence = EvidenceSummary()
 
-    mock_ot = AsyncMock()
-    mock_ot.__aenter__ = AsyncMock(return_value=mock_ot)
-    mock_ot.__aexit__ = AsyncMock(return_value=None)
-    mock_ot.get_drug_competitors = AsyncMock(return_value=top_10)
+    mock_svc = _make_mock_svc(
+        top_indications=top_indications,
+        drug_profile=drug_profile,
+        expand_return=["q"],
+        fetch_return=pmids,
+        search_side_effect=[[]],
+        synthesize_side_effect=[evidence],
+    )
 
-    mock_search = AsyncMock(return_value=[])
-
-    with (
-        patch(
-            "indication_scout.runners.rag_runner.OpenTargetsClient",
-            return_value=mock_ot,
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.build_drug_profile",
-            new=AsyncMock(return_value=drug_profile),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.expand_search_terms",
-            new=AsyncMock(return_value=["q"]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.fetch_and_cache",
-            new=AsyncMock(return_value=pmids),
-        ),
-        patch("indication_scout.runners.rag_runner.semantic_search", new=mock_search),
-        patch(
-            "indication_scout.runners.rag_runner.synthesize",
-            new=AsyncMock(return_value=EvidenceSummary()),
-        ),
-    ):
+    with patch("indication_scout.runners.rag_runner.RetrievalService", return_value=mock_svc):
         await run_rag("metformin", mock_db)
 
-    mock_search.assert_called_once_with(
+    mock_svc.semantic_search.assert_called_once_with(
         "colorectal cancer", "metformin", pmids, mock_db
     )
 
 
 async def test_run_rag_passes_top_abstracts_to_synthesize(mock_db, drug_profile):
     """synthesize receives the abstract list returned by semantic_search."""
-    top_10 = {"colorectal cancer": {"aspirin"}}
-    top_abstracts = [
-        {"pmid": "11111111", "title": "T", "abstract": "A", "similarity": 0.9}
-    ]
+    top_indications = {"colorectal cancer": {"aspirin"}}
+    top_abstracts = [{"pmid": "11111111", "title": "T", "abstract": "A", "similarity": 0.9}]
+    evidence = EvidenceSummary()
 
-    mock_ot = AsyncMock()
-    mock_ot.__aenter__ = AsyncMock(return_value=mock_ot)
-    mock_ot.__aexit__ = AsyncMock(return_value=None)
-    mock_ot.get_drug_competitors = AsyncMock(return_value=top_10)
+    mock_svc = _make_mock_svc(
+        top_indications=top_indications,
+        drug_profile=drug_profile,
+        expand_return=["q"],
+        fetch_return=["11111111"],
+        search_side_effect=[top_abstracts],
+        synthesize_side_effect=[evidence],
+    )
 
-    mock_synthesize = AsyncMock(return_value=EvidenceSummary())
-
-    with (
-        patch(
-            "indication_scout.runners.rag_runner.OpenTargetsClient",
-            return_value=mock_ot,
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.build_drug_profile",
-            new=AsyncMock(return_value=drug_profile),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.expand_search_terms",
-            new=AsyncMock(return_value=["q"]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.fetch_and_cache",
-            new=AsyncMock(return_value=["11111111"]),
-        ),
-        patch(
-            "indication_scout.runners.rag_runner.semantic_search",
-            new=AsyncMock(return_value=top_abstracts),
-        ),
-        patch("indication_scout.runners.rag_runner.synthesize", new=mock_synthesize),
-    ):
+    with patch("indication_scout.runners.rag_runner.RetrievalService", return_value=mock_svc):
         await run_rag("metformin", mock_db)
 
-    mock_synthesize.assert_called_once_with(
+    mock_svc.synthesize.assert_called_once_with(
         "metformin", "colorectal cancer", top_abstracts
     )
