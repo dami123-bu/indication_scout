@@ -161,3 +161,60 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 
 ### Known Issues / Caveats Added
 - None discovered this session.
+
+## Update (2026-03-07 continued)
+
+### Implementation Status Changes
+- `open_targets.py` `get_drug_competitors` — Complete. Fixed ADHD filtering bug by tracking max phase per drug per disease; fixed BROADENING_BLOCKLIST filter logic from OR to AND (all words must be blocklisted, not any).
+- `services/embeddings.py` — Complete. Added `local_files_only=True` to SentenceTransformer instantiation to skip HuggingFace HTTP checks on load.
+- `runners/rag_runner.py` — Complete. Added per-step timing logs using `time.perf_counter()` inside disease loop.
+- `constants.py` — Complete. Added `PUBMED_MAX_RESULTS: int = 200` constant.
+- `services/retrieval.py` — Complete. Replaced hardcoded PubMed max_results with `PUBMED_MAX_RESULTS` constant.
+- `tests/unit/services/test_retrieval.py` — Complete. Updated `test_fetch_and_cache_calls_search_per_query` to use `PUBMED_MAX_RESULTS` constant.
+
+### New Patterns / Decisions
+- Only delete a disease from `siblings` if the input drug appears there at phase >= 4 (not just any phase) — stricter criterion to preserve valid competitors.
+- BROADENING_BLOCKLIST filter now requires ALL words to match the blocklist (`words <= BROADENING_BLOCKLIST`) instead of ANY word — prevents false filtering of multi-word disease names containing generic terms like 'disorder'.
+- `PUBMED_MAX_RESULTS = 200` (down from 500) — reduces embedding time on cold cache as acceptable tradeoff; BioLORD-2023 on MPS is CPU-bound and benefits from smaller batch size.
+- Parallelization plan approved (Option A: shared session + asyncio.Lock, concurrency limit = 3); plan written to PLAN.md but not yet implemented.
+
+### Known Issues / Caveats Added
+- `fetch_and_cache` takes 11-50s per disease on cold cache due to BioLORD-2023 embedding volume (CPU-bound on MPS).
+- `synthesize` takes ~10s per disease (Sonnet API call) — 15 diseases serially = ~5 min; parallelization needed for acceptable runtime.
+- Debug logging was at DEBUG level and not visible; temporarily changed to ERROR level to verify bug fixes during session.
+
+---
+
+## Update (2026-03-07 session continuation)
+
+### Implementation Status Changes
+- `tests/integration/runners/test_rag_runner.py` — Complete. New integration test file with two tests: `test_run_rag_empagliflozin` and `test_run_rag_semaglutide`. Both verify all 15 disease indications and full `EvidenceSummary` field values from live pipeline runs using data-driven assertions.
+- `tests/integration/runners/__init__.py` — Complete. New directory marker for runner integration tests.
+
+### New Patterns / Decisions
+- Runner integration tests use `db_session_truncating` fixture (not `db_session`) because `fetch_and_cache` calls `db.commit()` internally and cannot be rolled back via savepoint.
+- Set-based assertions (`study_types`, `supporting_pmids`) are order-independent; LLM outputs (`summary`, `key_findings`) checked for presence only due to inter-run variability.
+- Test data sourced from live results files (`data/empag_results.md`, `data/semaglutide_results.md`) — assertions use file values as written.
+
+### Known Issues / Caveats Added
+- `eating disorder` (semaglutide): 5 key findings cite PMIDs but only 4 appear in `supporting_pmids` — data inconsistency accepted from source.
+- `major depressive disorder` (semaglutide): `supporting_pmids` is empty despite 5 findings with cited PMIDs — data inconsistency accepted from source.
+- LLM output variability may require loosening assertions after first real test run.
+
+---
+
+## Update (2026-03-08)
+
+### Implementation Status Changes
+- `services/retrieval.py` — Complete. Refactored from module-level functions into a `RetrievalService` class with `cache_dir: Path` parameter in `__init__`, exposing `get_drug_competitors()` method.
+- `runners/rag_runner.py` — Complete. Updated to instantiate `RetrievalService(cache_dir)` and route all pipeline calls through it; replaced all `print()` calls with `logger.info()`.
+- `tests/integration/conftest.py` — Complete. Added `test_cache_dir` fixture returning `TEST_CACHE_DIR` to decouple tests from direct constants imports.
+- `tests/integration/runners/test_rag_runner.py` — Complete. Updated both tests to accept `test_cache_dir` fixture and pass it to `run_rag`; removed direct `TEST_CACHE_DIR` imports.
+
+### New Patterns / Decisions
+- Cache dir definition centralized in `constants.py` (`DEFAULT_CACHE_DIR`, `TEST_CACHE_DIR`); `RetrievalService` is the single point where cache dir is wired into the pipeline.
+- `run_rag` defaults to `DEFAULT_CACHE_DIR` so production callers (CLI, API) require no changes.
+- Test cache dir flows from conftest fixture, not individual test imports — eliminates test-to-constants coupling.
+
+### Known Issues / Caveats Added
+- Old `rag_runner.py` was calling removed module-level functions (`build_drug_profile`, `expand_search_terms`, etc.); refactor to service class eliminated the runtime `NameError`.

@@ -331,7 +331,7 @@ class RetrievalService:
         if stripped.startswith("```"):
             stripped = stripped.split("```", 2)[1]
             if stripped.startswith("json"):
-                stripped = stripped[4:]
+                stripped = stripped[4:].lstrip()
             stripped = stripped.rsplit("```", 1)[0].strip()
         try:
             data = json.loads(stripped)
@@ -429,8 +429,8 @@ class RetrievalService:
             drug_type=drug_profile.drug_type,
         )
 
-        text = await query_small_llm(prompt)
-        raw: list[str] = parse_llm_response(text)
+        llm_output = await query_small_llm(prompt)
+        raw: list[str] = parse_llm_response(llm_output)
 
         # Case-normalised dedup: lowercase+strip as key, preserve original casing
         seen: dict[str, str] = {}
@@ -467,5 +467,5 @@ class RetrievalService:
         template = (_PROMPTS_DIR / "disease_synonyms.txt").read_text()
         prompt = template.format(disease=disease)
 
-        text = await query_small_llm(prompt)
-        return parse_llm_response(text)
+        llm_output = await query_small_llm(prompt)
+        return parse_llm_response(llm_output)

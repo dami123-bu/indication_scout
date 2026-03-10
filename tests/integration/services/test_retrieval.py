@@ -273,7 +273,7 @@ async def test_embed_abstracts_returns_768_dim_vectors():
     - the vector has exactly 768 dimensions (BioLORD-2023 output dim)
     - all vector values are finite floats
     """
-    async with PubMedClient() as client:
+    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
         abstracts = await client.fetch_abstracts([_EMBED_TEST_PMID])
 
     assert len(abstracts) == 1
@@ -328,7 +328,7 @@ async def test_fetch_new_abstracts_skips_stored_pmid():
     stored = {"10000001"}  # fake pre-stored PMID — not on PubMed
     all_pmids = ["10000001", _KNOWN_NEW_PMID]
 
-    async with PubMedClient() as client:
+    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
         abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
 
     assert len(abstracts) == 1
@@ -344,7 +344,7 @@ async def test_fetch_new_abstracts_all_stored_skips_network():
     stored = {"10000001", "10000002"}
     all_pmids = ["10000001", "10000002"]
 
-    async with PubMedClient() as client:
+    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
         abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
 
     assert abstracts == []
