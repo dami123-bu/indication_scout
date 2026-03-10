@@ -652,6 +652,18 @@ async def test_get_drug_competitors_bupropion(open_targets_client):
         result["fibromyalgia"]
     )
 
+async def test_empagliflozin_candidates(open_targets_client):
+    result = await open_targets_client.get_drug_competitors("empagliflozin")
+    diseases = set(result.keys())
+    # Core candidates that always have multiple siblings
+    assert "diabetic nephropathy" in diseases
+    assert "atrial fibrillation" in diseases
+    assert "myocardial infarction" in diseases
+    # Should be subtracted (Phase 4 approved)
+    assert "heart failure" not in diseases
+    assert "type 2 diabetes mellitus" not in diseases
+    # Correct count
+    assert len(result) == 15
 
 async def test_get_drug_competitors_colchicine_filters_broad_terms(open_targets_client):
     """get_drug_competitors must exclude disease names that contain blocklisted broad terms.

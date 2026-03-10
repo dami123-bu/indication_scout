@@ -5,9 +5,9 @@ import logging
 import pytest
 from sqlalchemy import text
 
-from indication_scout.constants import TEST_CACHE_DIR
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
@@ -106,9 +106,9 @@ async def test_get_disease_synonyms(disease, synonyms, svc):
 #     assert len(pmids) == len(set(pmids))
 
 
-# async def test_semantic_search_returns_ranked_abstracts():
+# async def test_semantic_search_returns_ranked_abstracts(svc):
 #     """Should return up to top_k dicts with required abstract fields."""
-#     results = await semantic_search("colorectal cancer", "metformin", top_k=5)
+#     results = await svc.semantic_search("colorectal cancer", "metformin", top_k=5)
 #
 #     assert isinstance(results, list)
 #     assert 1 <= len(results) <= 5
@@ -264,7 +264,7 @@ async def test_build_drug_profile(
 _EMBED_TEST_PMID = "21133896"
 
 
-async def test_embed_abstracts_returns_768_dim_vectors():
+async def test_embed_abstracts_returns_768_dim_vectors(test_cache_dir):
     """embed_abstracts produces one 768-dim vector per abstract, aligned by index.
 
     Fetches one real abstract from PubMed and embeds it. Verifies:
@@ -273,12 +273,12 @@ async def test_embed_abstracts_returns_768_dim_vectors():
     - the vector has exactly 768 dimensions (BioLORD-2023 output dim)
     - all vector values are finite floats
     """
-    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
         abstracts = await client.fetch_abstracts([_EMBED_TEST_PMID])
 
     assert len(abstracts) == 1
 
-    result = RetrievalService(TEST_CACHE_DIR).embed_abstracts(abstracts)
+    result = RetrievalService(test_cache_dir).embed_abstracts(abstracts)
 
     assert len(result) == 1
     abstract, vector = result[0]
@@ -290,7 +290,7 @@ async def test_embed_abstracts_returns_768_dim_vectors():
 # --- get_stored_pmids ---
 
 
-def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
+def test_get_stored_pmids_returns_only_inserted_pmids(db_session, test_cache_dir):
     """Only the PMIDs that were pre-inserted are returned; unknown PMIDs are excluded.
 
     Inserts two rows directly via SQL, then queries with those two PMIDs plus
@@ -305,7 +305,7 @@ def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
         )
     )
 
-    result = RetrievalService(TEST_CACHE_DIR).get_stored_pmids(
+    result = RetrievalService(test_cache_dir).get_stored_pmids(
         ["10000001", "10000002", "99999991", "99999992"], db_session
     )
 
@@ -318,7 +318,7 @@ def test_get_stored_pmids_returns_only_inserted_pmids(db_session):
 _KNOWN_NEW_PMID = "20301421"
 
 
-async def test_fetch_new_abstracts_skips_stored_pmid():
+async def test_fetch_new_abstracts_skips_stored_pmid(test_cache_dir):
     """fetch_new_abstracts returns only abstracts for PMIDs not in stored_pmids.
 
     Passes _KNOWN_NEW_PMID as the only new PMID (stored_pmids contains a
@@ -328,14 +328,14 @@ async def test_fetch_new_abstracts_skips_stored_pmid():
     stored = {"10000001"}  # fake pre-stored PMID — not on PubMed
     all_pmids = ["10000001", _KNOWN_NEW_PMID]
 
-    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
-        abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        abstracts = await RetrievalService(test_cache_dir).fetch_new_abstracts(all_pmids, stored, client)
 
     assert len(abstracts) == 1
     assert abstracts[0].pmid == _KNOWN_NEW_PMID
 
 
-async def test_fetch_new_abstracts_all_stored_skips_network():
+async def test_fetch_new_abstracts_all_stored_skips_network(test_cache_dir):
     """When all PMIDs are already stored, no network call is made and [] is returned.
 
     Uses only fake PMIDs that are all marked as stored, so fetch_abstracts
@@ -344,8 +344,8 @@ async def test_fetch_new_abstracts_all_stored_skips_network():
     stored = {"10000001", "10000002"}
     all_pmids = ["10000001", "10000002"]
 
-    async with PubMedClient(cache_dir=TEST_CACHE_DIR) as client:
-        abstracts = await RetrievalService(TEST_CACHE_DIR).fetch_new_abstracts(all_pmids, stored, client)
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        abstracts = await RetrievalService(test_cache_dir).fetch_new_abstracts(all_pmids, stored, client)
 
     assert abstracts == []
 
@@ -451,3 +451,106 @@ async def test_fetch_and_cache_is_idempotent(db_session_truncating, test_cache_d
     ).scalar()
 
     assert count_after_second == count_after_first
+
+# Landmark PMIDs should always be in pgvector and rank highly
+async def test_empareg_in_results(svc, db_session_truncating):
+    pmids = await svc.fetch_and_cache(["empagliflozin AND myocardial infarction"], db_session_truncating)
+    top_15 = await svc.semantic_search("myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=15)
+    result_pmids = [r["pmid"] for r in top_15]
+    assert "38587237" in result_pmids  # EMPACT-MI
+
+async def test_recovery_in_results(svc, db_session_truncating):
+    pmids = await svc.fetch_and_cache(["empagliflozin AND severe acute respiratory syndrome", "empagliflozin AND SARS"], db_session_truncating)
+    top_5 = await svc.semantic_search("severe acute respiratory syndrome", "empagliflozin", pmids, db_session_truncating, top_k=5)
+    result_pmids = [r["pmid"] for r in top_5]
+    assert "37865101" in result_pmids  # RECOVERY trial
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_returns_relevant_results(svc, db_session_truncating):
+    """Semantic search should return abstracts about empagliflozin + MI."""
+    queries = [
+        "empagliflozin AND myocardial infarction",
+        "empagliflozin AND cardiovascular outcome",
+    ]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    results = await svc.semantic_search(
+        "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=5
+    )
+
+    assert len(results) == 5
+    # All results should have reasonable similarity
+    assert all(r["similarity"] > 0.5 for r in results)
+    # At least one title should mention empagliflozin or SGLT2
+    assert any(
+        "empagliflozin" in r["title"].lower() or "sglt2" in r["title"].lower()
+        for r in results
+    )
+
+@pytest.mark.asyncio
+async def test_semantic_search_empagliflozin_nephropathy(svc, db_session_truncating):
+    """Semantic search should return relevant abstracts ranked by similarity."""
+    queries = ["empagliflozin AND diabetic nephropathy"]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+
+    results = await svc.semantic_search(
+        "diabetic nephropathy", "empagliflozin", pmids, db_session_truncating, top_k=5
+    )
+
+    assert len(results) == 5
+    assert all("pmid" in r for r in results)
+    assert all("similarity" in r for r in results)
+    # Sorted descending by similarity
+    similarities = [r["similarity"] for r in results]
+    assert similarities == sorted(similarities, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_synthesize_strong_candidate(svc, db_session_truncating):
+    """Empagliflozin + diabetic nephropathy should come back strong."""
+    queries = ["empagliflozin AND diabetic nephropathy"]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    top_5 = await svc.semantic_search(
+        "diabetic nephropathy", "empagliflozin", pmids, db_session_truncating
+    )
+
+    result = await svc.synthesize("empagliflozin", "diabetic nephropathy", top_5)
+
+    assert isinstance(result, EvidenceSummary)
+    assert result.strength in ["strong", "moderate"]
+    assert len(result.supporting_pmids) >= 2
+    assert len(result.key_findings) >= 2
+    assert result.summary  # non-empty
+
+
+@pytest.mark.asyncio
+async def test_synthesize_negative_candidate(svc, db_session_truncating):
+    """Empagliflozin + SARS/COVID should come back none."""
+    queries = ["empagliflozin AND COVID-19", "empagliflozin AND SARS"]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    top_5 = await svc.semantic_search(
+        "severe acute respiratory syndrome", "empagliflozin", pmids, db_session_truncating
+    )
+
+    result = await svc.synthesize(
+        "empagliflozin", "severe acute respiratory syndrome", top_5
+    )
+
+    assert result.strength == "none"
+    assert result.supporting_pmids == []
+
+
+@pytest.mark.asyncio
+async def test_synthesize_contraindication(svc, db_session_truncating):
+    """Bupropion + hypertension should flag adverse effects."""
+    queries = ["bupropion AND hypertension"]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    top_5 = await svc.semantic_search(
+        "hypertension", "bupropion", pmids, db_session_truncating
+    )
+
+    result = await svc.synthesize("bupropion", "hypertension", top_5)
+
+    assert result.strength == "none"
+    assert result.has_adverse_effects is True
+    assert result.supporting_pmids == []
