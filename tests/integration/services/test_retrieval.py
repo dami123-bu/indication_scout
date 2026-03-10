@@ -466,7 +466,6 @@ async def test_recovery_in_results(svc, db_session_truncating):
     assert "37865101" in result_pmids  # RECOVERY trial
 
 
-@pytest.mark.asyncio
 async def test_semantic_search_returns_relevant_results(svc, db_session_truncating):
     """Semantic search should return abstracts about empagliflozin + MI."""
     queries = [
@@ -487,7 +486,6 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
         for r in results
     )
 
-@pytest.mark.asyncio
 async def test_semantic_search_empagliflozin_nephropathy(svc, db_session_truncating):
     """Semantic search should return relevant abstracts ranked by similarity."""
     queries = ["empagliflozin AND diabetic nephropathy"]
@@ -505,7 +503,6 @@ async def test_semantic_search_empagliflozin_nephropathy(svc, db_session_truncat
     assert similarities == sorted(similarities, reverse=True)
 
 
-@pytest.mark.asyncio
 async def test_synthesize_strong_candidate(svc, db_session_truncating):
     """Empagliflozin + diabetic nephropathy should come back strong."""
     queries = ["empagliflozin AND diabetic nephropathy"]
@@ -523,7 +520,6 @@ async def test_synthesize_strong_candidate(svc, db_session_truncating):
     assert result.summary  # non-empty
 
 
-@pytest.mark.asyncio
 async def test_synthesize_negative_candidate(svc, db_session_truncating):
     """Empagliflozin + SARS/COVID should come back none."""
     queries = ["empagliflozin AND COVID-19", "empagliflozin AND SARS"]
@@ -540,7 +536,6 @@ async def test_synthesize_negative_candidate(svc, db_session_truncating):
     assert result.supporting_pmids == []
 
 
-@pytest.mark.asyncio
 async def test_synthesize_contraindication(svc, db_session_truncating):
     """Bupropion + hypertension should flag adverse effects."""
     queries = ["bupropion AND hypertension"]
