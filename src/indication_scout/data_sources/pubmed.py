@@ -61,7 +61,8 @@ class PubMedClient(BaseClient):
             "retmode": "json",
         }
         if date_before:
-            params["datetype_maxdate"] = date_before.strftime("%Y-%m-%d")
+            params["datetype"] = "pdat"
+            params["maxdate"] = date_before.strftime("%Y/%m/%d")
 
         data = await self._rest_get(self.SEARCH_URL, params)
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
@@ -78,7 +79,8 @@ class PubMedClient(BaseClient):
             "retmode": "json",
         }
         if date_before:
-            params["datetype_maxdate"] = date_before.strftime("%Y-%m-%d")
+            params["datetype"] = "pdat"
+            params["maxdate"] = date_before.strftime("%Y/%m/%d")
 
         data = await self._rest_get(self.SEARCH_URL, params)
 
