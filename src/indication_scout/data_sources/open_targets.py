@@ -97,7 +97,10 @@ class OpenTargetsClient(BaseClient):
             )
 
         if isinstance(drug_data, BaseException):
-            raise drug_data
+            raise DataSourceError(
+                self._source_name,
+                f"Failed to fetch drug data for '{chembl_id}': {drug_data}",
+            )
 
         if isinstance(molecule, BaseException):
             logger.warning("ChEMBL ATC lookup failed for %s: %s", chembl_id, molecule)
