@@ -11,7 +11,7 @@ Plus convenience accessors for specific target data slices.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
@@ -22,7 +22,6 @@ from indication_scout.constants import (
     OPEN_TARGETS_PAGE_SIZE,
 )
 from indication_scout.markers import no_review
-from indication_scout.services.disease_helper import merge_duplicate_diseases
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
 from indication_scout.data_sources.chembl import ChEMBLClient
@@ -53,6 +52,11 @@ from indication_scout.models.model_open_targets import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CompetitorRawData(TypedDict):
+    diseases: dict[str, set[str]]
+    drug_indications: list[str]
 
 
 class OpenTargetsClient(BaseClient):
@@ -119,7 +123,7 @@ class OpenTargetsClient(BaseClient):
 
     async def get_drug_competitors(
         self, name: str, drug_phase: int = 3
-    ) -> dict[str, set[str]]:
+    ) -> CompetitorRawData:
         """Fetch competitor drugs for a given drug, grouped by disease."""
         normalized_name = normalize_drug_name(name)
 
@@ -178,53 +182,8 @@ class OpenTargetsClient(BaseClient):
         ]
         drug_indications = list(set(indications))
         top_40 = dict(list(sorted_siblings.items())[:40])
-        disease_names = list(top_40.keys())
-        result = await merge_duplicate_diseases(disease_names, drug_indications)
 
-        for name in result["remove"]:
-            if name.lower() in top_40:
-                del top_40[name.lower()]
-
-        # Combine sibling sets for merged diseases
-        removed = {n.lower() for n in result["remove"]}
-        for canonical, aliases in result["merge"].items():
-            canonical_lower = canonical.lower()
-            aliases_lower = [a.lower() for a in aliases]
-            all_names = [canonical_lower] + aliases_lower
-
-            # If the canonical itself is removed, promote the first surviving alias
-            if canonical_lower in removed:
-                surviving = [n for n in aliases_lower if n not in removed]
-                if not surviving:
-                    continue
-                canonical_lower = surviving[0]
-
-            combined = set()
-            for name in all_names:
-                if name in removed:
-                    continue
-                if name in top_40:
-                    combined |= top_40[name]
-                    if name != canonical_lower:
-                        del top_40[name]
-            if combined:
-                top_40[canonical_lower] = combined
-
-        # Re-sort and take top 10
-        sorted_data = dict(
-            sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
-        )
-        sorted_data_2 = dict(sorted(top_40.items(), key=lambda item: item[0]))
-        top_15 = dict(list(sorted_data.items())[:15])
-
-        cache_set(
-            "drug_competitors",
-            cache_params,
-            {disease: list(drugs) for disease, drugs in top_15.items()},
-            self.cache_dir,
-            ttl=CACHE_TTL,
-        )
-        return top_15
+        return CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
         drug = await self.get_drug(drug_name)

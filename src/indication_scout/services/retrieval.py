@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from indication_scout.constants import CACHE_TTL, PUBMED_MAX_RESULTS
 from indication_scout.data_sources.chembl import ChEMBLClient
-from indication_scout.data_sources.open_targets import OpenTargetsClient
+from indication_scout.data_sources.open_targets import CompetitorRawData, OpenTargetsClient
+from indication_scout.services.disease_helper import merge_duplicate_diseases
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
@@ -47,14 +48,68 @@ class RetrievalService:
     async def get_drug_competitors(self, drug_name: str) -> dict[str, set[str]]:
         """Fetch top disease indications and their competitor drugs from Open Targets.
 
+        Fetches raw competitor data from the client, then uses an LLM to merge
+        duplicate disease names and remove overly broad terms before returning.
+
         Args:
             drug_name: Common drug name (e.g. "empagliflozin").
 
         Returns:
             Dict mapping disease name to set of competitor drug names.
         """
+        cache_params = {"drug_name": drug_name}
+        cached = cache_get("drug_competitors", cache_params, self.cache_dir)
+        if cached is not None:
+            return {disease: set(drugs) for disease, drugs in cached.items()}
+
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
-            return await client.get_drug_competitors(drug_name)
+            raw: CompetitorRawData = await client.get_drug_competitors(drug_name)
+
+        top_40 = raw["diseases"]
+        drug_indications = raw["drug_indications"]
+        disease_names = list(top_40.keys())
+        merge_result = await merge_duplicate_diseases(disease_names, drug_indications)
+
+        for disease in merge_result["remove"]:
+            if disease.lower() in top_40:
+                del top_40[disease.lower()]
+
+        removed = {n.lower() for n in merge_result["remove"]}
+        for canonical, aliases in merge_result["merge"].items():
+            canonical_lower = canonical.lower()
+            aliases_lower = [a.lower() for a in aliases]
+            all_names = [canonical_lower] + aliases_lower
+
+            if canonical_lower in removed:
+                surviving = [n for n in aliases_lower if n not in removed]
+                if not surviving:
+                    continue
+                canonical_lower = surviving[0]
+
+            combined: set[str] = set()
+            for disease in all_names:
+                if disease in removed:
+                    continue
+                if disease in top_40:
+                    combined |= top_40[disease]
+                    if disease != canonical_lower:
+                        del top_40[disease]
+            if combined:
+                top_40[canonical_lower] = combined
+
+        sorted_data = dict(
+            sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
+        )
+        top_15 = dict(list(sorted_data.items())[:15])
+
+        cache_set(
+            "drug_competitors",
+            cache_params,
+            {disease: list(drugs) for disease, drugs in top_15.items()},
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
+        return top_15
 
     async def build_drug_profile(self, drug_name: str) -> DrugProfile:
         """Fetch drug + target data from Open Targets, enrich with ATC descriptions from ChEMBL,

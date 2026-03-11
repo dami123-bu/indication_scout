@@ -978,3 +978,63 @@ async def test_synthesize_raises_on_invalid_json(svc):
         with pytest.raises(json.JSONDecodeError):
             await svc.synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
 
+
+# --- get_drug_competitors ---
+
+
+def _make_open_targets_mock(raw: dict) -> AsyncMock:
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.get_drug_competitors = AsyncMock(return_value=raw)
+    return mock_client
+
+
+async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
+    """When an alias appears in both merge values and remove, its data must not be merged in."""
+    raw = {
+        "diseases": {
+            "narcolepsy": {"competitor_a"},
+            "narcolepsy-cataplexy syndrome": {"competitor_b"},
+        },
+        "drug_indications": [],
+    }
+    merge_result = {
+        "merge": {"narcolepsy": ["narcolepsy-cataplexy syndrome"]},
+        "remove": ["narcolepsy-cataplexy syndrome"],
+    }
+    mock_client = _make_open_targets_mock(raw)
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.OpenTargetsClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "indication_scout.services.retrieval.merge_duplicate_diseases",
+            new=AsyncMock(return_value=merge_result),
+        ),
+    ):
+        result = await RetrievalService(tmp_path).get_drug_competitors("testdrug")
+
+    assert "narcolepsy-cataplexy syndrome" not in result
+    assert "narcolepsy" in result
+    assert result["narcolepsy"] == {"competitor_a"}
+
+
+async def test_get_drug_competitors_returns_cached(tmp_path):
+    """When a cache entry exists, the client and LLM are not called."""
+    from indication_scout.utils.cache import cache_set
+
+    cached = {"depression": ["competitor_a"]}
+    cache_set("drug_competitors", {"drug_name": "testdrug"}, cached, tmp_path)
+
+    mock_client = AsyncMock()
+    with patch(
+        "indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_client
+    ):
+        result = await RetrievalService(tmp_path).get_drug_competitors("testdrug")
+
+    assert result == {"depression": {"competitor_a"}}
+    mock_client.__aenter__.assert_not_called()
+

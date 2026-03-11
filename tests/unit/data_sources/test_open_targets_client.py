@@ -48,23 +48,19 @@ async def test_get_drug_competitors_skips_summary_with_none_phase(tmp_path):
             "get_target_data_drug_summaries",
             new=AsyncMock(return_value=summaries),
         ),
-        patch(
-            "indication_scout.data_sources.open_targets.merge_duplicate_diseases",
-            new=AsyncMock(return_value={"merge": {}, "remove": []}),
-        ),
     ):
         result = await client.get_drug_competitors("testdrug", drug_phase=3)
 
     # anxiety (phase=None) must be absent; depression (phase=3) must be present
-    assert "anxiety" not in result
-    assert "depression" in result
+    assert "anxiety" not in result["diseases"]
+    assert "depression" in result["diseases"]
 
 
-# --- get_drug_competitors: alias-in-removed edge case ---
+# --- get_drug_competitors: raw diseases returned ---
 
 
-async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
-    """When an alias appears in both merge values and remove, its data must not be merged in."""
+async def test_get_drug_competitors_returns_raw_diseases(tmp_path):
+    """get_drug_competitors returns CompetitorRawData with unmerged diseases and indications."""
     drug = DrugData(
         chembl_id="CHEMBL1",
         name="testdrug",
@@ -79,11 +75,6 @@ async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
             phase=3,
         ),
     ]
-    # LLM says: merge narcolepsy-cataplexy into narcolepsy, but also remove narcolepsy-cataplexy
-    merge_result = {
-        "merge": {"narcolepsy": ["narcolepsy-cataplexy syndrome"]},
-        "remove": ["narcolepsy-cataplexy syndrome"],
-    }
 
     client = OpenTargetsClient(cache_dir=tmp_path)
     with (
@@ -93,15 +84,9 @@ async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
             "get_target_data_drug_summaries",
             new=AsyncMock(return_value=summaries),
         ),
-        patch(
-            "indication_scout.data_sources.open_targets.merge_duplicate_diseases",
-            new=AsyncMock(return_value=merge_result),
-        ),
     ):
         result = await client.get_drug_competitors("testdrug", drug_phase=3)
 
-    # narcolepsy-cataplexy syndrome must not appear (removed)
-    assert "narcolepsy-cataplexy syndrome" not in result
-    # narcolepsy must appear with only competitor_a (alias data must not bleed in)
-    assert "narcolepsy" in result
-    assert result["narcolepsy"] == {"competitor_a"}
+    assert "narcolepsy" in result["diseases"]
+    assert "narcolepsy-cataplexy syndrome" in result["diseases"]
+    assert result["drug_indications"] == []
