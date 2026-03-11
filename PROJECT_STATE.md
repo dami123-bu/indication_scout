@@ -218,3 +218,25 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 
 ### Known Issues / Caveats Added
 - Old `rag_runner.py` was calling removed module-level functions (`build_drug_profile`, `expand_search_terms`, etc.); refactor to service class eliminated the runtime `NameError`.
+
+---
+
+## Update (2026-03-11)
+
+### Implementation Status Changes
+- `data_sources/pubmed.py` — Complete. Fixed PubMed date filter bug: split merged `datetype_maxdate` param into two correct params `datetype=pdat` and `maxdate=YYYY/MM/DD` in both `search()` and `get_count()` methods.
+- `data_sources/open_targets.py` — Complete. Architectural fix: moved merge/remove/sort/cache logic out of `get_drug_competitors` and into `RetrievalService`; client now returns raw `CompetitorRawData` TypedDict without LLM calls.
+- `services/retrieval.py` — Complete. Added `get_drug_competitors()` method that owns full pipeline (merge via `merge_duplicate_diseases` LLM call, remove/sort, cache keyed by drug_name).
+- `tests/unit/data_sources/test_open_targets_client.py` — Complete. Removed patches for `merge_duplicate_diseases`, updated assertions to check `result["diseases"]`.
+- `tests/unit/services/test_retrieval.py` — Complete. Added two new unit tests: alias-in-removed edge case and cache hit path for `get_drug_competitors()`.
+- `docs/findings.md` — Complete. Appended two findings: PubMed date filter bug and `get_drug_competitors` layering fix.
+
+### New Patterns / Decisions
+- Client layer must never call the LLM; LLM calls belong in services layer.
+- `drug_indications` must be passed alongside raw diseases because `merge_duplicate_diseases` needs it as context for the LLM prompt.
+- Cache for `drug_competitors` lives in the service (keyed by `drug_name`), not the client — service owns the full merge+cache pipeline.
+
+### Known Issues / Caveats Added
+- `disease_helper.py` still uses `httpx` in `pubmed_count()` while the rest of the codebase uses `aiohttp` via `BaseClient` — no retry/backoff, inconsistency noted but not addressed.
+- `sorted_data_2` on `open_targets.py` line 217 is assigned but never used — pre-existing dead code left in place.
+
