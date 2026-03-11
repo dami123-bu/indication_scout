@@ -13,16 +13,13 @@ import logging
 from pathlib import Path
 from typing import TypedDict
 
-import httpx
-
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     DEFAULT_CACHE_DIR,
-    NCBI_BASE_URL,
 )
-from indication_scout.services.llm import (
-    query_small_llm,
-)  # Adjust import path as needed
+from indication_scout.data_sources.base_client import DataSourceError
+from indication_scout.data_sources.pubmed import PubMedClient
+from indication_scout.services.llm import query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -101,24 +98,13 @@ async def pubmed_count(query: str) -> int:
     if cached is not None:
         return cached
 
-    url = f"{NCBI_BASE_URL}/esearch.fcgi"
-    params = {
-        "db": "pubmed",
-        "term": query,
-        "retmode": "json",
-        "retmax": 0,
-    }
+    try:
+        async with PubMedClient(cache_dir=DEFAULT_CACHE_DIR) as client:
+            count = await client.get_count(query)
+    except DataSourceError as e:
+        logger.warning("PubMed count failed for '%s': %s", query, e)
+        return 0
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, json.JSONDecodeError) as e:
-            logger.warning(f"PubMed count failed for '{query}': {e}")
-            return 0
-
-    count = int(data.get("esearchresult", {}).get("count", 0))
     cache_set("pubmed_count", {"query": query}, count, DEFAULT_CACHE_DIR)
     return count
 

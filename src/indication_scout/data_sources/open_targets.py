@@ -186,11 +186,18 @@ class OpenTargetsClient(BaseClient):
         removed = {n.lower() for n in result["remove"]}
         for canonical, aliases in result["merge"].items():
             canonical_lower = canonical.lower()
+            aliases_lower = [a.lower() for a in aliases]
+            all_names = [canonical_lower] + aliases_lower
+
+            # If the canonical itself is removed, promote the first surviving alias
             if canonical_lower in removed:
-                continue
-            aliases = [a.lower() for a in aliases]
+                surviving = [n for n in aliases_lower if n not in removed]
+                if not surviving:
+                    continue
+                canonical_lower = surviving[0]
+
             combined = set()
-            for name in [canonical_lower] + aliases:
+            for name in all_names:
                 if name in removed:
                     continue
                 if name in top_40:
