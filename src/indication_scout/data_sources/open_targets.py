@@ -640,11 +640,14 @@ class OpenTargetsClient(BaseClient):
     def _parse_constraint(self, raw: dict) -> GeneticConstraint:
         return GeneticConstraint(
             constraint_type=raw["constraintType"],
+            exp=raw.get("exp"),
+            obs=raw.get("obs"),
             oe=raw.get("oe"),
             oe_lower=raw.get("oeLower"),
             oe_upper=raw.get("oeUpper"),
             score=raw.get("score"),
             upper_bin=raw.get("upperBin"),
+            upper_bin6=raw.get("upperBin6"),
         )
 
     def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:

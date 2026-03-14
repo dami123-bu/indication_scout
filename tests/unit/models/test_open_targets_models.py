@@ -5,6 +5,7 @@ import pytest
 from indication_scout.models.model_open_targets import (
     DrugData,
     DrugTarget,
+    GeneticConstraint,
     Indication,
     TargetData,
 )
@@ -186,6 +187,49 @@ def test_target_data_coerce_nones_converts_null_lists_to_empty():
     assert target.mouse_phenotypes == []
     assert target.safety_liabilities == []
     assert target.genetic_constraint == []
+
+
+# --- GeneticConstraint ---
+
+
+def test_genetic_constraint_all_fields():
+    """GeneticConstraint should store all fields returned by the GraphQL query."""
+    c = GeneticConstraint(
+        constraint_type="lof",
+        exp=12.3,
+        obs=4.0,
+        oe=0.325,
+        oe_lower=0.18,
+        oe_upper=0.59,
+        score=0.91,
+        upper_bin=0,
+        upper_bin6=1,
+    )
+
+    assert c.constraint_type == "lof"
+    assert c.exp == 12.3
+    assert c.obs == 4.0
+    assert c.oe == 0.325
+    assert c.oe_lower == 0.18
+    assert c.oe_upper == 0.59
+    assert c.score == 0.91
+    assert c.upper_bin == 0
+    assert c.upper_bin6 == 1
+
+
+def test_genetic_constraint_optional_fields_default_to_none():
+    """GeneticConstraint fields are all optional except constraint_type."""
+    c = GeneticConstraint(constraint_type="syn")
+
+    assert c.constraint_type == "syn"
+    assert c.exp is None
+    assert c.obs is None
+    assert c.oe is None
+    assert c.oe_lower is None
+    assert c.oe_upper is None
+    assert c.score is None
+    assert c.upper_bin is None
+    assert c.upper_bin6 is None
 
 
 def test_investigated_disease_ids_empty_when_no_indications():

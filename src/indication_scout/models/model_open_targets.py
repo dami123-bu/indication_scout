@@ -225,11 +225,14 @@ class GeneticConstraint(BaseModel):
     """GnomAD loss-of-function intolerance score."""
 
     constraint_type: str = ""  # "syn", "mis", "lof"
-    oe: float | None = None  # observed/expected
+    exp: float | None = None
+    obs: float | None = None
+    oe: float | None = None
     oe_lower: float | None = None
     oe_upper: float | None = None
     score: float | None = None
     upper_bin: int | None = None  # 0 = most constrained, 5 = least
+    upper_bin6: int | None = None
 
     @model_validator(mode="before")
     @classmethod
