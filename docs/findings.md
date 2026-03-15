@@ -66,6 +66,21 @@ Each entry is dated and categorized.
 
 ---
 
+## Observability & Tooling
+
+### W&B integration (2026-03-14)
+- `wandb` added as a runtime dependency in `pyproject.toml`.
+- `wandb.init` / `wandb.finish` encapsulated in a reusable `@wandb_run(project, tracked_param)` decorator in `utils/wandb_utils.py`. Uses `inspect.signature` + `bind` to extract the tracked param by name, so it works regardless of positional vs keyword call.
+- `RetrievalService.semantic_search` logs a `wandb.Table` (pmid, title, similarity) plus scalar metrics per disease when `wandb.run` is active. Guard is `if wandb.run:` — no-op when W&B is not initialised.
+- Metric keys are namespaced as `semantic_search/{disease_key}/...` where spaces are replaced with underscores — spaces in keys broke W&B table rendering.
+- `WANDB_API_KEY` read from env; declared as `wandb_api_key` field in `config.py` (was previously a typo: `wand_api_key`).
+
+### `get_drug_competitors` cache shape mismatch bug (2026-03-14)
+- After the layering fix in commit `3719cdb`, `OpenTargetsClient.get_drug_competitors` cache-hit path returned `{disease: set(drugs)}` (old flat shape) instead of `CompetitorRawData`. `RetrievalService` then failed with `KeyError` on `raw["diseases"]`.
+- Decision: do not silently fix the shape mismatch — user deleted stale cache entries to resolve. The broken cache-hit return path (`line 133`) remains and will raise `KeyError` if a stale cache entry is hit again. Raising is the desired behaviour.
+
+---
+
 ## Prompt Engineering
 
 ### `expand_search_terms` axis balance (2026-03-01)

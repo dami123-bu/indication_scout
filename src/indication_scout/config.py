@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     ncbi_api_key: str = ""
     openfda_api_key: str = ""
+    wandb_api_key: str = ""
 
     # LLM Settings
     llm_model: str = "claude-sonnet-4-6"

@@ -5,16 +5,19 @@ import logging
 import time
 from pathlib import Path
 
+import wandb
 from sqlalchemy.orm import Session
 
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.db.session import get_db
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import RetrievalService
+from indication_scout.utils.wandb_utils import wandb_run
 
 logger = logging.getLogger(__name__)
 
 
+@wandb_run(project="indication-scout")
 async def run_rag(
     drug_name: str, db: Session, cache_dir: Path = DEFAULT_CACHE_DIR
 ) -> dict[str, EvidenceSummary]:
@@ -55,6 +58,7 @@ async def run_rag(
     )
 
     results: dict[str, EvidenceSummary] = {}
+    searches_table = wandb.Table(columns=["drug", "disease", "avg_similarity"]) if wandb.run else None
 
     for disease in top_15:
         logger.info("run_rag: processing disease '%s'", disease)
@@ -97,6 +101,10 @@ async def run_rag(
 
         results[disease] = evidence
 
+        if searches_table is not None and top_abstracts:
+            avg_similarity = sum(r["similarity"] for r in top_abstracts) / len(top_abstracts)
+            searches_table.add_data(drug_name, disease, avg_similarity)
+
         logger.info("  Strength: %s", evidence.strength)
         logger.info("  Adverse: %s", evidence.has_adverse_effects)
         logger.info("  Summary: %s...", evidence.summary[:100])
@@ -105,6 +113,9 @@ async def run_rag(
     sorted_results = sorted(
         results.items(), key=lambda x: ranking[x[1].strength], reverse=True
     )
+
+    if wandb.run and searches_table is not None:
+        wandb.log({"searches": searches_table})
 
     logger.info("=== Final Ranking for %s ===", drug_name)
     for disease, summary in sorted_results:
@@ -120,7 +131,7 @@ if __name__ == "__main__":
     async def _main() -> None:
         db = next(get_db())
         try:
-            results = await run_rag("empagliflozin", db)
+            results = await run_rag("duloxetine", db)
             for disease, evidence in results.items():
                 logger.info("\n=== %s ===", disease)
                 logger.info(evidence.model_dump_json(indent=2))

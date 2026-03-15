@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import TypedDict
 
+import wandb
+
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -301,18 +303,16 @@ class RetrievalService:
     async def semantic_search(
         self, disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
     ) -> list[AbstractResult]:
-        """Embed a drug-disease query and return the top-k most similar abstracts from pgvector.
+        """ For a given drug, disease, and list of PMIDs, return top-k most similar abstracts from pgvector
 
         Constructs a natural-language query from drug and disease (e.g. "Evidence for metformin
         as a treatment for colorectal cancer..."), embeds it with BioLORD-2023, then runs a
         cosine similarity search restricted to the given PMIDs.
 
         Args:
-            disease: Target indication (e.g. "colorectal cancer").
-            drug: Drug name (e.g. "metformin").
-            pmids: Candidate PMIDs to search within (typically from fetch_and_cache).
-                Example: ["29734553", "31245678", "30198432"]
-            db: Active SQLAlchemy session.
+            disease: e.g. "colorectal cancer"
+            drug: e.g. "metformin"
+            pmids: e.g. ["29734553", "31245678", "30198432"]
             top_k: Maximum number of results to return (default 5).
 
         Returns:
@@ -345,7 +345,7 @@ class RetrievalService:
             },
         ).fetchall()
 
-        return [
+        results = [
             {
                 "pmid": row[0],
                 "title": row[1],
@@ -354,6 +354,31 @@ class RetrievalService:
             }
             for row in rows
         ]
+        avg_similarity = sum(r["similarity"] for r in results)/len(results)
+
+        if wandb.run:
+            pass
+            # disease_key = disease.replace(" ", "_")
+            # table = wandb.Table(columns=["pmid", "title", "similarity"])
+            # for r in results:
+            #     table.add_data(r["pmid"], r["title"], r["similarity"])
+            # wandb.log({
+            #     f"semantic_search/{disease_key}/query": query_string,
+            #     f"semantic_search/{disease_key}/candidate_pmids": len(pmids),
+            #     f"semantic_search/{disease_key}/results_returned": len(results),
+            #     f"semantic_search/{disease_key}/top_similarity": results[0]["similarity"] if results else None,
+            #     f"semantic_search/{disease_key}/results_table": table,
+            # })
+            # wandb.log({
+            #     "disease": disease,
+            #     "drug": drug,
+            #     "avg_similarity_score": avg_similarity,
+            # })
+            # table = wandb.Table(columns=["drug", "disease", "avg_similarity"])
+            # table.add_data(drug, disease, avg_similarity)
+            # wandb.log({"searches": table})
+
+        return results
 
     async def synthesize(
         self, drug: str, disease: str, top_abstracts: list[AbstractResult]

@@ -97,6 +97,7 @@ tests/
 - Only make the specific changes I request - no "while I'm here" improvements.
 - If you see potential bugs or improvements, list them separately rather than fixing automatically.
 - When asked to make changes, only make those changes, do not introduce new functionality without getting approval.
+- Do not delete commented code.
 
 ## Planning & Implementation Rules
 

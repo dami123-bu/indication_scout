@@ -240,3 +240,25 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - `disease_helper.py` still uses `httpx` in `pubmed_count()` while the rest of the codebase uses `aiohttp` via `BaseClient` — no retry/backoff, inconsistency noted but not addressed.
 - `sorted_data_2` on `open_targets.py` line 217 is assigned but never used — pre-existing dead code left in place.
 
+
+## Update (2026-03-14)
+
+### Implementation Status Changes
+- `pyproject.toml` — Complete. Added `wandb` as a runtime dependency.
+- `config.py` — Complete. Added `wandb_api_key` field (fixed pre-existing typo `wand_api_key`).
+- `services/retrieval.py` `semantic_search()` — Complete. Added W&B logging: logs a `wandb.Table` with pmid, title, similarity per disease; scalar metrics namespaced as `semantic_search/{disease_key}/...` with spaces replaced by underscores.
+- `runners/rag_runner.py` — Complete. Applied `@wandb_run(project='indication-scout')` decorator; removed inline `wandb.init` / `wandb.finish` calls.
+- `utils/wandb_utils.py` — Complete. New utility module with `@wandb_run(project, tracked_param)` decorator for wrapping async functions in W&B run lifecycle (init/finish); extracts tracked param value via `inspect.signature`.
+- `tests/unit/services/test_retrieval.py` — Complete. Added two unit tests: `test_semantic_search_logs_wandb_table_when_run_active` and `test_semantic_search_skips_wandb_log_when_no_run`.
+
+### New Patterns / Decisions
+- W&B init/finish belongs in the pipeline entry point (`rag_runner`), not inside the service layer.
+- Decorator approach (`@wandb_run`) chosen over inline calls for reusability across future pipeline runners.
+- Metric keys namespaced as `semantic_search/{disease_key}/...`; spaces in disease names replaced with underscores to avoid W&B UI rendering issues.
+- `tracked_param` chosen as the generic decorator argument name (not `drug_param`) for future flexibility across different runners and tracked parameters.
+
+### Known Issues / Caveats Added
+- `OpenTargetsClient.get_drug_competitors` cache-hit path (line 133) returns old flat shape `{disease: set(drugs)}` instead of `CompetitorRawData` — caused `KeyError` on `raw["diseases"]` at runtime; resolved by deleting stale cache.
+- `config.py` typo `wand_api_key` instead of `wandb_api_key` caused pydantic `ValidationError` blocking all unit tests at session start.
+- W&B table keys with spaces in disease names caused "No rows to display" in UI — fixed by replacing spaces with underscores in metric keys.
+
