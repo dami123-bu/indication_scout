@@ -28,7 +28,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `agents/mechanism.py` | Stub | `run()` raises `NotImplementedError` |
 | `agents/safety.py` | Stub | `run()` raises `NotImplementedError` |
 | `services/llm.py` | Complete | `query_llm`, `query_small_llm`, and `parse_llm_response` via Anthropic SDK |
-| `services/disease_normalizer.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
+| `services/disease_helper.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
 | `services/retrieval.py` | Complete | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search`, `synthesize` all implemented |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
@@ -58,7 +58,7 @@ Orchestrator (agents/orchestrator.py)  — stub
     |
 Specialist agents: literature, clinical_trials, mechanism, safety  — all stubs
     |
-Services layer: llm.py, disease_normalizer.py, pubmed_query.py, retrieval.py
+Services layer: llm.py, disease_helper.py, pubmed_query.py, retrieval.py
     |
 Data source clients: OpenTargetsClient, ClinicalTrialsClient, PubMedClient, ChEMBLClient
     |
