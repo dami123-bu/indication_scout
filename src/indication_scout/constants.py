@@ -36,6 +36,23 @@ PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
 PUBMED_MAX_RESULTS: int = 200
 
+# -- Clinical stage ranking (Open Targets) ----------------------------------
+# Maps maximumClinicalStage / maxClinicalStage string values to numeric ranks
+# for comparison. Higher rank = further in pipeline.
+CLINICAL_STAGE_RANK: dict[str, int] = {
+    "UNKNOWN": 0,
+    "PRECLINICAL": 1,
+    "IND": 2,
+    "EARLY_PHASE_1": 3,
+    "PHASE_1": 4,
+    "PHASE_1_2": 5,
+    "PHASE_2": 6,
+    "PHASE_2_3": 7,
+    "PHASE_3": 8,
+    "PREAPPROVAL": 9,
+    "APPROVAL": 10,
+}
+
 # -- Interaction type mapping (Open Targets) --------------------------------
 INTERACTION_TYPE_MAP: dict[str, str] = {
     "intact": "physical",

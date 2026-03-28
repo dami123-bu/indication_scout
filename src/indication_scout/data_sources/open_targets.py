@@ -16,6 +16,7 @@ from typing import Any, TypedDict
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     CACHE_TTL,
+    CLINICAL_STAGE_RANK,
     DEFAULT_CACHE_DIR,
     INTERACTION_TYPE_MAP,
     OPEN_TARGETS_BASE_URL,
@@ -31,6 +32,7 @@ from indication_scout.models.model_open_targets import (
     Association,
     Pathway,
     Interaction,
+    ClinicalDisease,
     DrugSummary,
     TissueExpression,
     MousePhenotype,
@@ -122,12 +124,13 @@ class OpenTargetsClient(BaseClient):
         return drug_data
 
     async def get_drug_competitors(
-        self, name: str, drug_phase: int = 3
+        self, name: str, min_stage: str = "PHASE_3"
     ) -> CompetitorRawData:
         """Fetch competitor drugs for a given drug, grouped by disease."""
         normalized_name = normalize_drug_name(name)
+        min_rank = CLINICAL_STAGE_RANK.get(min_stage, 0)
 
-        cache_params = {"drug_name": normalized_name, "drug_phase": drug_phase}
+        cache_params = {"drug_name": normalized_name, "min_stage": min_stage}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
         if cached is not None:
             return {disease: set(drugs) for disease, drugs in cached.items()}
@@ -135,35 +138,40 @@ class OpenTargetsClient(BaseClient):
         drug = await self.get_drug(normalized_name)
         targets = drug.targets
 
-        siblings_with_phase: dict[str, dict[str, int]] = {}
+        siblings_with_stage: dict[str, dict[str, int]] = {}
 
         all_summaries = await asyncio.gather(
             *[self.get_target_data_drug_summaries(t.target_id) for t in targets]
         )
         for t, summaries in zip(targets, all_summaries):
             logger.debug(t.mechanism_of_action)
-            # TODO remove, for debugging
-            # drugs = set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
-            # diseases = set([s.disease_name.lower() for s in summaries])
             for summary in summaries:
-                if summary.phase is not None and summary.phase >= drug_phase:
-                    disease = summary.disease_name.lower()
+                stage_rank = CLINICAL_STAGE_RANK.get(
+                    summary.max_clinical_stage or "", 0
+                )
+                if stage_rank >= min_rank:
                     drug_name = normalize_drug_name(summary.drug_name)
-                    if disease not in siblings_with_phase:
-                        siblings_with_phase[disease] = {}
-                    existing = siblings_with_phase[disease].get(drug_name, 0)
-                    siblings_with_phase[disease][drug_name] = max(
-                        existing, summary.phase
-                    )
+                    for cd in summary.diseases:
+                        if cd.disease_name is None:
+                            continue
+                        disease = cd.disease_name.lower()
+                        if disease not in siblings_with_stage:
+                            siblings_with_stage[disease] = {}
+                        existing = siblings_with_stage[disease].get(drug_name, 0)
+                        siblings_with_stage[disease][drug_name] = max(
+                            existing, stage_rank
+                        )
 
-        for key in list(siblings_with_phase):
-            drug_phases = siblings_with_phase[key]
-            if normalized_name in drug_phases:
-                if drug_phases[normalized_name] >= 4:
-                    del siblings_with_phase[key]
+        approval_rank = CLINICAL_STAGE_RANK["APPROVAL"]
+        for key in list(siblings_with_stage):
+            drug_stages = siblings_with_stage[key]
+            if normalized_name in drug_stages:
+                if drug_stages[normalized_name] >= approval_rank:
+                    del siblings_with_stage[key]
 
         siblings: dict[str, set[str]] = {
-            disease: set(drugs.keys()) for disease, drugs in siblings_with_phase.items()
+            disease: set(drugs.keys())
+            for disease, drugs in siblings_with_stage.items()
         }
 
         # Remove overly broad disease terms (e.g. "cancer", "carcinoma") that
@@ -178,7 +186,9 @@ class OpenTargetsClient(BaseClient):
         )
 
         indications = [
-            i.disease_name.lower() for i in drug.indications if i.max_phase >= 4
+            i.disease_name.lower()
+            for i in drug.indications
+            if i.max_clinical_stage == "APPROVAL"
         ]
         drug_indications = list(set(indications))
         top_40 = dict(list(sorted_siblings.items())[:40])
@@ -195,7 +205,7 @@ class OpenTargetsClient(BaseClient):
         """For each target of a drug, fetch all drugs acting on that target.
 
         Returns a dict mapping target symbol (e.g. "GLP1R") to the list of
-        DrugSummary objects from Open Targets' knownDrugs for that target.
+        DrugSummary objects from Open Targets' drugAndClinicalCandidates for that target.
         """
         drug = await self.get_drug(drug_name)
         result: dict[str, list[DrugSummary]] = {}
@@ -275,7 +285,7 @@ class OpenTargetsClient(BaseClient):
             return [DrugSummary.model_validate(d) for d in cached]
 
         data = await self._graphql(
-            self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id, "size": 200}
+            self.BASE_URL, DISEASE_DRUGS_QUERY, {"id": disease_id}
         )
         result = self._parse_disease_drugs(data["data"])
 
@@ -457,10 +467,10 @@ class OpenTargetsClient(BaseClient):
 
         indications = [
             Indication(
+                id=row.get("id", ""),
                 disease_id=row["disease"]["id"],
                 disease_name=row["disease"]["name"],
-                max_phase=row["maxPhaseForIndication"],
-                references=row.get("references", []),
+                max_clinical_stage=row.get("maxClinicalStage"),
             )
             for row in (raw.get("indications") or {}).get("rows", [])
         ]
@@ -476,9 +486,7 @@ class OpenTargetsClient(BaseClient):
             synonyms=raw.get("synonyms", []),
             trade_names=raw.get("tradeNames", []),
             drug_type=raw.get("drugType"),
-            is_approved=raw.get("isApproved"),
-            max_clinical_phase=raw.get("maximumClinicalTrialPhase"),
-            year_first_approved=raw.get("yearOfFirstApproval"),
+            maximum_clinical_stage=raw.get("maximumClinicalStage"),
             warnings=warnings,
             indications=indications,
             targets=targets,
@@ -504,7 +512,7 @@ class OpenTargetsClient(BaseClient):
             ],
             drug_summaries=[
                 self._parse_drug_summary(d)
-                for d in (raw.get("knownDrugs") or {}).get("rows", [])
+                for d in (raw.get("drugAndClinicalCandidates") or {}).get("rows", [])
             ],
             expressions=[self._parse_expression(e) for e in raw.get("expressions", [])],
             mouse_phenotypes=[
@@ -552,15 +560,22 @@ class OpenTargetsClient(BaseClient):
         )
 
     def _parse_drug_summary(self, raw: dict) -> DrugSummary:
+        drug = raw.get("drug") or {}
+        diseases = [
+            ClinicalDisease(
+                disease_from_source=d.get("diseaseFromSource", ""),
+                disease_id=(d.get("disease") or {}).get("id"),
+                disease_name=(d.get("disease") or {}).get("name"),
+            )
+            for d in raw.get("diseases", [])
+        ]
         return DrugSummary(
-            drug_id=raw.get("drugId", ""),
-            drug_name=raw.get("prefName", ""),
-            disease_id=raw.get("diseaseId", ""),
-            disease_name=raw.get("label", ""),
-            phase=raw.get("phase", 0),
-            status=raw.get("status"),
-            mechanism_of_action=raw.get("mechanismOfAction", ""),
-            clinical_trial_ids=raw.get("ctIds", []),
+            id=raw.get("id", ""),
+            drug_id=drug.get("id", ""),
+            drug_name=drug.get("name", ""),
+            drug_type=drug.get("drugType"),
+            max_clinical_stage=raw.get("maxClinicalStage"),
+            diseases=diseases,
         )
 
     def _parse_expression(self, raw: dict) -> TissueExpression:
@@ -651,16 +666,10 @@ class OpenTargetsClient(BaseClient):
         )
 
     def _parse_disease_drugs(self, data: dict) -> list[DrugSummary]:
-        """Parse and deduplicate disease drugs — one entry per drug, highest phase wins."""
+        """Parse disease drugs — one entry per drug."""
         disease = data.get("disease") or {}
-        rows = disease.get("knownDrugs", {}).get("rows", [])
-
-        by_drug: dict[str, DrugSummary] = {}
-        for row in rows:
-            drug = self._parse_drug_summary(row)
-            if drug.drug_id not in by_drug or drug.phase > by_drug[drug.drug_id].phase:
-                by_drug[drug.drug_id] = drug
-        return list(by_drug.values())
+        rows = (disease.get("drugAndClinicalCandidates") or {}).get("rows", [])
+        return [self._parse_drug_summary(row) for row in rows]
 
 
 # ------------------------------------------------------------------
