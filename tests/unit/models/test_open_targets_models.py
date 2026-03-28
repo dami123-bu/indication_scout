@@ -20,8 +20,7 @@ def sample_drug_data():
         chembl_id="CHEMBL2108724",
         name="SEMAGLUTIDE",
         drug_type="Protein",
-        is_approved=True,
-        max_clinical_phase=4.0,
+        maximum_clinical_stage="APPROVAL",
         targets=[
             DrugTarget(
                 target_id="ENSG00000112164",
@@ -40,17 +39,17 @@ def sample_drug_data():
             Indication(
                 disease_id="MONDO_0005148",
                 disease_name="type 2 diabetes mellitus",
-                max_phase=4.0,
+                max_clinical_stage="APPROVAL",
             ),
             Indication(
                 disease_id="EFO_0001073",
                 disease_name="obesity",
-                max_phase=4.0,
+                max_clinical_stage="APPROVAL",
             ),
             Indication(
                 disease_id="MONDO_0005155",
                 disease_name="non-alcoholic steatohepatitis",
-                max_phase=3.0,
+                max_clinical_stage="PHASE_3",
             ),
         ],
     )
@@ -79,8 +78,7 @@ def test_drug_target_action_type_optional():
         chembl_id="CHEMBL1234",
         name="TEST_DRUG",
         drug_type="Small molecule",
-        is_approved=False,
-        max_clinical_phase=2.0,
+        maximum_clinical_stage="PHASE_2",
         targets=[
             DrugTarget(
                 target_id="ENSG00000112164",
@@ -104,8 +102,7 @@ def test_drug_data_empty_targets():
         chembl_id="CHEMBL9999",
         name="NO_TARGET_DRUG",
         drug_type="Small molecule",
-        is_approved=False,
-        max_clinical_phase=1.0,
+        maximum_clinical_stage="PHASE_1",
     )
 
     assert drug.targets == []
@@ -134,8 +131,8 @@ def test_drug_data_coerce_nones_converts_null_lists_to_empty():
     assert drug.atc_classifications == []
 
 
-def test_approved_disease_ids_returns_phase_4_only(sample_drug_data):
-    """approved_disease_ids should return only phase 4+ disease IDs."""
+def test_approved_disease_ids_returns_approval_only(sample_drug_data):
+    """approved_disease_ids should return only APPROVAL stage disease IDs."""
     approved = sample_drug_data.approved_disease_ids
     assert approved == {"MONDO_0005148", "EFO_0001073"}
     assert "MONDO_0005155" not in approved
@@ -153,8 +150,7 @@ def test_approved_disease_ids_empty_when_no_indications():
         chembl_id="CHEMBL9999",
         name="NO_INDICATION_DRUG",
         drug_type="Small molecule",
-        is_approved=False,
-        max_clinical_phase=1.0,
+        maximum_clinical_stage="PHASE_1",
         indications=[],
     )
     assert drug.approved_disease_ids == set()
@@ -238,8 +234,7 @@ def test_investigated_disease_ids_empty_when_no_indications():
         chembl_id="CHEMBL9999",
         name="NO_INDICATION_DRUG",
         drug_type="Small molecule",
-        is_approved=False,
-        max_clinical_phase=1.0,
+        maximum_clinical_stage="PHASE_1",
         indications=[],
     )
     assert drug.investigated_disease_ids == set()

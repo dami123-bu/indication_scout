@@ -354,7 +354,7 @@ class RetrievalService:
             }
             for row in rows
         ]
-        avg_similarity = sum(r["similarity"] for r in results)/len(results)
+        avg_similarity = sum(r["similarity"] for r in results) / len(results) if results else 0.0
 
         if wandb.run:
             pass

@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, patch
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import (
+    ClinicalDisease,
     DrugData,
     DrugSummary,
     DrugTarget,
-    Indication,
 )
 
 # --- OpenTargetsClient configuration ---
@@ -24,11 +24,11 @@ def test_default_config():
     assert client.cache_dir == DEFAULT_CACHE_DIR
 
 
-# --- get_drug_competitors: None phase guard ---
+# --- get_drug_competitors: None stage guard ---
 
 
-async def test_get_drug_competitors_skips_summary_with_none_phase(tmp_path):
-    """Summaries with phase=None must be skipped without raising TypeError."""
+async def test_get_drug_competitors_skips_summary_with_none_stage(tmp_path):
+    """Summaries with max_clinical_stage=None must be skipped without raising TypeError."""
     drug = DrugData(
         chembl_id="CHEMBL1",
         name="testdrug",
@@ -36,8 +36,16 @@ async def test_get_drug_competitors_skips_summary_with_none_phase(tmp_path):
         indications=[],
     )
     summaries = [
-        DrugSummary(drug_name="competitor_a", disease_name="depression", phase=3),
-        DrugSummary(drug_name="competitor_b", disease_name="anxiety", phase=None),
+        DrugSummary(
+            drug_name="competitor_a",
+            max_clinical_stage="PHASE_3",
+            diseases=[ClinicalDisease(disease_name="depression")],
+        ),
+        DrugSummary(
+            drug_name="competitor_b",
+            max_clinical_stage=None,
+            diseases=[ClinicalDisease(disease_name="anxiety")],
+        ),
     ]
 
     client = OpenTargetsClient(cache_dir=tmp_path)
@@ -49,9 +57,9 @@ async def test_get_drug_competitors_skips_summary_with_none_phase(tmp_path):
             new=AsyncMock(return_value=summaries),
         ),
     ):
-        result = await client.get_drug_competitors("testdrug", drug_phase=3)
+        result = await client.get_drug_competitors("testdrug", min_stage="PHASE_3")
 
-    # anxiety (phase=None) must be absent; depression (phase=3) must be present
+    # anxiety (stage=None) must be absent; depression (PHASE_3) must be present
     assert "anxiety" not in result["diseases"]
     assert "depression" in result["diseases"]
 
@@ -68,11 +76,15 @@ async def test_get_drug_competitors_returns_raw_diseases(tmp_path):
         indications=[],
     )
     summaries = [
-        DrugSummary(drug_name="competitor_a", disease_name="narcolepsy", phase=3),
+        DrugSummary(
+            drug_name="competitor_a",
+            max_clinical_stage="PHASE_3",
+            diseases=[ClinicalDisease(disease_name="narcolepsy")],
+        ),
         DrugSummary(
             drug_name="competitor_b",
-            disease_name="narcolepsy-cataplexy syndrome",
-            phase=3,
+            max_clinical_stage="PHASE_3",
+            diseases=[ClinicalDisease(disease_name="narcolepsy-cataplexy syndrome")],
         ),
     ]
 
@@ -85,7 +97,7 @@ async def test_get_drug_competitors_returns_raw_diseases(tmp_path):
             new=AsyncMock(return_value=summaries),
         ),
     ):
-        result = await client.get_drug_competitors("testdrug", drug_phase=3)
+        result = await client.get_drug_competitors("testdrug", min_stage="PHASE_3")
 
     assert "narcolepsy" in result["diseases"]
     assert "narcolepsy-cataplexy syndrome" in result["diseases"]
