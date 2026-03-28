@@ -687,7 +687,7 @@ DRUG_QUERY = """
 query($id: String!) {
     drug(chemblId: $id) {
         id name synonyms tradeNames drugType
-        isApproved maximumClinicalTrialPhase yearOfFirstApproval
+        maximumClinicalStage
 
         mechanismsOfAction {
             rows {
@@ -697,11 +697,15 @@ query($id: String!) {
         }
 
         indications {
-            approvedIndications
             rows {
-                maxPhaseForIndication
+                id maxClinicalStage
                 disease { id name }
-                references { source ids }
+                clinicalReports {
+                    id source clinicalStage hasExpertReview
+                    title type trialOverallStatus trialLiterature
+                    drugs { drugFromSource drug { id name } }
+                    diseases { diseaseFromSource disease { id name } }
+                }
             }
         }
 
@@ -744,10 +748,25 @@ query($id: String!) {
             }
         }
 
-        knownDrugs(size: 200) {
+        drugAndClinicalCandidates {
             rows {
-                drugId prefName diseaseId label
-                phase status mechanismOfAction ctIds
+                id maxClinicalStage
+                drug {
+                    id name drugType
+                    mechanismsOfAction {
+                        rows {
+                            mechanismOfAction actionType
+                            targets { id approvedSymbol }
+                        }
+                    }
+                }
+                diseases { diseaseFromSource disease { id name } }
+                clinicalReports {
+                    id source clinicalStage hasExpertReview
+                    title type trialOverallStatus trialLiterature
+                    drugs { drugFromSource drug { id name } }
+                    diseases { diseaseFromSource disease { id name } }
+                }
             }
         }
 
@@ -807,13 +826,26 @@ query($id: String!, $index: Int!, $size: Int!) {
 """
 
 DISEASE_DRUGS_QUERY = """
-query($id: String!, $size: Int!) {
+query($id: String!) {
     disease(efoId: $id) {
-        knownDrugs(size: $size) {
+        drugAndClinicalCandidates {
             rows {
-                drugId prefName targetId approvedSymbol
-                diseaseId label phase status
-                mechanismOfAction ctIds
+                id maxClinicalStage
+                drug {
+                    id name drugType
+                    mechanismsOfAction {
+                        rows {
+                            mechanismOfAction actionType
+                            targets { id approvedSymbol }
+                        }
+                    }
+                }
+                clinicalReports {
+                    id source clinicalStage hasExpertReview
+                    title type trialOverallStatus trialLiterature
+                    drugs { drugFromSource drug { id name } }
+                    diseases { diseaseFromSource disease { id name } }
+                }
             }
         }
     }
