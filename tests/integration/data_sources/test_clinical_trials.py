@@ -14,26 +14,26 @@ logger = logging.getLogger(__name__)
 
 
 async def test_get_landscape(clinical_trials_client):
-    """Test get_landscape returns competitive landscape for a condition.
+    """Test get_landscape returns competitive landscape for an indication.
 
     get_landscape filters to intervention_type in ("Drug", "Biological") only,
     groups by sponsor + drug, and ranks by phase (desc) then enrollment (desc).
     """
-    # Use a smaller, more stable condition for predictable results
+    # Use a smaller, more stable indication for predictable results
     landscape = await clinical_trials_client.get_landscape("gastroparesis", top_n=10)
 
-    # Verify ConditionLandscape.total_trial_count - gastroparesis has ~300 trials
+    # Verify IndicationLandscape.total_trial_count - gastroparesis has ~300 trials
     assert 80 < landscape.total_trial_count < 150
 
-    # Verify ConditionLandscape.competitors - requested top_n=10
+    # Verify IndicationLandscape.competitors - requested top_n=10
     assert len(landscape.competitors) == 10
 
-    # Verify ConditionLandscape.phase_distribution
+    # Verify IndicationLandscape.phase_distribution
     assert 30 < landscape.phase_distribution["Phase 2"] < 100
     assert 5 < landscape.phase_distribution["Phase 3"] < 50
     assert 5 < landscape.phase_distribution["Phase 4"] < 30
 
-    # Verify ConditionLandscape.recent_starts - find a known 2024+ trial
+    # Verify IndicationLandscape.recent_starts - find a known 2024+ trial
     assert len(landscape.recent_starts) >= 1
     [tradipitant] = [rs for rs in landscape.recent_starts if rs.nct_id == "NCT06836557"]
     assert tradipitant.nct_id == "NCT06836557"
@@ -83,7 +83,7 @@ async def test_get_trial(clinical_trials_client):
     assert trial.phase == "Phase 4"
     assert trial.overall_status == "COMPLETED"
     assert trial.why_stopped is None
-    assert trial.conditions == ["Breast Cancer"]
+    assert trial.indications == ["Breast Cancer"]
     assert trial.sponsor == "Hoffmann-La Roche"
     assert trial.collaborators == []
     assert trial.enrollment == 157
@@ -115,11 +115,11 @@ async def test_get_trial(clinical_trials_client):
 
 
 async def test_search_trials(clinical_trials_client):
-    """Test search_trials returns trials for a drug-condition pair."""
+    """Test search_trials returns trials for a drug-indication pair."""
     # Search for trastuzumab + breast cancer, find a specific known trial
     trials = await clinical_trials_client.search_trials(
         drug="trastuzumab",
-        condition="breast cancer",
+        indication="breast cancer",
         max_results=50,
         phase_filter="PHASE4",
     )
@@ -136,7 +136,7 @@ async def test_search_trials(clinical_trials_client):
     assert xena.phase == "Phase 4"
     assert xena.overall_status == "COMPLETED"
     assert xena.why_stopped is None
-    assert xena.conditions == ["Breast Cancer"]
+    assert xena.indications == ["Breast Cancer"]
     assert xena.sponsor == "Hoffmann-La Roche"
     assert xena.collaborators == []
     assert xena.enrollment == 157
@@ -168,7 +168,7 @@ async def test_search_trials(clinical_trials_client):
 
 
 async def test_search_trials_drug_only(clinical_trials_client):
-    """Test search_trials returns trials for a drug without specifying condition."""
+    """Test search_trials returns trials for a drug without specifying indication."""
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
         max_results=300,
@@ -177,18 +177,18 @@ async def test_search_trials_drug_only(clinical_trials_client):
     # Semaglutide has many trials across diabetes, obesity, NASH, etc.
     assert len(trials) >= 20
 
-    # Verify trials span multiple conditions (not just one indication)
-    all_conditions = set()
+    # Verify trials span multiple indications
+    all_indications = set()
     for trial in trials:
-        all_conditions.update(trial.conditions)
-    assert len(all_conditions) >= 10
+        all_indications.update(trial.indications)
+    assert len(all_indications) >= 10
 
 
 async def test_search_trials_nash_trial_fields(clinical_trials_client):
     """Verify all Trial fields for NCT04971785 (Gilead NASH/semaglutide trial)."""
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
-        condition="nonalcoholic steatohepatitis",
+        indication="nonalcoholic steatohepatitis",
         max_results=100,
     )
 
@@ -202,7 +202,7 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
     assert nash_trial.phase == "Phase 2"
     assert nash_trial.overall_status == "COMPLETED"
     assert nash_trial.why_stopped is None
-    assert nash_trial.conditions == ["Nonalcoholic Steatohepatitis"]
+    assert nash_trial.indications == ["Nonalcoholic Steatohepatitis"]
     assert nash_trial.sponsor == "Gilead Sciences"
     assert nash_trial.collaborators == ["Novo Nordisk A/S"]
     assert nash_trial.enrollment == 457
@@ -227,11 +227,11 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
 
 
 async def test_search_trials_condition_only(clinical_trials_client):
-    """Test search_trials returns trials for a condition without specifying drug."""
+    """Test search_trials returns trials for an indication without specifying drug."""
     # Search for gastroparesis trials across all drugs
     trials = await clinical_trials_client.search_trials(
         drug="",
-        condition="gastroparesis",
+        indication="gastroparesis",
         max_results=50,
         phase_filter="PHASE4",
     )
@@ -251,7 +251,7 @@ async def test_search_trials_condition_only(clinical_trials_client):
     assert pk_trial.phase == "Phase 4"
     assert pk_trial.overall_status == "COMPLETED"
     assert pk_trial.why_stopped is None
-    assert pk_trial.conditions == [
+    assert pk_trial.indications == [
         "Gastroparesis",
         "Gastroesophageal Reflux Disease",
     ]
@@ -287,7 +287,7 @@ async def test_search_trials_phase_filter(clinical_trials_client):
     # Search for Phase 3 trials only
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
-        condition="diabetes",
+        indication="diabetes",
         max_results=20,
         phase_filter="PHASE3",
     )
@@ -317,7 +317,7 @@ async def test_get_terminated(clinical_trials_client):
         == "A Research Study to Compare Two Forms of Semaglutide in Two Different Pen-injectors in People With Overweight or Obesity"
     )
     assert novo_trial.drug_name == "Semaglutide (administered by DV3396 pen)"
-    assert novo_trial.condition == "Overweight"
+    assert novo_trial.indication == "Overweight"
     assert novo_trial.phase == "Phase 1"
     assert novo_trial.why_stopped == "The trial was terminated for strategic reasons."
     assert novo_trial.stop_category == "business"
@@ -329,12 +329,12 @@ async def test_get_terminated(clinical_trials_client):
 
 
 async def test_detect_whitespace(clinical_trials_client):
-    """Test detect_whitespace identifies unexplored drug-condition pairs.
+    """Test detect_whitespace identifies unexplored drug-indication pairs.
 
-    When is_whitespace=True, returns condition_drugs (other drugs being tested
-    for this condition) ranked by phase (desc) then active status, deduplicated
+    When is_whitespace=True, returns indication_drugs (other drugs being tested
+    for this indication) ranked by phase (desc) then active status, deduplicated
     by drug_name.
-    When is_whitespace=False, condition_drugs is empty.
+    When is_whitespace=False, indication_drugs is empty.
     """
     # Tirzepatide + Huntington disease = whitespace (no exact matches)
     result = await clinical_trials_client.detect_whitespace(
@@ -345,13 +345,13 @@ async def test_detect_whitespace(clinical_trials_client):
     assert result.is_whitespace is True
     assert result.exact_match_count == 0
     assert 150 < result.drug_only_trials < 300
-    assert 200 < result.condition_only_trials < 400
+    assert 200 < result.indication_only_trials < 400
 
-    # Verify condition_drugs
-    assert 40 < len(result.condition_drugs) < 60
+    # Verify indication_drugs
+    assert 40 < len(result.indication_drugs) < 60
 
     # Verify deduplication: all drug_names should be unique
-    drug_names = [cd.drug_name for cd in result.condition_drugs]
+    drug_names = [cd.drug_name for cd in result.indication_drugs]
     assert len(drug_names) == len(set(drug_names))
 
     # Verify known drugs are found (Memantine and Tetrabenazine are Phase 4 HD drugs)
@@ -359,20 +359,20 @@ async def test_detect_whitespace(clinical_trials_client):
     assert "Tetrabenazine" in drug_names
 
     # Verify ranking: first drugs should be Phase 4 (highest phase)
-    assert result.condition_drugs[0].phase == "Phase 4"
-    assert result.condition_drugs[1].phase == "Phase 4"
-    assert result.condition_drugs[2].phase == "Phase 4"
+    assert result.indication_drugs[0].phase == "Phase 4"
+    assert result.indication_drugs[1].phase == "Phase 4"
+    assert result.indication_drugs[2].phase == "Phase 4"
 
-    # Find Memantine (Phase 4 completed trial) and verify all ConditionDrug fields
-    [memantine] = [cd for cd in result.condition_drugs if cd.drug_name == "Memantine"]
+    # Find Memantine (Phase 4 completed trial) and verify all IndicationDrug fields
+    [memantine] = [cd for cd in result.indication_drugs if cd.drug_name == "Memantine"]
     assert memantine.nct_id == "NCT00652457"
     assert memantine.drug_name == "Memantine"
-    assert memantine.condition == "Huntington's Disease"
+    assert memantine.indication == "Huntington's Disease"
     assert memantine.phase == "Phase 4"
     assert memantine.status == "COMPLETED"
 
     # Verify Phase 2+ filter: no Phase 1 or Early Phase 1 trials
-    for cd in result.condition_drugs:
+    for cd in result.indication_drugs:
         assert "Phase 1" not in cd.phase
         assert "Early Phase 1" not in cd.phase
 
@@ -380,8 +380,8 @@ async def test_detect_whitespace(clinical_trials_client):
 async def test_detect_whitespace_not_whitespace(clinical_trials_client):
     """Test detect_whitespace when exact matches exist (is_whitespace=False).
 
-    When trials exist for the drug-condition pair, is_whitespace=False
-    and condition_drugs is empty (no need to show competitors).
+    When trials exist for the drug-indication pair, is_whitespace=False
+    and indication_drugs is empty (no need to show competitors).
     """
     # Semaglutide + diabetes = NOT whitespace (many exact matches)
     result = await clinical_trials_client.detect_whitespace("semaglutide", "diabetes")
@@ -390,10 +390,10 @@ async def test_detect_whitespace_not_whitespace(clinical_trials_client):
     assert result.is_whitespace is False
     assert result.exact_match_count >= 10  # semaglutide + diabetes has many trials
     assert 400 < result.drug_only_trials < 800
-    assert 10000 < result.condition_only_trials < 100000
+    assert 10000 < result.indication_only_trials < 100000
 
-    # condition_drugs should be empty when not whitespace
-    assert result.condition_drugs == []
+    # indication_drugs should be empty when not whitespace
+    assert result.indication_drugs == []
 
 
 # --- Edge cases and weird inputs ---
@@ -411,20 +411,20 @@ async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_clie
     """Test that a nonexistent drug returns empty list (not an error)."""
     trials = await clinical_trials_client.search_trials(
         drug="xyzzy_not_a_real_drug_12345",
-        condition="diabetes",
+        indication="diabetes",
         max_results=10,
     )
 
     assert trials == []
 
 
-async def test_search_trials_nonexistent_condition_returns_empty(
+async def test_search_trials_nonexistent_indication_returns_empty(
     clinical_trials_client,
 ):
-    """Test that a nonexistent condition returns empty list."""
+    """Test that a nonexistent indication returns empty list."""
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
-        condition="xyzzy_fake_disease_99999",
+        indication="xyzzy_fake_disease_99999",
         max_results=10,
     )
 
@@ -435,7 +435,7 @@ async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
     """Test that empty drug string returns empty list."""
     trials = await clinical_trials_client.search_trials(
         drug="",
-        condition="diabetes",
+        indication="diabetes",
         max_results=10,
     )
 
@@ -444,12 +444,12 @@ async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
     assert isinstance(trials, list)
 
 
-async def test_get_landscape_nonexistent_condition_returns_empty(
+async def test_get_landscape_nonexistent_indication_returns_empty(
     clinical_trials_client,
 ):
-    """Test that nonexistent condition returns empty landscape."""
+    """Test that nonexistent indication returns empty landscape."""
     landscape = await clinical_trials_client.get_landscape(
-        "xyzzy_fake_condition_99999", top_n=10
+        "xyzzy_fake_indication_99999", top_n=10
     )
 
     assert landscape.total_trial_count == 0
@@ -475,14 +475,14 @@ async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_
     assert result.is_whitespace is True
     assert result.exact_match_count == 0
     assert result.drug_only_trials == 0
-    # Condition-only trials should still exist for a real condition
-    assert result.condition_only_trials > 0
+    # Indication-only trials should still exist for a real indication
+    assert result.indication_only_trials > 0
 
 
-async def test_detect_whitespace_nonexistent_condition_is_whitespace(
+async def test_detect_whitespace_nonexistent_indication_is_whitespace(
     clinical_trials_client,
 ):
-    """Test that nonexistent condition returns is_whitespace=True."""
+    """Test that nonexistent indication returns is_whitespace=True."""
     result = await clinical_trials_client.detect_whitespace(
         "semaglutide", "xyzzy_fake_disease_99999"
     )
@@ -491,5 +491,5 @@ async def test_detect_whitespace_nonexistent_condition_is_whitespace(
     assert result.exact_match_count == 0
     # Drug-only trials should still exist for a real drug
     assert result.drug_only_trials > 0
-    assert result.condition_only_trials == 0
-    assert result.condition_drugs == []
+    assert result.indication_only_trials == 0
+    assert result.indication_drugs == []

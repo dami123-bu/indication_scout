@@ -50,6 +50,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "deepeval>=3.4.3",
     "wandb>=0.18.0",
+    "langchain-core>=1.2.23",
 ]
 
 [project.optional-dependencies]

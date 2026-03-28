@@ -3,9 +3,9 @@ ClinicalTrials.gov REST API v2 client.
 
 Five methods:
   1. get_trial         — Fetch a single trial by NCT ID
-  2. search_trials     — Trial Agent: drug + condition → trial records
-  3. detect_whitespace — Trial Agent: is this drug-condition pair unexplored?
-  4. get_landscape     — Landscape Agent: competitive map for a condition
+  2. search_trials     — Trial Agent: drug + indication → trial records
+  3. detect_whitespace — Trial Agent: is this drug-indication pair unexplored?
+  4. get_landscape     — Landscape Agent: competitive map for an indication
   5. get_terminated    — Critique Agent: what has failed in this space?
 """
 
@@ -18,7 +18,7 @@ from typing import Any
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
     CLINICAL_TRIALS_RECENT_START_YEAR,
-    CLINICAL_TRIALS_WHITESPACE_CONDITION_MAX,
+    CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX,
     CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
     CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
     CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS,
@@ -28,8 +28,8 @@ from indication_scout.data_sources.base_client import BaseClient, DataSourceErro
 
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
-    ConditionDrug,
-    ConditionLandscape,
+    IndicationDrug,
+    IndicationLandscape,
     Intervention,
     PrimaryOutcome,
     RecentStart,
@@ -85,18 +85,15 @@ class ClinicalTrialsClient(BaseClient):
     async def search_trials(
         self,
         drug: str,
-        condition: str | None = None,
+        indication: str | None = None,
         date_before: date | None = None,
         phase_filter: str | None = None,
         max_results: int = 200,
     ) -> list[Trial]:
-        """
-        Search for trials matching drug and optional condition.
-        """
-
+        """Search for trials matching drug and optional indication."""
         return await self._paginated_search(
             drug=drug,
-            condition=condition,
+            indication=indication,
             date_before=date_before,
             phase_filter=phase_filter,
             max_results=max_results,
@@ -109,61 +106,61 @@ class ClinicalTrialsClient(BaseClient):
     async def detect_whitespace(
         self,
         drug: str,
-        condition: str,
+        indication: str,
         date_before: date | None = None,
     ) -> WhitespaceResult:
-        """Is this drug-condition pair being explored in clinical trials?
+        """Is this drug-indication pair being explored in clinical trials?
 
         Runs three concurrent queries:
-          - Exact match: trials with both drug AND condition (max 50)
-          - Drug-only count: total trials with this drug (any condition)
-          - Condition-only count: total trials with this condition (any drug)
+          - Exact match: trials with both drug AND indication (max 50)
+          - Drug-only count: total trials with this drug (any indication)
+          - Indication-only count: total trials with this indication (any drug)
 
-        If no exact matches (whitespace exists), fetches condition trials and
-        populates condition_drugs with other drugs being tested for this condition:
+        If no exact matches (whitespace exists), fetches indication trials and
+        populates indication_drugs with other drugs being tested for this indication:
           - Filters to Phase 2+ trials only (excludes noisy Phase 1 data)
           - Ranks by phase (descending) then active status (recruiting preferred)
           - Deduplicates by drug_name, keeping the highest-ranked trial per drug
           - Returns top 50 unique drugs
 
-        This tells the Trial Agent what competitors exist in the condition space
+        This tells the Trial Agent what competitors exist in the indication space
         when the queried drug has no trials there.
         """
         # All three are independent — run concurrently
         exact_task = self.search_trials(
             drug=drug,
-            condition=condition,
+            indication=indication,
             date_before=date_before,
             max_results=CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
         )
         drug_count_task = self._count_trials(
-            drug=drug, condition=None, date_before=date_before
+            drug=drug, indication=None, date_before=date_before
         )
-        condition_count_task = self._count_trials(
-            drug=None, condition=condition, date_before=date_before
-        )
-
-        exact_trials, drug_count, condition_count = await asyncio.gather(
-            exact_task, drug_count_task, condition_count_task
+        indication_count_task = self._count_trials(
+            drug=None, indication=indication, date_before=date_before
         )
 
-        # Condition drugs: only populated when whitespace exists
+        exact_trials, drug_count, indication_count = await asyncio.gather(
+            exact_task, drug_count_task, indication_count_task
+        )
+
+        # Indication drugs: only populated when whitespace exists
         # Restrict to Phase 2+ for meaningful efficacy signal
-        condition_drugs: list[ConditionDrug] = []
+        indication_drugs: list[IndicationDrug] = []
         if not exact_trials:
-            condition_trials = await self._fetch_all_condition_trials(
-                condition,
+            indication_trials = await self._fetch_all_indication_trials(
+                indication,
                 date_before=date_before,
-                max_results=CLINICAL_TRIALS_WHITESPACE_CONDITION_MAX,
+                max_results=CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX,
                 phase_filter=CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
             )
 
             # Collect drug/biologic trials as candidates
-            candidates: list[ConditionDrug] = []
-            for t in condition_trials:
+            candidates: list[IndicationDrug] = []
+            for t in indication_trials:
                 drug_name, _ = self._primary_drug(t)
                 if drug_name != "Unknown":
-                    candidates.append(ConditionDrug.from_trial(t, drug_name))
+                    candidates.append(IndicationDrug.from_trial(t, drug_name))
 
             # Rank: most advanced phase first, then by active status
             active_statuses = {
@@ -181,21 +178,21 @@ class ClinicalTrialsClient(BaseClient):
 
             # Deduplicate by drug_name, keeping highest-ranked entry
             seen_drugs: set[str] = set()
-            unique_candidates: list[ConditionDrug] = []
+            unique_candidates: list[IndicationDrug] = []
             for cd in candidates:
                 if cd.drug_name not in seen_drugs:
                     seen_drugs.add(cd.drug_name)
                     unique_candidates.append(cd)
 
-            condition_drugs = unique_candidates[:CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS]
+            indication_drugs = unique_candidates[:CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS]
 
         return WhitespaceResult(
             is_whitespace=len(exact_trials) == 0,
-            no_data=drug_count == 0 and condition_count == 0,
+            no_data=drug_count == 0 and indication_count == 0,
             exact_match_count=len(exact_trials),
             drug_only_trials=drug_count,
-            condition_only_trials=condition_count,
-            condition_drugs=condition_drugs,
+            indication_only_trials=indication_count,
+            indication_drugs=indication_drugs,
         )
 
     # ------------------------------------------------------------------
@@ -204,18 +201,18 @@ class ClinicalTrialsClient(BaseClient):
 
     async def get_landscape(
         self,
-        condition: str,
+        indication: str,
         date_before: date | None = None,
         top_n: int = 50,
-    ) -> ConditionLandscape:
-        """Competitive landscape for a condition — drug/biologic trials, grouped by sponsor + drug.
+    ) -> IndicationLandscape:
+        """Competitive landscape for an indication — drug/biologic trials, grouped by sponsor + drug.
 
-        Fetches all trials for the condition, then filters client-side to
+        Fetches all trials for the indication, then filters client-side to
         intervention_type in ("Drug", "Biological") only. Ranks competitors
         by phase then enrollment. Returns top_n competitors.
         """
-        trials = await self._fetch_all_condition_trials(
-            condition,
+        trials = await self._fetch_all_indication_trials(
+            indication,
             date_before=date_before,
             phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
         )
@@ -232,10 +229,10 @@ class ClinicalTrialsClient(BaseClient):
         date_before: date | None = None,
         max_results: int = 100,
     ) -> list[TerminatedTrial]:
-        """Terminated/withdrawn/suspended trials for a drug, class, or condition."""
+        """Terminated/withdrawn/suspended trials for a drug, class, or indication."""
         params = self._build_search_params(
             drug=None,
-            condition=None,
+            indication=None,
             date_before=date_before,
             extra_term=query,
             status_filter="TERMINATED,WITHDRAWN,SUSPENDED",
@@ -245,22 +242,22 @@ class ClinicalTrialsClient(BaseClient):
         return [self._parse_terminated_trial(s) for s in studies[:max_results]]
 
     # ------------------------------------------------------------------
-    # Private: condition-level fetching (no drug filter)
+    # Private: indication-level fetching (no drug filter)
     # ------------------------------------------------------------------
 
-    async def _fetch_all_condition_trials(
+    async def _fetch_all_indication_trials(
         self,
-        condition: str,
+        indication: str,
         date_before: date | None = None,
         max_results: int | None = None,
         phase_filter: str | None = None,
     ) -> list[Trial]:
-        """Fetch all trials for a condition.
+        """Fetch all trials for an indication.
 
         If max_results is None, paginates until exhausted.
         """
         return await self._paginated_search(
-            condition=condition,
+            indication=indication,
             date_before=date_before,
             phase_filter=phase_filter,
             max_results=max_results,
@@ -274,7 +271,7 @@ class ClinicalTrialsClient(BaseClient):
         self,
         *,
         drug: str | None = None,
-        condition: str | None = None,
+        indication: str | None = None,
         date_before: date | None = None,
         phase_filter: str | None = None,
         max_results: int | None = None,
@@ -289,7 +286,7 @@ class ClinicalTrialsClient(BaseClient):
         while max_results is None or len(trials) < max_results:
             params = self._build_search_params(
                 drug=drug,
-                condition=condition,
+                indication=indication,
                 date_before=date_before,
                 phase_filter=phase_filter,
                 page_token=page_token,
@@ -312,7 +309,7 @@ class ClinicalTrialsClient(BaseClient):
         self,
         *,
         drug: str | None = None,
-        condition: str | None = None,
+        indication: str | None = None,
         date_before: date | None = None,
         page_token: str | None = None,
         extra_term: str | None = None,
@@ -325,8 +322,8 @@ class ClinicalTrialsClient(BaseClient):
             "countTotal": "true",
         }
 
-        if condition:
-            params["query.cond"] = condition
+        if indication:
+            params["query.cond"] = indication  # API uses "cond" for condition/indication
         if drug:
             params["query.intr"] = drug
         if extra_term:
@@ -360,13 +357,13 @@ class ClinicalTrialsClient(BaseClient):
     async def _count_trials(
         self,
         drug: str | None,
-        condition: str | None,
+        indication: str | None,
         date_before: date | None = None,
     ) -> int:
         """Quick count without fetching full records."""
         params = self._build_search_params(
             drug=drug,
-            condition=condition,
+            indication=indication,
             date_before=date_before,
         )
         params["pageSize"] = 1  # we only need the count
@@ -429,7 +426,7 @@ class ClinicalTrialsClient(BaseClient):
             phase=phase,
             overall_status=status.get("overallStatus", ""),
             why_stopped=status.get("whyStopped"),
-            conditions=proto.get("conditionsModule", {}).get("conditions", []),
+            indications=proto.get("conditionsModule", {}).get("conditions", []),
             interventions=interventions,
             sponsor=sponsor_mod.get("leadSponsor", {}).get("name", ""),
             collaborators=collabs,
@@ -456,7 +453,7 @@ class ClinicalTrialsClient(BaseClient):
             nct_id=trial.nct_id,
             title=trial.title,
             drug_name=drug_name,
-            condition=trial.conditions[0] if trial.conditions else None,
+            indication=trial.indications[0] if trial.indications else None,
             phase=trial.phase,
             why_stopped=trial.why_stopped,
             stop_category=_classify_stop_reason(trial.why_stopped),
@@ -473,7 +470,7 @@ class ClinicalTrialsClient(BaseClient):
 
     def _aggregate_landscape(
         self, trials: list[Trial], top_n: int = 50
-    ) -> ConditionLandscape:
+    ) -> IndicationLandscape:
         """Group trials by sponsor + drug into a competitive landscape.
 
         Filters to Drug/Biological interventions only. Ranks competitors
@@ -539,7 +536,7 @@ class ClinicalTrialsClient(BaseClient):
             reverse=True,
         )
 
-        return ConditionLandscape(
+        return IndicationLandscape(
             total_trial_count=len(trials),
             competitors=ranked[:top_n],
             phase_distribution=phase_dist,

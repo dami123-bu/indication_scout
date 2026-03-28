@@ -3,8 +3,8 @@
 import pytest
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
-    ConditionDrug,
-    ConditionLandscape,
+    IndicationDrug,
+    IndicationLandscape,
     Intervention,
     PrimaryOutcome,
     RecentStart,
@@ -84,7 +84,7 @@ def sample_trial():
         brief_summary="This study evaluates the efficacy of semaglutide.",
         phase="Phase 3",
         overall_status="Completed",
-        conditions=["Type 2 Diabetes Mellitus", "Obesity"],
+        indications=["Type 2 Diabetes Mellitus", "Obesity"],
         interventions=[
             Intervention(
                 intervention_type="Drug",
@@ -128,7 +128,7 @@ def test_trial_all_fields(sample_trial):
     assert sample_trial.phase == "Phase 3"
     assert sample_trial.overall_status == "Completed"
     assert sample_trial.why_stopped is None
-    assert sample_trial.conditions == ["Type 2 Diabetes Mellitus", "Obesity"]
+    assert sample_trial.indications == ["Type 2 Diabetes Mellitus", "Obesity"]
     assert len(sample_trial.interventions) == 2
     assert sample_trial.interventions[0].intervention_name == "Semaglutide"
     assert sample_trial.interventions[1].intervention_name == "Placebo"
@@ -161,7 +161,7 @@ def test_trial_minimal_required_fields():
     # Defaults
     assert trial.brief_summary is None
     assert trial.why_stopped is None
-    assert trial.conditions == []
+    assert trial.indications == []
     assert trial.interventions == []
     assert trial.collaborators == []
     assert trial.enrollment is None
@@ -238,36 +238,36 @@ def test_trial_accepts_various_statuses(status):
     assert trial.overall_status == status
 
 
-# --- ConditionDrug and WhitespaceResult ---
+# --- IndicationDrug and WhitespaceResult ---
 
 
 @pytest.fixture
-def sample_condition_drug():
-    """Create a sample ConditionDrug."""
-    return ConditionDrug(
+def sample_indication_drug():
+    """Create a sample IndicationDrug."""
+    return IndicationDrug(
         nct_id="NCT04375669",
         drug_name="Semaglutide",
-        condition="NASH",
+        indication="NASH",
         phase="Phase 3",
         status="Active, not recruiting",
     )
 
 
-def test_condition_drug_all_fields(sample_condition_drug):
-    """ConditionDrug should store all fields correctly."""
-    assert sample_condition_drug.nct_id == "NCT04375669"
-    assert sample_condition_drug.drug_name == "Semaglutide"
-    assert sample_condition_drug.condition == "NASH"
-    assert sample_condition_drug.phase == "Phase 3"
-    assert sample_condition_drug.status == "Active, not recruiting"
+def test_indication_drug_all_fields(sample_indication_drug):
+    """IndicationDrug should store all fields correctly."""
+    assert sample_indication_drug.nct_id == "NCT04375669"
+    assert sample_indication_drug.drug_name == "Semaglutide"
+    assert sample_indication_drug.indication == "NASH"
+    assert sample_indication_drug.phase == "Phase 3"
+    assert sample_indication_drug.status == "Active, not recruiting"
 
 
-def test_condition_drug_missing_status_defaults_to_empty_string():
-    """ConditionDrug status defaults to empty string when omitted."""
-    cd = ConditionDrug(
+def test_indication_drug_missing_status_defaults_to_empty_string():
+    """IndicationDrug status defaults to empty string when omitted."""
+    cd = IndicationDrug(
         nct_id="NCT04375669",
         drug_name="Semaglutide",
-        condition="NASH",
+        indication="NASH",
         phase="Phase 3",
         # missing status
     )
@@ -280,22 +280,22 @@ def test_whitespace_result_is_whitespace_true():
         is_whitespace=True,
         exact_match_count=0,
         drug_only_trials=15,
-        condition_only_trials=42,
-        condition_drugs=[],
+        indication_only_trials=42,
+        indication_drugs=[],
     )
     assert result.is_whitespace is True
     assert result.exact_match_count == 0
     assert result.drug_only_trials == 15
-    assert result.condition_only_trials == 42
-    assert result.condition_drugs == []
+    assert result.indication_only_trials == 42
+    assert result.indication_drugs == []
 
 
-def test_whitespace_result_with_condition_drugs():
-    """WhitespaceResult should store condition_drugs when whitespace exists."""
-    condition_drug = ConditionDrug(
+def test_whitespace_result_with_indication_drugs():
+    """WhitespaceResult should store indication_drugs when whitespace exists."""
+    indication_drug = IndicationDrug(
         nct_id="NCT04375669",
         drug_name="Semaglutide",
-        condition="NASH",
+        indication="NASH",
         phase="Phase 2",
         status="Completed",
     )
@@ -303,28 +303,28 @@ def test_whitespace_result_with_condition_drugs():
         is_whitespace=True,
         exact_match_count=0,
         drug_only_trials=10,
-        condition_only_trials=25,
-        condition_drugs=[condition_drug],
+        indication_only_trials=25,
+        indication_drugs=[indication_drug],
     )
     assert result.is_whitespace is True
     assert result.exact_match_count == 0
-    assert len(result.condition_drugs) == 1
-    assert result.condition_drugs[0].nct_id == "NCT04375669"
-    assert result.condition_drugs[0].condition == "NASH"
+    assert len(result.indication_drugs) == 1
+    assert result.indication_drugs[0].nct_id == "NCT04375669"
+    assert result.indication_drugs[0].indication == "NASH"
 
 
-def test_whitespace_result_defaults_condition_drugs_to_empty():
-    """WhitespaceResult should default condition_drugs to empty list."""
+def test_whitespace_result_defaults_indication_drugs_to_empty():
+    """WhitespaceResult should default indication_drugs to empty list."""
     result = WhitespaceResult(
         is_whitespace=True,
         exact_match_count=0,
         drug_only_trials=5,
-        condition_only_trials=10,
+        indication_only_trials=10,
     )
-    assert result.condition_drugs == []
+    assert result.indication_drugs == []
 
 
-# --- CompetitorEntry and ConditionLandscape ---
+# --- CompetitorEntry and IndicationLandscape ---
 
 
 @pytest.fixture
@@ -374,15 +374,15 @@ def test_competitor_entry_optional_fields():
     assert competitor.most_recent_start is None
 
 
-def test_condition_landscape_all_fields(sample_competitor):
-    """ConditionLandscape should store all fields correctly."""
+def test_indication_landscape_all_fields(sample_competitor):
+    """IndicationLandscape should store all fields correctly."""
     recent_trial = RecentStart(
         nct_id="NCT05000001",
         sponsor="Novo Nordisk",
         drug="Semaglutide",
         phase="Phase 3",
     )
-    landscape = ConditionLandscape(
+    landscape = IndicationLandscape(
         total_trial_count=150,
         competitors=[sample_competitor],
         phase_distribution={
@@ -409,9 +409,9 @@ def test_condition_landscape_all_fields(sample_competitor):
     assert landscape.recent_starts[0].phase == "Phase 3"
 
 
-def test_condition_landscape_empty_competitors():
-    """ConditionLandscape should accept empty competitors list."""
-    landscape = ConditionLandscape(
+def test_indication_landscape_empty_competitors():
+    """IndicationLandscape should accept empty competitors list."""
+    landscape = IndicationLandscape(
         total_trial_count=0,
         competitors=[],
         phase_distribution={},
@@ -433,7 +433,7 @@ def sample_terminated_trial():
         nct_id="NCT03456789",
         title="A Study That Was Stopped Early",
         drug_name="Failed Drug",
-        condition="Type 2 Diabetes",
+        indication="Type 2 Diabetes",
         phase="Phase 3",
         why_stopped="Interim analysis showed lack of efficacy",
         stop_category="efficacy",
@@ -450,7 +450,7 @@ def test_terminated_trial_all_fields(sample_terminated_trial):
     assert sample_terminated_trial.nct_id == "NCT03456789"
     assert sample_terminated_trial.title == "A Study That Was Stopped Early"
     assert sample_terminated_trial.drug_name == "Failed Drug"
-    assert sample_terminated_trial.condition == "Type 2 Diabetes"
+    assert sample_terminated_trial.indication == "Type 2 Diabetes"
     assert sample_terminated_trial.phase == "Phase 3"
     assert (
         sample_terminated_trial.why_stopped
@@ -474,7 +474,7 @@ def test_terminated_trial_minimal_fields():
     assert trial.title == "Minimal Terminated Trial"
     # Defaults
     assert trial.drug_name is None
-    assert trial.condition is None
+    assert trial.indication is None
     assert trial.phase is None
     assert trial.why_stopped is None
     assert trial.stop_category is None

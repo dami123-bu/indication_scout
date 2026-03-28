@@ -25,7 +25,7 @@ CHEMBL_BASE_URL: str = "https://www.ebi.ac.uk/chembl/api/data"
 # -- ClinicalTrials.gov -----------------------------------------------------
 CLINICAL_TRIALS_BASE_URL: str = "https://clinicaltrials.gov/api/v2/studies"
 CLINICAL_TRIALS_WHITESPACE_EXACT_MAX: int = 50
-CLINICAL_TRIALS_WHITESPACE_CONDITION_MAX: int = 500
+CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX: int = 500
 CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER: str = "(PHASE2 OR PHASE3 OR PHASE4)"
 CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS: int = 50
 CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
