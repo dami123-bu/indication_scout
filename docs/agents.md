@@ -216,27 +216,6 @@ Data source clients return validated Pydantic models. Agents consume these model
 
 ---
 
-## Validated Test Drugs
-
-The agent pipeline will be evaluated against 10 ground-truth repurposings with known outcomes:
-
-| Drug | Original Indication | Known Repurposing | Primary Path |
-|------|--------------------|--------------------|--------------|
-| Baricitinib | Rheumatoid arthritis | Alopecia areata, atopic dermatitis | Path 2 |
-| Imatinib | CML | GIST | Path 2 |
-| Sildenafil | Erectile dysfunction | Pulmonary arterial hypertension | Path 2 |
-| Bupropion | Depression | Smoking cessation, ADHD | Path 2 |
-| Thalidomide | Sedative | Multiple myeloma | Path 2 |
-| Rituximab | Lymphoma | Rheumatoid arthritis | Path 2 |
-| Duloxetine | Depression | Chronic pain, fibromyalgia | Path 2 |
-| Metformin | Type 2 diabetes | PCOS | Path 2 |
-| Colchicine | Gout | Cardiovascular prevention | Path 2 |
-| Empagliflozin | Type 2 diabetes | Heart failure | Path 2 |
-
-Success metrics: **Recall@10** (known repurposing in top-10 candidates) and **MRR** (mean reciprocal rank).
-
----
-
 ## Implementation Roadmap
 
 | Sprint | Focus | Agents |
