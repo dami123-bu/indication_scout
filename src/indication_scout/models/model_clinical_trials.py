@@ -95,11 +95,23 @@ class ConditionDrug(BaseModel):
                 values[field_name] = field_info.default
         return values
 
+    @classmethod
+    def from_trial(cls, trial: Trial, drug_name: str) -> "ConditionDrug":
+        """Build a ConditionDrug from a Trial and its primary drug name."""
+        return cls(
+            nct_id=trial.nct_id,
+            drug_name=drug_name,
+            condition=trial.conditions[0] if trial.conditions else "",
+            phase=trial.phase,
+            status=trial.overall_status,
+        )
+
 
 class WhitespaceResult(BaseModel):
     """Result of whitespace detection — is this drug-condition pair unexplored?"""
 
     is_whitespace: bool | None = None
+    no_data: bool | None = None
     exact_match_count: int | None = None
     drug_only_trials: int | None = None
     condition_only_trials: int | None = None

@@ -63,16 +63,11 @@ class ClinicalTrialsClient(BaseClient):
     # ------------------------------------------------------------------
 
     async def get_trial(self, nct_id: str) -> Trial:
-        """Fetch a single trial by NCT ID.
+        """
+        Fetch a single trial by NCT ID.
 
-        Args:
-            nct_id: The NCT identifier (e.g., "NCT04971785")
-
-        Returns:
-            Trial object with all available data
-
-        Raises:
-            DataSourceError: If the trial is not found
+        Args:  nct_id: The NCT identifier (e.g., "NCT04971785")
+        Returns: Trial object with all available data
         """
         url = f"{self.BASE_URL}/{nct_id}"
         params = {"format": "json"}
@@ -95,27 +90,17 @@ class ClinicalTrialsClient(BaseClient):
         phase_filter: str | None = None,
         max_results: int = 200,
     ) -> list[Trial]:
-        """Search for trials matching drug and optional condition."""
-        trials: list[Trial] = []
-        page_token: str | None = None
+        """
+        Search for trials matching drug and optional condition.
+        """
 
-        while len(trials) < max_results:
-            params = self._build_search_params(
-                drug=drug,
-                condition=condition,
-                date_before=date_before,
-                phase_filter=phase_filter,
-                page_token=page_token,
-            )
-            data = await self._rest_get(self.BASE_URL, params)
-            studies = data.get("studies", [])
-            trials.extend(self._parse_trial(s) for s in studies)
-
-            page_token = data.get("nextPageToken")
-            if not page_token or len(studies) < self.PAGE_SIZE:
-                break
-
-        return trials[:max_results]
+        return await self._paginated_search(
+            drug=drug,
+            condition=condition,
+            date_before=date_before,
+            phase_filter=phase_filter,
+            max_results=max_results,
+        )
 
     # ------------------------------------------------------------------
     # Public: detect_whitespace
@@ -176,18 +161,9 @@ class ClinicalTrialsClient(BaseClient):
             # Collect drug/biologic trials as candidates
             candidates: list[ConditionDrug] = []
             for t in condition_trials:
-                for interv in t.interventions:
-                    if interv.intervention_type in ("Drug", "Biological"):
-                        candidates.append(
-                            ConditionDrug(
-                                nct_id=t.nct_id,
-                                drug_name=interv.intervention_name,
-                                condition=t.conditions[0] if t.conditions else "",
-                                phase=t.phase,
-                                status=t.overall_status,
-                            )
-                        )
-                        break  # one per trial
+                drug_name, _ = self._primary_drug(t)
+                if drug_name != "Unknown":
+                    candidates.append(ConditionDrug.from_trial(t, drug_name))
 
             # Rank: most advanced phase first, then by active status
             active_statuses = {
@@ -215,6 +191,7 @@ class ClinicalTrialsClient(BaseClient):
 
         return WhitespaceResult(
             is_whitespace=len(exact_trials) == 0,
+            no_data=drug_count == 0 and condition_count == 0,
             exact_match_count=len(exact_trials),
             drug_only_trials=drug_count,
             condition_only_trials=condition_count,
@@ -282,18 +259,42 @@ class ClinicalTrialsClient(BaseClient):
 
         If max_results is None, paginates until exhausted.
         """
+        return await self._paginated_search(
+            condition=condition,
+            date_before=date_before,
+            phase_filter=phase_filter,
+            max_results=max_results,
+        )
+
+    # ------------------------------------------------------------------
+    # Private: paginated search
+    # ------------------------------------------------------------------
+
+    async def _paginated_search(
+        self,
+        *,
+        drug: str | None = None,
+        condition: str | None = None,
+        date_before: date | None = None,
+        phase_filter: str | None = None,
+        max_results: int | None = None,
+    ) -> list[Trial]:
+        """Core pagination loop shared by all trial-fetching methods.
+
+        If max_results is None, paginates until exhausted.
+        """
         trials: list[Trial] = []
         page_token: str | None = None
 
         while max_results is None or len(trials) < max_results:
             params = self._build_search_params(
+                drug=drug,
                 condition=condition,
                 date_before=date_before,
-                page_token=page_token,
                 phase_filter=phase_filter,
+                page_token=page_token,
             )
             data = await self._rest_get(self.BASE_URL, params)
-
             studies = data.get("studies", [])
             trials.extend(self._parse_trial(s) for s in studies)
 
@@ -447,12 +448,9 @@ class ClinicalTrialsClient(BaseClient):
         """Parse a study into a TerminatedTrial with stop classification."""
         trial = self._parse_trial(study)
 
-        # Extract primary drug name from interventions
-        drug_name = None
-        for interv in trial.interventions:
-            if interv.intervention_type in ("Drug", "Biological"):
-                drug_name = interv.intervention_name
-                break
+        drug_name, _ = self._primary_drug(trial)
+        if drug_name == "Unknown":
+            drug_name = None
 
         return TerminatedTrial(
             nct_id=trial.nct_id,
@@ -487,7 +485,7 @@ class ClinicalTrialsClient(BaseClient):
 
         for t in trials:
             # Only count trials with a Drug or Biological intervention
-            drug_name = self._primary_drug_name(t)
+            drug_name, drug_type = self._primary_drug(t)
             if drug_name == "Unknown":
                 continue
 
@@ -512,7 +510,7 @@ class ClinicalTrialsClient(BaseClient):
                 competitors[key] = CompetitorEntry(
                     sponsor=t.sponsor,
                     drug_name=drug_name,
-                    drug_type=self._primary_drug_type(t),
+                    drug_type=drug_type,
                     max_phase=t.phase,
                     trial_count=0,
                     statuses=set(),
@@ -576,20 +574,17 @@ class ClinicalTrialsClient(BaseClient):
         return date_struct.get("date")
 
     @staticmethod
-    def _primary_drug_name(trial: Trial) -> str:
-        """Extract the primary drug intervention name, or 'Unknown'."""
-        for interv in trial.interventions:
-            if interv.intervention_type in ("Drug", "Biological"):
-                return interv.intervention_name
-        return "Unknown"
+    def _primary_drug(trial: Trial) -> tuple[str, str | None]:
+        """Extract the primary Drug/Biological intervention's name and type.
 
-    @staticmethod
-    def _primary_drug_type(trial: Trial) -> str | None:
-        """Extract intervention type of the primary drug."""
+        Returns:
+            (drug_name, intervention_type) — defaults to ("Unknown", None)
+            if no Drug/Biological intervention is found.
+        """
         for interv in trial.interventions:
             if interv.intervention_type in ("Drug", "Biological"):
-                return interv.intervention_type
-        return None
+                return interv.intervention_name, interv.intervention_type
+        return "Unknown", None
 
     @staticmethod
     def _phase_rank(phase: str) -> int:
