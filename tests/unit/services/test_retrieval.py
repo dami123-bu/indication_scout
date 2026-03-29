@@ -1070,9 +1070,9 @@ def _make_open_targets_mock(raw: dict) -> AsyncMock:
     return mock_client
 
 
-async def _passthrough_normalize(term: str) -> str:
-    """Stub for llm_normalize_disease that returns the input unchanged."""
-    return term
+async def _passthrough_normalize_batch(terms: list[str]) -> dict[str, str]:
+    """Stub for llm_normalize_disease_batch that returns each term unchanged."""
+    return {term: term for term in terms}
 
 
 async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
@@ -1096,8 +1096,8 @@ async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
             return_value=mock_client,
         ),
         patch(
-            "indication_scout.services.retrieval.llm_normalize_disease",
-            new=_passthrough_normalize,
+            "indication_scout.services.retrieval.llm_normalize_disease_batch",
+            new=_passthrough_normalize_batch,
         ),
         patch(
             "indication_scout.services.retrieval.merge_duplicate_diseases",
@@ -1140,17 +1140,17 @@ async def test_normalize_disease_groups_merges_by_normalized_name(tmp_path):
         "colorectal cancer": {"drug_d"},
     }
 
-    async def mock_normalize(term: str) -> str:
+    async def mock_normalize_batch(terms: list[str]) -> dict[str, str]:
         mapping = {
             "breast cancer": "breast cancer",
             "breast neoplasm": "breast cancer",
             "colorectal cancer": "colorectal cancer",
         }
-        return mapping[term]
+        return {term: mapping[term] for term in terms}
 
     with patch(
-        "indication_scout.services.retrieval.llm_normalize_disease",
-        new=mock_normalize,
+        "indication_scout.services.retrieval.llm_normalize_disease_batch",
+        new=mock_normalize_batch,
     ):
         result = await RetrievalService(tmp_path)._normalize_disease_groups(diseases)
 
@@ -1166,16 +1166,16 @@ async def test_normalize_disease_groups_uses_first_term_before_or(tmp_path):
         "liver cancer": {"drug_b"},
     }
 
-    async def mock_normalize(term: str) -> str:
+    async def mock_normalize_batch(terms: list[str]) -> dict[str, str]:
         mapping = {
             "hepatocellular carcinoma": "liver cancer OR hepatocellular carcinoma",
             "liver cancer": "liver cancer",
         }
-        return mapping[term]
+        return {term: mapping[term] for term in terms}
 
     with patch(
-        "indication_scout.services.retrieval.llm_normalize_disease",
-        new=mock_normalize,
+        "indication_scout.services.retrieval.llm_normalize_disease_batch",
+        new=mock_normalize_batch,
     ):
         result = await RetrievalService(tmp_path)._normalize_disease_groups(diseases)
 

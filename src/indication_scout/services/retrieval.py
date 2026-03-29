@@ -19,7 +19,7 @@ from indication_scout.data_sources.open_targets import (
     OpenTargetsClient,
 )
 from indication_scout.services.disease_helper import (
-    llm_normalize_disease,
+    llm_normalize_disease_batch,
     merge_duplicate_diseases,
 )
 from indication_scout.data_sources.pubmed import PubMedClient
@@ -66,12 +66,11 @@ class RetrievalService:
             Dict with normalized disease names as keys and unioned drug sets.
         """
         original_names = list(diseases.keys())
-        normalized_names = await asyncio.gather(
-            *[llm_normalize_disease(name) for name in original_names]
-        )
+        norm_map = await llm_normalize_disease_batch(original_names)
 
         merged: dict[str, set[str]] = {}
-        for original, normalized in zip(original_names, normalized_names):
+        for original in original_names:
+            normalized = norm_map[original]
             key = normalized.split(" OR ")[0].strip().lower()
             if key in merged:
                 merged[key] |= diseases[original]
