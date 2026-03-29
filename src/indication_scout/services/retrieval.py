@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 
 from indication_scout.constants import CACHE_TTL, PUBMED_MAX_RESULTS
 from indication_scout.data_sources.chembl import ChEMBLClient
-from indication_scout.data_sources.open_targets import CompetitorRawData, OpenTargetsClient
+from indication_scout.data_sources.open_targets import (
+    CompetitorRawData,
+    OpenTargetsClient,
+)
 from indication_scout.services.disease_helper import (
     llm_normalize_disease,
     merge_duplicate_diseases,
@@ -160,7 +163,9 @@ class RetrievalService:
         if rich.drug.atc_classifications:
             async with ChEMBLClient() as chembl_client:
                 for code in rich.drug.atc_classifications:
-                    atc_descriptions.append(await chembl_client.get_atc_description(code))
+                    atc_descriptions.append(
+                        await chembl_client.get_atc_description(code)
+                    )
 
         return DrugProfile.from_rich_drug_data(rich, atc_descriptions)
 
@@ -303,13 +308,16 @@ class RetrievalService:
         async with PubMedClient(cache_dir=self.cache_dir) as client:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
-                *[client.search(query, max_results=PUBMED_MAX_RESULTS) for query in queries]
+                *[
+                    client.search(query, max_results=PUBMED_MAX_RESULTS)
+                    for query in queries
+                ]
             )
 
             # Flatten and deduplicate while preserving first-seen order
-            all_pmids: list[str] = list(dict.fromkeys(
-                pmid for pmids in search_results for pmid in pmids
-            ))
+            all_pmids: list[str] = list(
+                dict.fromkeys(pmid for pmids in search_results for pmid in pmids)
+            )
 
             # 2. Single bulk check against pgvector
             stored = self.get_stored_pmids(all_pmids, db)
@@ -332,7 +340,7 @@ class RetrievalService:
     async def semantic_search(
         self, disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
     ) -> list[AbstractResult]:
-        """ For a given drug, disease, and list of PMIDs, return top-k most similar abstracts from pgvector
+        """For a given drug, disease, and list of PMIDs, return top-k most similar abstracts from pgvector
 
         Constructs a natural-language query from drug and disease (e.g. "Evidence for metformin
         as a treatment for colorectal cancer..."), embeds it with BioLORD-2023, then runs a
@@ -383,7 +391,9 @@ class RetrievalService:
             }
             for row in rows
         ]
-        avg_similarity = sum(r["similarity"] for r in results) / len(results) if results else 0.0
+        avg_similarity = (
+            sum(r["similarity"] for r in results) / len(results) if results else 0.0
+        )
 
         if wandb.run:
             pass
@@ -432,7 +442,9 @@ class RetrievalService:
         )
 
         template = (_PROMPTS_DIR / "synthesize.txt").read_text()
-        prompt = template.format(drug_name=drug, disease_name=disease, abstracts=formatted)
+        prompt = template.format(
+            drug_name=drug, disease_name=disease, abstracts=formatted
+        )
 
         response = await query_llm(prompt)
         # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
@@ -472,7 +484,9 @@ class RetrievalService:
             self.cache_dir,
             ttl=CACHE_TTL,
         )
-        logger.debug("Extracted organ term '%s' for disease '%s'", organ_term, disease_name)
+        logger.debug(
+            "Extracted organ term '%s' for disease '%s'", organ_term, disease_name
+        )
         return organ_term
 
     async def expand_search_terms(

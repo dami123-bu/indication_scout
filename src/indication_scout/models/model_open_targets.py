@@ -423,9 +423,7 @@ class DrugData(BaseModel):
     def approved_disease_ids(self) -> set[str]:
         """Disease IDs with approved status — for filtering."""
         return {
-            i.disease_id
-            for i in self.indications
-            if i.max_clinical_stage == "APPROVAL"
+            i.disease_id for i in self.indications if i.max_clinical_stage == "APPROVAL"
         }
 
     @property

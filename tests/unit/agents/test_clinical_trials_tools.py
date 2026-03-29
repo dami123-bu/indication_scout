@@ -228,14 +228,20 @@ async def test_search_trials_returns_trial_dicts():
     assert len(result) == 1
     t = result[0]
     assert t["nct_id"] == "NCT00127933"
-    assert t["title"] == "XeNA Study - A Study of Xeloda (Capecitabine) in Patients With Invasive Breast Cancer"
+    assert (
+        t["title"]
+        == "XeNA Study - A Study of Xeloda (Capecitabine) in Patients With Invasive Breast Cancer"
+    )
     assert t["phase"] == "Phase 4"
     assert t["overall_status"] == "COMPLETED"
     assert t["why_stopped"] is None
     assert t["indications"] == ["Breast Cancer"]
     assert len(t["interventions"]) == 1
     assert t["interventions"][0]["intervention_type"] == "Drug"
-    assert t["interventions"][0]["intervention_name"] == "Herceptin (HER2-neu positive patients only)"
+    assert (
+        t["interventions"][0]["intervention_name"]
+        == "Herceptin (HER2-neu positive patients only)"
+    )
     assert t["sponsor"] == "Hoffmann-La Roche"
     assert t["enrollment"] == 157
     assert t["start_date"] == "2005-08"
@@ -361,9 +367,7 @@ async def test_get_terminated_returns_terminated_dicts():
     ):
         result = await get_terminated.ainvoke({"query": "semaglutide"})
 
-    mock_client.get_terminated.assert_awaited_once_with(
-        "semaglutide", date_before=None
-    )
+    mock_client.get_terminated.assert_awaited_once_with("semaglutide", date_before=None)
 
     assert len(result) == 1
     t = result[0]
@@ -377,10 +381,7 @@ async def test_get_terminated_returns_terminated_dicts():
 
 async def test_get_terminated_returns_all():
     """get_terminated tool returns all trials from client without capping."""
-    trials = [
-        TerminatedTrial(nct_id=f"NCT{i:08d}")
-        for i in range(25)
-    ]
+    trials = [TerminatedTrial(nct_id=f"NCT{i:08d}") for i in range(25)]
 
     mock_client = _mock_client(get_terminated=trials)
     tools = build_clinical_trials_tools(date_before=None)

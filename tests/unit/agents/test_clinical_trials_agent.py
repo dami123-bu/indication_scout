@@ -295,10 +295,12 @@ def test_parse_result_ai_message_block_content():
     """Handles AIMessage where content is a list of text blocks."""
     result = {
         "messages": [
-            _ai_msg([
-                {"type": "text", "text": "First part."},
-                {"type": "text", "text": "Second part."},
-            ]),
+            _ai_msg(
+                [
+                    {"type": "text", "text": "First part."},
+                    {"type": "text", "text": "Second part."},
+                ]
+            ),
         ]
     }
 

@@ -323,7 +323,9 @@ class ClinicalTrialsClient(BaseClient):
         }
 
         if indication:
-            params["query.cond"] = indication  # API uses "cond" for indication/indication
+            params["query.cond"] = (
+                indication  # API uses "cond" for indication/indication
+            )
         if drug:
             params["query.intr"] = drug
         if extra_term:

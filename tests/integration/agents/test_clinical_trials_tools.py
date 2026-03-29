@@ -106,7 +106,10 @@ async def test_search_trials_drug_and_indication():
     [tdm1] = [t for t in result if t["nct_id"] == "NCT01702571"]
 
     assert tdm1["nct_id"] == "NCT01702571"
-    assert tdm1["title"] == "A Study of Trastuzumab Emtansine in Participants With Human Epidermal Growth Factor Receptor 2 (HER2)-Positive Breast Cancer Who Have Received Prior Anti-HER2 And Chemotherapy-based Treatment"
+    assert (
+        tdm1["title"]
+        == "A Study of Trastuzumab Emtansine in Participants With Human Epidermal Growth Factor Receptor 2 (HER2)-Positive Breast Cancer Who Have Received Prior Anti-HER2 And Chemotherapy-based Treatment"
+    )
     assert tdm1["phase"] == "Phase 3"
     assert tdm1["overall_status"] == "COMPLETED"
     assert tdm1["why_stopped"] is None
@@ -122,8 +125,14 @@ async def test_search_trials_drug_and_indication():
     assert tdm1["interventions"][0]["intervention_name"] == "Trastuzumab Emtansine"
 
     assert len(tdm1["primary_outcomes"]) == 1
-    assert tdm1["primary_outcomes"][0]["measure"] == "Percentage of Participants With Adverse Events of Primary Interest (AEPIs)"
-    assert tdm1["primary_outcomes"][0]["time_frame"] == "Baseline up to approximately 7 years"
+    assert (
+        tdm1["primary_outcomes"][0]["measure"]
+        == "Percentage of Participants With Adverse Events of Primary Interest (AEPIs)"
+    )
+    assert (
+        tdm1["primary_outcomes"][0]["time_frame"]
+        == "Baseline up to approximately 7 years"
+    )
 
 
 async def test_search_trials_nonexistent_drug():
@@ -181,9 +190,7 @@ async def test_get_landscape_gastroparesis():
 
 async def test_get_landscape_nonexistent_indication():
     """get_landscape tool returns empty landscape for nonexistent indication."""
-    result = await get_landscape.ainvoke(
-        {"indication": "xyzzy_fake_indication_99999"}
-    )
+    result = await get_landscape.ainvoke({"indication": "xyzzy_fake_indication_99999"})
 
     assert result["total_trial_count"] == 0
     assert result["competitors"] == []
@@ -209,14 +216,14 @@ async def test_get_terminated_semaglutide():
     assert novo_trial["drug_name"] == "Semaglutide (administered by DV3396 pen)"
     assert novo_trial["indication"] == "Overweight"
     assert novo_trial["phase"] == "Phase 1"
-    assert novo_trial["why_stopped"] == "The trial was terminated for strategic reasons."
+    assert (
+        novo_trial["why_stopped"] == "The trial was terminated for strategic reasons."
+    )
     assert novo_trial["stop_category"] == "business"
 
 
 async def test_get_terminated_nonexistent_query():
     """get_terminated tool returns empty list for nonexistent query."""
-    result = await get_terminated.ainvoke(
-        {"query": "xyzzy_not_a_real_term_12345"}
-    )
+    result = await get_terminated.ainvoke({"query": "xyzzy_not_a_real_term_12345"})
 
     assert result == []

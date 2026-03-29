@@ -251,17 +251,14 @@ async def test_glp1r_target_associations(open_targets_client):
 async def test_glp1r_drug_summary(open_targets_client):
     """Test DrugSummary fields for GLP1R target."""
     target = await open_targets_client.get_target_data("ENSG00000112164")
-    liraglutide = next(
-        d for d in target.drug_summaries if d.drug_name == "LIRAGLUTIDE"
-    )
+    liraglutide = next(d for d in target.drug_summaries if d.drug_name == "LIRAGLUTIDE")
 
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.drug_name == "LIRAGLUTIDE"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
     t2d = next(
-        d for d in liraglutide.diseases
-        if d.disease_name == "type 2 diabetes mellitus"
+        d for d in liraglutide.diseases if d.disease_name == "type 2 diabetes mellitus"
     )
     assert t2d.disease_id == "MONDO_0005148"
 
@@ -435,9 +432,7 @@ async def test_drug_target_competitors(open_targets_client):
         assert len(summaries) > 0
 
     # Spot-check a known GLP1R competitor: LIRAGLUTIDE
-    liraglutide = next(
-        d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE"
-    )
+    liraglutide = next(d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE")
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.drug_name == "LIRAGLUTIDE"
     assert liraglutide.max_clinical_stage == "APPROVAL"
@@ -520,16 +515,13 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     assert "gastrointestinal disease" in gastroparesis.therapeutic_areas
 
     # DrugSummary — semaglutide on GLP1R
-    sema_summary = next(
-        d for d in glp1r.drug_summaries if d.drug_name == "SEMAGLUTIDE"
-    )
+    sema_summary = next(d for d in glp1r.drug_summaries if d.drug_name == "SEMAGLUTIDE")
     assert sema_summary.drug_id == "CHEMBL2108724"
     assert sema_summary.drug_name == "SEMAGLUTIDE"
     assert sema_summary.max_clinical_stage == "APPROVAL"
     assert len(sema_summary.diseases) > 0
     t2d_disease = next(
-        d for d in sema_summary.diseases
-        if d.disease_name == "type 2 diabetes mellitus"
+        d for d in sema_summary.diseases if d.disease_name == "type 2 diabetes mellitus"
     )
     assert t2d_disease.disease_id == "MONDO_0005148"
 
@@ -610,6 +602,7 @@ async def test_get_drug_competitors_bupropion(open_targets_client):
         diseases["fibromyalgia"]
     )
 
+
 async def test_empagliflozin_candidates(open_targets_client):
     result = await open_targets_client.get_drug_competitors("empagliflozin")
     diseases = set(result["diseases"].keys())
@@ -630,9 +623,7 @@ async def test_get_drug_target_competitors_semaglutide(open_targets_client):
     assert len(result["GLP1R"]) > 5
 
     # LIRAGLUTIDE should be among the GLP1R drugs
-    liraglutide = next(
-        d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE"
-    )
+    liraglutide = next(d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE")
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.drug_name == "LIRAGLUTIDE"
     assert liraglutide.max_clinical_stage == "APPROVAL"

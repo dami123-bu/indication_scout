@@ -76,9 +76,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         business, other, unknown). Use to check for prior failures.
         """
         async with ClinicalTrialsClient() as client:
-            results = await client.get_terminated(
-                query, date_before=date_before
-            )
+            results = await client.get_terminated(query, date_before=date_before)
         return [t.model_dump() for t in results]
 
     return [detect_whitespace, search_trials, get_landscape, get_terminated]

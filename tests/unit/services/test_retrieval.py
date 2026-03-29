@@ -182,7 +182,9 @@ async def test_extract_organ_term_returns_cached_result(tmp_path):
         "indication_scout.services.retrieval.query_small_llm",
         new=AsyncMock(),
     ) as mock_llm:
-        result = await RetrievalService(tmp_path).extract_organ_term("colorectal cancer")
+        result = await RetrievalService(tmp_path).extract_organ_term(
+            "colorectal cancer"
+        )
 
     assert result == "colon"
     mock_llm.assert_not_called()
@@ -385,7 +387,9 @@ async def test_build_drug_profile_returns_profile(svc, rich_metformin, atc_metfo
     assert profile.drug_type == "Small molecule"
 
 
-async def test_build_drug_profile_fetches_atc_per_code(svc, rich_metformin, atc_metformin):
+async def test_build_drug_profile_fetches_atc_per_code(
+    svc, rich_metformin, atc_metformin
+):
     """get_atc_description is called once per ATC code on the drug."""
     mock_open_targets = AsyncMock()
     mock_open_targets.__aenter__ = AsyncMock(return_value=mock_open_targets)
@@ -619,7 +623,9 @@ async def test_embed_abstracts_vectors_align_to_abstracts_by_index(svc):
     ]
     mock_vectors = [[float(i)] * 768 for i in range(3)]
 
-    with patch("indication_scout.services.retrieval.embed_async", return_value=mock_vectors):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", return_value=mock_vectors
+    ):
         result = await svc.embed_abstracts(abstracts)
 
     assert len(result) == 3
@@ -801,7 +807,9 @@ async def test_semantic_search_returns_ranked_dicts(svc):
     mock_db = _make_db_with_rows(db_rows)
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+    ):
         result = await svc.semantic_search(
             "colorectal cancer", "metformin", ["111", "222"], mock_db
         )
@@ -831,7 +839,9 @@ async def test_semantic_search_embeds_therapeutic_query(svc):
         captured["texts"] = texts
         return [mock_vector]
 
-    with patch("indication_scout.services.retrieval.embed_async", side_effect=capture_embed):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", side_effect=capture_embed
+    ):
         await svc.semantic_search("obesity", "bupropion", ["111"], mock_db)
 
     assert len(captured["texts"]) == 1
@@ -845,7 +855,9 @@ async def test_semantic_search_passes_pmids_to_query(svc):
     mock_vector = [0.1] * 768
     pmids = ["111", "222", "333"]
 
-    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+    ):
         await svc.semantic_search("diabetes", "metformin", pmids, mock_db)
 
     call_kwargs = mock_db.execute.call_args
@@ -858,7 +870,9 @@ async def test_semantic_search_respects_top_k(svc):
     mock_db = _make_db_with_rows([])
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+    ):
         await svc.semantic_search("diabetes", "metformin", ["111"], mock_db, top_k=5)
 
     call_kwargs = mock_db.execute.call_args
@@ -874,7 +888,9 @@ async def test_semantic_search_similarity_is_float(svc):
     mock_db = _make_db_with_rows(db_rows)
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
+    with patch(
+        "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+    ):
         result = await svc.semantic_search("diabetes", "metformin", ["111"], mock_db)
 
     assert isinstance(result[0]["similarity"], float)
@@ -896,12 +912,22 @@ async def test_semantic_search_logs_wandb_table_when_run_active(svc):
     mock_run = MagicMock()
 
     with (
-        patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]),
+        patch(
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
+        ),
         patch("indication_scout.services.retrieval.wandb.run", mock_run),
-        patch("indication_scout.services.retrieval.wandb.Table", return_value=mock_table),
-        patch("indication_scout.services.retrieval.wandb.log", side_effect=lambda d: logged.update(d)),
+        patch(
+            "indication_scout.services.retrieval.wandb.Table", return_value=mock_table
+        ),
+        patch(
+            "indication_scout.services.retrieval.wandb.log",
+            side_effect=lambda d: logged.update(d),
+        ),
     ):
-        await svc.semantic_search("colorectal cancer", "metformin", ["111", "222"], mock_db)
+        await svc.semantic_search(
+            "colorectal cancer", "metformin", ["111", "222"], mock_db
+        )
 
     assert logged["semantic_search/colorectal_cancer/candidate_pmids"] == 2
     assert logged["semantic_search/colorectal_cancer/results_returned"] == 2
@@ -920,7 +946,10 @@ async def test_semantic_search_skips_wandb_log_when_no_run(svc):
     mock_vector = [0.1] * 768
 
     with (
-        patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]),
+        patch(
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
+        ),
         patch("indication_scout.services.retrieval.wandb.run", None),
         patch("indication_scout.services.retrieval.wandb.log") as mock_log,
     ):
@@ -989,7 +1018,9 @@ async def test_synthesize_strips_markdown_fences(svc):
         "indication_scout.services.retrieval.query_llm",
         new=AsyncMock(return_value=fenced),
     ):
-        result = await svc.synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
+        result = await svc.synthesize(
+            "metformin", "colorectal cancer", _SAMPLE_ABSTRACTS
+        )
 
     assert result.strength == "moderate"
     assert result.supporting_pmids == ["11111111", "22222222"]
@@ -1001,7 +1032,9 @@ async def test_synthesize_parses_llm_response(svc):
         "indication_scout.services.retrieval.query_llm",
         new=AsyncMock(return_value=_SAMPLE_LLM_RESPONSE),
     ):
-        result = await svc.synthesize("metformin", "colorectal cancer", _SAMPLE_ABSTRACTS)
+        result = await svc.synthesize(
+            "metformin", "colorectal cancer", _SAMPLE_ABSTRACTS
+        )
 
     assert isinstance(result, EvidenceSummary)
     assert result.summary == "Two studies support metformin for colorectal cancer."
@@ -1087,7 +1120,8 @@ async def test_get_drug_competitors_returns_cached(tmp_path):
 
     mock_client = AsyncMock()
     with patch(
-        "indication_scout.services.retrieval.OpenTargetsClient", return_value=mock_client
+        "indication_scout.services.retrieval.OpenTargetsClient",
+        return_value=mock_client,
     ):
         result = await RetrievalService(tmp_path).get_drug_competitors("testdrug")
 
@@ -1147,4 +1181,3 @@ async def test_normalize_disease_groups_uses_first_term_before_or(tmp_path):
 
     assert len(result) == 1
     assert result["liver cancer"] == {"drug_a", "drug_b"}
-

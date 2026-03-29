@@ -113,7 +113,9 @@ class PubMedClient(BaseClient):
                 "rettype": "abstract",
             }
 
-            xml_text = await self._rest_get_xml(self.FETCH_URL, self._inject_api_key(params))
+            xml_text = await self._rest_get_xml(
+                self.FETCH_URL, self._inject_api_key(params)
+            )
 
             articles = self._parse_pubmed_xml(xml_text)
             all_articles.extend(articles)

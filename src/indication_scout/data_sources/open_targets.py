@@ -135,8 +135,7 @@ class OpenTargetsClient(BaseClient):
         if cached is not None:
             return CompetitorRawData(
                 diseases={
-                    disease: set(drugs)
-                    for disease, drugs in cached["diseases"].items()
+                    disease: set(drugs) for disease, drugs in cached["diseases"].items()
                 },
                 drug_indications=cached["drug_indications"],
             )
@@ -189,8 +188,7 @@ class OpenTargetsClient(BaseClient):
                 del siblings_with_stage[key]
 
         siblings: dict[str, set[str]] = {
-            disease: set(drugs.keys())
-            for disease, drugs in siblings_with_stage.items()
+            disease: set(drugs.keys()) for disease, drugs in siblings_with_stage.items()
         }
 
         # Remove overly broad disease terms (e.g. "cancer", "carcinoma") that
