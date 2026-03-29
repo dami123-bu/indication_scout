@@ -85,12 +85,9 @@ async def test_get_trial(clinical_trials_client):
     assert trial.why_stopped is None
     assert trial.indications == ["Breast Cancer"]
     assert trial.sponsor == "Hoffmann-La Roche"
-    assert trial.collaborators == []
     assert trial.enrollment == 157
     assert trial.start_date == "2005-08"
     assert trial.completion_date == "2009-04"
-    assert trial.study_type == "INTERVENTIONAL"
-    assert trial.results_posted is True
     assert trial.references == []
 
     # Verify interventions - trial has 5 drug interventions
@@ -138,12 +135,9 @@ async def test_search_trials(clinical_trials_client):
     assert xena.why_stopped is None
     assert xena.indications == ["Breast Cancer"]
     assert xena.sponsor == "Hoffmann-La Roche"
-    assert xena.collaborators == []
     assert xena.enrollment == 157
     assert xena.start_date == "2005-08"
     assert xena.completion_date == "2009-04"
-    assert xena.study_type == "INTERVENTIONAL"
-    assert xena.results_posted is True
     assert xena.references == []
 
     # Verify interventions - trial has 5 interventions including Herceptin
@@ -204,12 +198,9 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
     assert nash_trial.why_stopped is None
     assert nash_trial.indications == ["Nonalcoholic Steatohepatitis"]
     assert nash_trial.sponsor == "Gilead Sciences"
-    assert nash_trial.collaborators == ["Novo Nordisk A/S"]
     assert nash_trial.enrollment == 457
     assert nash_trial.start_date == "2021-08-09"
     assert nash_trial.completion_date == "2024-11-12"
-    assert nash_trial.study_type == "INTERVENTIONAL"
-    assert nash_trial.results_posted is True
     assert nash_trial.references == []
 
     assert len(nash_trial.interventions) == 4
@@ -256,12 +247,9 @@ async def test_search_trials_condition_only(clinical_trials_client):
         "Gastroesophageal Reflux Disease",
     ]
     assert pk_trial.sponsor == "University of Louisville"
-    assert pk_trial.collaborators == ["Bausch Health Americas, Inc."]
     assert pk_trial.enrollment == 12
     assert pk_trial.start_date == "2007-06"
     assert pk_trial.completion_date == "2008-12"
-    assert pk_trial.study_type == "INTERVENTIONAL"
-    assert pk_trial.results_posted is True
     assert pk_trial.references == ["19925497"]
 
     # Verify interventions - trial has 2 drug interventions

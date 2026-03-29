@@ -163,15 +163,12 @@ def test_parse_result_active_trials_path():
                 }
             ],
             "sponsor": "Novo Nordisk",
-            "collaborators": [],
             "enrollment": 320,
             "start_date": "2017-03-01",
             "completion_date": "2020-06-01",
-            "study_type": "INTERVENTIONAL",
             "primary_outcomes": [
                 {"measure": "NASH resolution", "time_frame": "72 weeks"}
             ],
-            "results_posted": True,
             "references": ["33185364"],
         }
     ]
@@ -228,7 +225,6 @@ def test_parse_result_active_trials_path():
     assert output.trials[0].interventions[0].intervention_name == "Semaglutide"
     assert output.trials[0].sponsor == "Novo Nordisk"
     assert output.trials[0].enrollment == 320
-    assert output.trials[0].results_posted is True
     assert output.trials[0].references == ["33185364"]
 
     # Landscape

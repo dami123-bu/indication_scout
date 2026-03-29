@@ -98,18 +98,15 @@ def sample_trial():
             ),
         ],
         sponsor="Novo Nordisk",
-        collaborators=["NIH", "FDA"],
         enrollment=1961,
         start_date="2020-03-15",
         completion_date="2022-06-30",
-        study_type="Interventional",
         primary_outcomes=[
             PrimaryOutcome(
                 measure="Change in body weight",
                 time_frame="68 weeks",
             ),
         ],
-        results_posted=True,
         references=["34567890", "34567891"],
     )
 
@@ -133,14 +130,11 @@ def test_trial_all_fields(sample_trial):
     assert sample_trial.interventions[0].intervention_name == "Semaglutide"
     assert sample_trial.interventions[1].intervention_name == "Placebo"
     assert sample_trial.sponsor == "Novo Nordisk"
-    assert sample_trial.collaborators == ["NIH", "FDA"]
     assert sample_trial.enrollment == 1961
     assert sample_trial.start_date == "2020-03-15"
     assert sample_trial.completion_date == "2022-06-30"
-    assert sample_trial.study_type == "Interventional"
     assert len(sample_trial.primary_outcomes) == 1
     assert sample_trial.primary_outcomes[0].measure == "Change in body weight"
-    assert sample_trial.results_posted is True
     assert sample_trial.references == ["34567890", "34567891"]
 
 
@@ -163,13 +157,10 @@ def test_trial_minimal_required_fields():
     assert trial.why_stopped is None
     assert trial.indications == []
     assert trial.interventions == []
-    assert trial.collaborators == []
     assert trial.enrollment is None
     assert trial.start_date is None
     assert trial.completion_date is None
-    assert trial.study_type == "Interventional"
     assert trial.primary_outcomes == []
-    assert trial.results_posted is None
     assert trial.references == []
 
 

@@ -55,13 +55,10 @@ class Trial(BaseModel):
     indications: list[str] = []
     interventions: list[Intervention] = []
     sponsor: str = ""
-    collaborators: list[str] = []
     enrollment: int | None = None
     start_date: str | None = None
     completion_date: str | None = None
-    study_type: str = "Interventional"
     primary_outcomes: list[PrimaryOutcome] = []
-    results_posted: bool | None = None
     references: list[str] = []  # PMIDs
 
     @model_validator(mode="before")

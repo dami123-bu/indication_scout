@@ -409,9 +409,6 @@ class ClinicalTrialsClient(BaseClient):
         phases_raw = design.get("phases", [])
         phase = self._normalize_phase(phases_raw)
 
-        # Collaborators
-        collabs = [c.get("name", "") for c in sponsor_mod.get("collaborators", [])]
-
         # PMIDs from references
         pmids = [r["pmid"] for r in refs.get("references", []) if r.get("pmid")]
 
@@ -429,15 +426,12 @@ class ClinicalTrialsClient(BaseClient):
             indications=proto.get("conditionsModule", {}).get("conditions", []),
             interventions=interventions,
             sponsor=sponsor_mod.get("leadSponsor", {}).get("name", ""),
-            collaborators=collabs,
             enrollment=enrollment,
             start_date=self._extract_date(status.get("startDateStruct")),
             completion_date=self._extract_date(
                 status.get("primaryCompletionDateStruct")
             ),
-            study_type=design.get("studyType", ""),
             primary_outcomes=primary_outcomes,
-            results_posted=study.get("hasResults", False),
             references=pmids,
         )
 
