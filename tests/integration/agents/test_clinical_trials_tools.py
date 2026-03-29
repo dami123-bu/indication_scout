@@ -32,7 +32,7 @@ async def test_detect_whitespace_whitespace():
     including indication_drugs ranked by phase.
     """
     result = await detect_whitespace.ainvoke(
-        {"drug": "tirzepatide", "condition": "Huntington disease"}
+        {"drug": "tirzepatide", "indication": "Huntington disease"}
     )
 
     assert result["is_whitespace"] is True
@@ -78,7 +78,7 @@ async def test_detect_whitespace_not_whitespace():
     indication_drugs should be empty.
     """
     result = await detect_whitespace.ainvoke(
-        {"drug": "semaglutide", "condition": "diabetes"}
+        {"drug": "semaglutide", "indication": "diabetes"}
     )
 
     assert result["is_whitespace"] is False
@@ -93,10 +93,10 @@ async def test_detect_whitespace_not_whitespace():
 # ------------------------------------------------------------------
 
 
-async def test_search_trials_drug_and_condition():
-    """search_trials tool returns trial dicts for a drug-condition pair."""
+async def test_search_trials_drug_and_indication():
+    """search_trials tool returns trial dicts for a drug-indication pair."""
     result = await search_trials.ainvoke(
-        {"drug": "trastuzumab", "condition": "breast cancer"}
+        {"drug": "trastuzumab", "indication": "breast cancer"}
     )
 
     # Client default max_results=200, no tool cap
@@ -129,7 +129,7 @@ async def test_search_trials_drug_and_condition():
 async def test_search_trials_nonexistent_drug():
     """search_trials tool returns empty list for nonexistent drug."""
     result = await search_trials.ainvoke(
-        {"drug": "xyzzy_not_a_real_drug_12345", "condition": "diabetes"}
+        {"drug": "xyzzy_not_a_real_drug_12345", "indication": "diabetes"}
     )
 
     assert result == []
@@ -142,7 +142,7 @@ async def test_search_trials_nonexistent_drug():
 
 async def test_get_landscape_gastroparesis():
     """get_landscape tool returns competitive landscape dict."""
-    result = await get_landscape.ainvoke({"condition": "gastroparesis"})
+    result = await get_landscape.ainvoke({"indication": "gastroparesis"})
 
     # Gastroparesis has ~80-150 trials
     assert 80 < result["total_trial_count"] < 150
@@ -182,7 +182,7 @@ async def test_get_landscape_gastroparesis():
 async def test_get_landscape_nonexistent_indication():
     """get_landscape tool returns empty landscape for nonexistent indication."""
     result = await get_landscape.ainvoke(
-        {"condition": "xyzzy_fake_indication_99999"}
+        {"indication": "xyzzy_fake_indication_99999"}
     )
 
     assert result["total_trial_count"] == 0

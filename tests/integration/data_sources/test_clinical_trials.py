@@ -216,7 +216,7 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
     )
 
 
-async def test_search_trials_condition_only(clinical_trials_client):
+async def test_search_trials_indication_only(clinical_trials_client):
     """Test search_trials returns trials for an indication without specifying drug."""
     # Search for gastroparesis trials across all drugs
     trials = await clinical_trials_client.search_trials(

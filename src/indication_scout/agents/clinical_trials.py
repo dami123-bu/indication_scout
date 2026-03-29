@@ -158,8 +158,6 @@ class ClinicalTrialsAgent(BaseAgent):
 
         # The last AI message (not a tool message) is the summary.
         # Note: LangChain AIMessage has .name = None, while ToolMessage
-        # has .name set to the tool name. We check for a falsy .name
-        # rather than hasattr, since both message types define the attribute.
         for msg in reversed(messages):
             if hasattr(msg, "content") and not getattr(msg, "name", None):
                 # AIMessage — extract text content

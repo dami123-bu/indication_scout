@@ -25,23 +25,23 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
     """
 
     @tool
-    async def detect_whitespace(drug: str, condition: str) -> dict:
-        """Check if a drug-condition pair has been explored in clinical trials.
+    async def detect_whitespace(drug: str, indication: str) -> dict:
+        """Check if a drug-indication pair has been explored in clinical trials.
 
         Returns whitespace signal: whether trials exist for this exact pair,
-        how many trials exist for the drug alone and condition alone, and
-        (when whitespace exists) other drugs being tested for the same condition.
+        how many trials exist for the drug alone and indication alone, and
+        (when whitespace exists) other drugs being tested for the same indication.
         This should almost always be the first tool called.
         """
         async with ClinicalTrialsClient() as client:
             result = await client.detect_whitespace(
-                drug, condition, date_before=date_before
+                drug, indication, date_before=date_before
             )
         return result.model_dump()
 
     @tool
-    async def search_trials(drug: str, condition: str) -> list[dict]:
-        """Search for clinical trials matching a drug and condition.
+    async def search_trials(drug: str, indication: str) -> list[dict]:
+        """Search for clinical trials matching a drug and indication.
 
         Returns trial records including phase, status, enrollment, sponsor,
         interventions, and outcomes. Use when detect_whitespace shows trials
@@ -49,7 +49,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         """
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
-                drug, condition, date_before=date_before
+                drug, indication, date_before=date_before
             )
         return [t.model_dump() for t in trials]
 
@@ -71,7 +71,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
     async def get_terminated(query: str) -> list[dict]:
         """Get terminated, withdrawn, or suspended trials for a query.
 
-        The query can be a drug name, drug class, or condition name.
+        The query can be a drug name, drug class, or indication name.
         Each result includes a stop_category (safety, efficacy, enrollment,
         business, other, unknown). Use to check for prior failures.
         """

@@ -83,7 +83,7 @@ async def test_detect_whitespace_whitespace_case():
         return_value=mock_client,
     ):
         result = await detect_whitespace.ainvoke(
-            {"drug": "tirzepatide", "condition": "Huntington disease"}
+            {"drug": "tirzepatide", "indication": "Huntington disease"}
         )
 
     mock_client.detect_whitespace.assert_awaited_once_with(
@@ -132,7 +132,7 @@ async def test_detect_whitespace_not_whitespace_case():
         return_value=mock_client,
     ):
         result = await detect_whitespace.ainvoke(
-            {"drug": "semaglutide", "condition": "diabetes"}
+            {"drug": "semaglutide", "indication": "diabetes"}
         )
 
     mock_client.detect_whitespace.assert_awaited_once_with(
@@ -168,11 +168,11 @@ async def test_detect_whitespace_passes_date_before():
         return_value=mock_client,
     ):
         await detect_whitespace.ainvoke(
-            {"drug": "drug_x", "condition": "condition_y"}
+            {"drug": "drug_x", "indication": "indication_y"}
         )
 
     mock_client.detect_whitespace.assert_awaited_once_with(
-        "drug_x", "condition_y", date_before=cutoff
+        "drug_x", "indication_y", date_before=cutoff
     )
 
 
@@ -218,7 +218,7 @@ async def test_search_trials_returns_trial_dicts():
         return_value=mock_client,
     ):
         result = await search_trials.ainvoke(
-            {"drug": "trastuzumab", "condition": "breast cancer"}
+            {"drug": "trastuzumab", "indication": "breast cancer"}
         )
 
     mock_client.search_trials.assert_awaited_once_with(
@@ -262,7 +262,7 @@ async def test_search_trials_returns_all():
         return_value=mock_client,
     ):
         result = await search_trials.ainvoke(
-            {"drug": "drug_x", "condition": "condition_y"}
+            {"drug": "drug_x", "indication": "indication_y"}
         )
 
     assert len(result) == 25
