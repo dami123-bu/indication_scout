@@ -6,6 +6,7 @@ attempts failed. Returns a ClinicalTrialsOutput with structured data
 and a natural language summary.
 """
 
+import json
 import logging
 from datetime import date
 from typing import Any
@@ -134,6 +135,13 @@ class ClinicalTrialsAgent(BaseAgent):
                 tool_name = msg.name
                 content = msg.content
 
+                # LangChain may store tool responses as JSON strings
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
                 if tool_name == "detect_whitespace" and isinstance(content, dict):
                     whitespace = WhitespaceResult(**content)
 
@@ -148,9 +156,12 @@ class ClinicalTrialsAgent(BaseAgent):
                         TerminatedTrial(**t) for t in content if isinstance(t, dict)
                     ]
 
-        # The last AI message (not a tool message) is the summary
+        # The last AI message (not a tool message) is the summary.
+        # Note: LangChain AIMessage has .name = None, while ToolMessage
+        # has .name set to the tool name. We check for a falsy .name
+        # rather than hasattr, since both message types define the attribute.
         for msg in reversed(messages):
-            if hasattr(msg, "content") and not hasattr(msg, "name"):
+            if hasattr(msg, "content") and not getattr(msg, "name", None):
                 # AIMessage — extract text content
                 content = msg.content
                 if isinstance(content, str) and content.strip():
