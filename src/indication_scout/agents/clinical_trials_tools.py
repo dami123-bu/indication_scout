@@ -54,8 +54,8 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         return [t.model_dump() for t in trials]
 
     @tool
-    async def get_landscape(condition: str) -> dict:
-        """Get the competitive landscape for a condition.
+    async def get_landscape(indication: str) -> dict:
+        """Get the competitive landscape for a indication.
 
         Returns top 10 competitors grouped by sponsor + drug, ranked by
         phase then enrollment, plus phase distribution and recent starts.
@@ -63,7 +63,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         """
         async with ClinicalTrialsClient() as client:
             result = await client.get_landscape(
-                condition, date_before=date_before, top_n=10
+                indication, date_before=date_before, top_n=10
             )
         return result.model_dump()
 

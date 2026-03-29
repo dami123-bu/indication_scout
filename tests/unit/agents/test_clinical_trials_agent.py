@@ -50,17 +50,11 @@ def test_parse_result_whitespace_path():
     terminated_data = [
         {
             "nct_id": "NCT01234567",
-            "title": "Failed Trial",
             "drug_name": "SomeDrug",
             "indication": "Huntington's Disease",
             "phase": "Phase 2",
             "why_stopped": "Lack of efficacy",
             "stop_category": "efficacy",
-            "enrollment": 50,
-            "sponsor": "PharmaCo",
-            "start_date": "2018-01-01",
-            "termination_date": "2019-06-01",
-            "references": [],
         }
     ]
 
@@ -104,17 +98,11 @@ def test_parse_result_whitespace_path():
     # Terminated
     assert len(output.terminated) == 1
     assert output.terminated[0].nct_id == "NCT01234567"
-    assert output.terminated[0].title == "Failed Trial"
     assert output.terminated[0].drug_name == "SomeDrug"
     assert output.terminated[0].indication == "Huntington's Disease"
     assert output.terminated[0].phase == "Phase 2"
     assert output.terminated[0].why_stopped == "Lack of efficacy"
     assert output.terminated[0].stop_category == "efficacy"
-    assert output.terminated[0].enrollment == 50
-    assert output.terminated[0].sponsor == "PharmaCo"
-    assert output.terminated[0].start_date == "2018-01-01"
-    assert output.terminated[0].termination_date == "2019-06-01"
-    assert output.terminated[0].references == []
 
     # Landscape
     assert output.landscape is not None
@@ -184,7 +172,6 @@ def test_parse_result_active_trials_path():
                 "trial_count": 3,
                 "statuses": ["COMPLETED", "RECRUITING"],
                 "total_enrollment": 2000,
-                "most_recent_start": "2022-01-15",
             }
         ],
         "phase_distribution": {"Phase 2": 25, "Phase 3": 12},

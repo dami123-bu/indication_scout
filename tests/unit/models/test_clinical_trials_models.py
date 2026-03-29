@@ -329,7 +329,6 @@ def sample_competitor():
         trial_count=12,
         statuses={"Recruiting", "Active, not recruiting", "Completed"},
         total_enrollment=8500,
-        most_recent_start="2023-06-15",
     )
 
 
@@ -346,7 +345,6 @@ def test_competitor_entry_all_fields(sample_competitor):
         "Completed",
     }
     assert sample_competitor.total_enrollment == 8500
-    assert sample_competitor.most_recent_start == "2023-06-15"
 
 
 def test_competitor_entry_optional_fields():
@@ -359,10 +357,8 @@ def test_competitor_entry_optional_fields():
         trial_count=1,
         statuses={"Recruiting"},
         total_enrollment=50,
-        most_recent_start=None,
     )
     assert competitor.drug_type is None
-    assert competitor.most_recent_start is None
 
 
 def test_indication_landscape_all_fields(sample_competitor):
@@ -422,24 +418,17 @@ def sample_terminated_trial():
     """Create a sample TerminatedTrial."""
     return TerminatedTrial(
         nct_id="NCT03456789",
-        title="A Study That Was Stopped Early",
         drug_name="Failed Drug",
         indication="Type 2 Diabetes",
         phase="Phase 3",
         why_stopped="Interim analysis showed lack of efficacy",
         stop_category="efficacy",
-        enrollment=2500,
-        sponsor="Big Pharma Inc",
-        start_date="2019-01-15",
-        termination_date="2021-06-30",
-        references=["35000001", "35000002"],
     )
 
 
 def test_terminated_trial_all_fields(sample_terminated_trial):
     """TerminatedTrial should store all fields correctly."""
     assert sample_terminated_trial.nct_id == "NCT03456789"
-    assert sample_terminated_trial.title == "A Study That Was Stopped Early"
     assert sample_terminated_trial.drug_name == "Failed Drug"
     assert sample_terminated_trial.indication == "Type 2 Diabetes"
     assert sample_terminated_trial.phase == "Phase 3"
@@ -448,32 +437,21 @@ def test_terminated_trial_all_fields(sample_terminated_trial):
         == "Interim analysis showed lack of efficacy"
     )
     assert sample_terminated_trial.stop_category == "efficacy"
-    assert sample_terminated_trial.enrollment == 2500
-    assert sample_terminated_trial.sponsor == "Big Pharma Inc"
-    assert sample_terminated_trial.start_date == "2019-01-15"
-    assert sample_terminated_trial.termination_date == "2021-06-30"
-    assert sample_terminated_trial.references == ["35000001", "35000002"]
 
 
 def test_terminated_trial_minimal_fields():
     """TerminatedTrial should work with only required fields."""
     trial = TerminatedTrial(
         nct_id="NCT00000001",
-        title="Minimal Terminated Trial",
     )
     assert trial.nct_id == "NCT00000001"
-    assert trial.title == "Minimal Terminated Trial"
     # Defaults
     assert trial.drug_name is None
     assert trial.indication is None
     assert trial.phase is None
     assert trial.why_stopped is None
     assert trial.stop_category is None
-    assert trial.enrollment is None
-    assert trial.sponsor is None
-    assert trial.start_date is None
-    assert trial.termination_date is None
-    assert trial.references == []
+    assert trial.stop_category is None
 
 
 @pytest.mark.parametrize(
@@ -491,7 +469,6 @@ def test_terminated_trial_stop_categories(stop_category, why_stopped):
     """TerminatedTrial should accept various stop_category values."""
     trial = TerminatedTrial(
         nct_id="NCT00000001",
-        title="Test Terminated Trial",
         stop_category=stop_category,
         why_stopped=why_stopped,
     )

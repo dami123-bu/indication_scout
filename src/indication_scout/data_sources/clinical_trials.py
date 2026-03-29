@@ -445,17 +445,11 @@ class ClinicalTrialsClient(BaseClient):
 
         return TerminatedTrial(
             nct_id=trial.nct_id,
-            title=trial.title,
             drug_name=drug_name,
             indication=trial.indications[0] if trial.indications else None,
             phase=trial.phase,
             why_stopped=trial.why_stopped,
             stop_category=_classify_stop_reason(trial.why_stopped),
-            enrollment=trial.enrollment,
-            sponsor=trial.sponsor,
-            start_date=trial.start_date,
-            termination_date=trial.completion_date,
-            references=trial.references,
         )
 
     # ------------------------------------------------------------------
@@ -506,7 +500,6 @@ class ClinicalTrialsClient(BaseClient):
                     trial_count=0,
                     statuses=set(),
                     total_enrollment=0,
-                    most_recent_start=None,
                 )
 
             entry = competitors[key]
@@ -516,12 +509,6 @@ class ClinicalTrialsClient(BaseClient):
 
             if self._phase_rank(t.phase) > self._phase_rank(entry.max_phase):
                 entry.max_phase = t.phase
-
-            if t.start_date and (
-                entry.most_recent_start is None
-                or t.start_date > entry.most_recent_start
-            ):
-                entry.most_recent_start = t.start_date
 
         # Rank: highest phase first, then largest enrollment
         ranked = sorted(

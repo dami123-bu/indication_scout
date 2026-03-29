@@ -138,7 +138,6 @@ class CompetitorEntry(BaseModel):
     trial_count: int | None = None
     statuses: set[str] = set()
     total_enrollment: int | None = None
-    most_recent_start: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -188,6 +187,7 @@ class IndicationLandscape(BaseModel):
 # ------------------------------------------------------------------
 
 
+
 class TerminatedTrial(BaseModel):
     """A terminated, withdrawn, or suspended trial with stop classification."""
 
@@ -213,3 +213,4 @@ class TerminatedTrial(BaseModel):
             if values.get(field_name) is None and field_info.default is not None:
                 values[field_name] = field_info.default
         return values
+

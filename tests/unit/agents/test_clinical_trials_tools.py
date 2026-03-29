@@ -288,7 +288,6 @@ async def test_get_landscape_returns_landscape_dict():
                 trial_count=1,
                 statuses={"COMPLETED"},
                 total_enrollment=155,
-                most_recent_start="2009-12-03",
             ),
         ],
         phase_distribution={"Phase 2": 40, "Phase 3": 15, "Phase 4": 10},
@@ -310,7 +309,7 @@ async def test_get_landscape_returns_landscape_dict():
         "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
-        result = await get_landscape.ainvoke({"condition": "gastroparesis"})
+        result = await get_landscape.ainvoke({"indication": "gastroparesis"})
 
     mock_client.get_landscape.assert_awaited_once_with(
         "gastroparesis", date_before=None, top_n=10
@@ -327,7 +326,6 @@ async def test_get_landscape_returns_landscape_dict():
     assert comp["max_phase"] == "Phase 4"
     assert comp["trial_count"] == 1
     assert comp["total_enrollment"] == 155
-    assert comp["most_recent_start"] == "2009-12-03"
 
     assert len(result["recent_starts"]) == 1
     rs = result["recent_starts"][0]
@@ -346,17 +344,11 @@ async def test_get_terminated_returns_terminated_dicts():
     """get_terminated tool returns list of model_dump dicts."""
     terminated = TerminatedTrial(
         nct_id="NCT04012255",
-        title="A Research Study to Compare Two Forms of Semaglutide in Two Different Pen-injectors in People With Overweight or Obesity",
         drug_name="Semaglutide (administered by DV3396 pen)",
         indication="Overweight",
         phase="Phase 1",
         why_stopped="The trial was terminated for strategic reasons.",
         stop_category="business",
-        enrollment=29,
-        sponsor="Novo Nordisk A/S",
-        start_date="2019-07-15",
-        termination_date="2019-08-30",
-        references=[],
     )
 
     mock_client = _mock_client(get_terminated=[terminated])
@@ -376,23 +368,17 @@ async def test_get_terminated_returns_terminated_dicts():
     assert len(result) == 1
     t = result[0]
     assert t["nct_id"] == "NCT04012255"
-    assert t["title"] == "A Research Study to Compare Two Forms of Semaglutide in Two Different Pen-injectors in People With Overweight or Obesity"
     assert t["drug_name"] == "Semaglutide (administered by DV3396 pen)"
     assert t["indication"] == "Overweight"
     assert t["phase"] == "Phase 1"
     assert t["why_stopped"] == "The trial was terminated for strategic reasons."
     assert t["stop_category"] == "business"
-    assert t["enrollment"] == 29
-    assert t["sponsor"] == "Novo Nordisk A/S"
-    assert t["start_date"] == "2019-07-15"
-    assert t["termination_date"] == "2019-08-30"
-    assert t["references"] == []
 
 
 async def test_get_terminated_returns_all():
     """get_terminated tool returns all trials from client without capping."""
     trials = [
-        TerminatedTrial(nct_id=f"NCT{i:08d}", title=f"Trial {i}")
+        TerminatedTrial(nct_id=f"NCT{i:08d}")
         for i in range(25)
     ]
 

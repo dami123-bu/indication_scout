@@ -15,8 +15,8 @@ from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 
 from indication_scout.agents.base import BaseAgent
-from indication_scout.agents.clinical_trials_model import ClinicalTrialsOutput
 from indication_scout.agents.clinical_trials_tools import build_clinical_trials_tools
+from indication_scout.agents.model_clinical_trials_agent import ClinicalTrialsOutput
 from indication_scout.config import get_settings
 from indication_scout.models.model_clinical_trials import (
     IndicationLandscape,

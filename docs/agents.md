@@ -79,13 +79,14 @@ result = await agent.ainvoke(
 
 The LLM ends with a 2-3 sentence natural language assessment.
 
-**Result parsing**: The static method `_parse_result()` walks the message history from `agent.ainvoke()`:
+**Result parsing and collation**: The static method `_parse_result()` walks the full message history from `agent.ainvoke()` and collates multi-tool results into a single typed output:
 
-- Identifies `ToolMessage` objects by checking for a `.name` attribute
-- Matches each tool name to the correct Pydantic model constructor
-- Finds the last `AIMessage` (no `.name` attribute) and extracts its text content as the summary
-- Handles both string content and list-of-blocks content formats on `AIMessage`
-- Returns a `ClinicalTrialsOutput` instance
+- Iterates all messages, identifying `ToolMessage` objects by checking for a `.name` attribute
+- Each tool's response is matched by name to a dedicated slot on `ClinicalTrialsOutput`: `detect_whitespace` → `whitespace`, `search_trials` → `trials`, `get_landscape` → `landscape`, `get_terminated` → `terminated`
+- There is no merging across tools — each tool populates its own field. If a tool wasn't called, its field stays at the default (empty list or `None`)
+- If the same tool is called twice, the second response overwrites the first (the loop doesn't accumulate). This is acceptable because the system prompt guides the LLM to call each tool once
+- The last `AIMessage` (no `.name` attribute) is extracted as the summary. Handles both string content and list-of-blocks content formats
+- Returns a `ClinicalTrialsOutput` instance with all pieces assembled
 
 ### Tools
 
@@ -105,7 +106,7 @@ Returns four LangChain `@tool` functions. The `date_before` parameter is capture
 Design rules:
 
 - Tools accept primitive types (strings) so the LLM can provide arguments directly.
-- Tools return dicts via `model_dump()` so the LLM can read the structured results.
+- Tools return dicts via `model_dump()` because LangChain serializes tool return values into the message history as JSON for the LLM to read — Pydantic objects aren't directly serializable in that context. The `_parse_result()` method then reconstructs typed Pydantic models from those dicts on the other side: `Client returns Pydantic → tool calls .model_dump() → LLM sees dict → _parse_result reconstructs Pydantic`.
 - Each tool creates its own client session: `async with ClinicalTrialsClient() as client:`.
 - `get_landscape` passes `top_n=10` to keep the response within manageable LLM context.
 

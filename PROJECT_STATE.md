@@ -291,3 +291,80 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - Tool response payloads can be very large (e.g. 200 trials in `get_landscape`), wasteful for LLM context — needs slimming to condensed dicts for LLM while preserving full data for downstream.
 - All 283 unit tests pass; integration tests may vary with real API data.
 
+## Update (2026-03-29)
+
+### Implementation Status Changes
+- `models/model_clinical_trials.py` — Complete. Trimmed `Trial` model: removed `collaborators`, `study_type`, `results_posted` fields not consumed by agents. Trimmed `TerminatedTrial` model from 12 fields to 6: kept `nct_id`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category`; removed `title`, `enrollment`, `sponsor`, `start_date`, `termination_date`, `references`.
+- `data_sources/clinical_trials.py` — Complete. Updated `_parse_trial()` to remove parsing for deleted `Trial` fields; updated `_parse_terminated_trial()` to match slimmed `TerminatedTrial` model.
+- `agents/clinical_trials.py` — Complete. Fixed `_parse_result()` bug: `AIMessage.name = None` (not absent), changed `hasattr` check to `getattr(msg, 'name', None)`; fixed tool response parsing to handle JSON strings via `json.loads()` fallback; added model_dump serialization boundary documentation.
+- `tests/unit/models/test_clinical_trials_models.py` — Complete. Removed assertions for deleted fields from fixtures and test functions.
+- `tests/integration/data_sources/test_clinical_trials.py` — Complete. Removed assertions for deleted fields from 4 test functions.
+- `tests/unit/agents/test_clinical_trials_tools.py` — Complete. Removed deleted fields from `Trial` construction and assertions.
+- `tests/unit/agents/test_clinical_trials_agent.py` — Complete. Removed deleted fields from test data dicts and `TerminatedTrial` assertions.
+- `tests/integration/agents/test_clinical_trials_tools.py` — Complete. Removed deleted fields from assertions.
+- `docs/agents.md` — Complete. Updated with model_dump serialization boundary explanation; added multi-tool collation details explaining slot-per-tool overwrite behavior; corrected `get_landscape` parameter name from `condition` to `indication`.
+
+### New Patterns / Decisions
+- Model trimming pattern: fetch all data from APIs (stay broad), but Pydantic models retain only fields consumed by agents/services — reduces LLM token cost via `model_dump()` serialization. Same principle applied to `DrugProfile` (projection of `RichDrugData`).
+- `TerminatedTrial` only needs 6 fields for LLM red-flag assessment — full details not needed.
+- `model_dump()` is a serialization boundary: Pydantic → dict for LLM → reconstruct Pydantic in `_parse_result()`. Agents must guard against JSON strings in tool responses (LangChain may stringify).
+- Multi-tool collation: agent result dict slots are per-tool (no merging); second call to same tool overwrites first result.
+- `Intervention` model retained on `Trial` for now (still needed by `_primary_drug()` helper) — open question whether to flatten into `drug_name`/`drug_type` fields.
+- Cycled agent LLM through Opus → Sonnet → Haiku → Sonnet → Opus for user comparison testing; final model choice pending.
+
+### Known Issues / Caveats Added
+- `AIMessage.name = None` vs `hasattr` was a subtle bug — unit tests passed (SimpleNamespace has no `.name`) but integration tests failed (real AIMessage has `.name = None`).
+- `get_terminated` returns 100 results with a single broad `query` string — if LLM passes just the drug name, gets all terminated trials across all indications instead of target disease only. Needs more context in tool input.
+- 59 unit tests pass after model trimming; integration tests depend on final agent LLM model choice.
+
+
+## Update (2026-03-29)
+
+### Implementation Status Changes
+- `agents/clinical_trials.py` — Stub → Complete. Implemented using LangChain ReAct pattern; `_parse_result()` reconstructs Pydantic models from message history; fixed `AIMessage.name = None` vs `hasattr` bug and JSON string parsing fallback for tool responses.
+- `agents/clinical_trials_tools.py` — Partial → Complete. Factory `build_clinical_trials_tools(date_before)` returns 4 LangChain `@tool` wrappers with date_before captured via closure; adapted to support Opus/Sonnet/Haiku testing cycles.
+- `agents/clinical_trials_model.py` — Stub → Complete. `ClinicalTrialsOutput` model referencing `WhitespaceResult`, `ConditionLandscape`, `TerminatedTrial` from data source models.
+- `models/model_clinical_trials.py` — Complete. Trimmed `Trial` model: removed `collaborators`, `study_type`, `results_posted` (not used by agents/services). Trimmed `TerminatedTrial` from 12 → 6 fields: kept `nct_id`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category`; removed `title`, `enrollment`, `sponsor`, `start_date`, `termination_date`, `references`.
+- `data_sources/clinical_trials.py` — Complete. Updated `_parse_trial()` and `_parse_terminated_trial()` to match model changes; removed field assignments for deleted columns.
+- `tests/unit/agents/test_clinical_trials_tools.py` — Complete. Updated for factory pattern; parametrized assertions; added `date_before` passthrough coverage.
+- `tests/unit/agents/test_clinical_trials_agent.py` — Stub → Complete. 5 tests covering `_parse_result` paths: whitespace detection, active trials merging, minimal valid output, empty result, block content presence.
+- `tests/integration/agents/test_clinical_trials_agent.py` — Stub → Complete. 3 end-to-end integration tests: whitespace scenario, active trials scenario, no data returns empty.
+- `tests/integration/agents/test_clinical_trials_tools.py` — Complete. Updated for factory pattern; parametrized test coverage.
+- `tests/unit/models/test_clinical_trials_models.py` — Complete. Removed assertions for deleted `Trial` fields; updated `TerminatedTrial` fixtures.
+- `tests/integration/data_sources/test_clinical_trials.py` — Complete. Removed deleted field assertions from 4 test functions.
+- `docs/agents.md` — Stub → Complete. Full architecture guide: 3-file-per-agent pattern, LangChain ReAct flow, `model_dump()` serialization boundary, multi-tool collation (slot-per-tool, no merging), tool result parsing, how to add new agents.
+- `config.py` — Complete. Fixed missing type annotation on `big_llm_model` field (was `PydanticUserError`).
+- `pyproject.toml` — Complete. Added `langchain-anthropic>=0.3.0` to runtime deps; `max_tokens` bumped 1024 → 4096 for agent headroom.
+
+### New Patterns / Decisions
+- 3-file-per-agent pattern is now standard: `<name>.py` (agent), `<name>_tools.py` (tools factory), `<name>_model.py` (output model).
+- Model trimming pattern applied: data sources fetch broad API data; Pydantic models retain only fields consumed by agents/services to reduce LLM token cost on `model_dump()`.
+- Tools use closure pattern for `date_before` and other parameters; parameters not exposed as tool inputs to keep LLM context clean.
+- `_parse_result()` reconstructs Pydantic from message history: `AIMessage.name = None` (not absent), tool responses may be JSON strings requiring `json.loads()` fallback.
+- `get_landscape` slices to `top_n=10` trials; agent LLM set to Opus (not Haiku) for complex reasoning.
+- Multi-tool collation pattern: slot-per-tool in result dict; second call to same tool overwrites first (no merging logic).
+
+### Known Issues / Caveats Added
+- `get_terminated` API returns 100 results per broad `query`; LLM passing drug name alone retrieves all terminated trials across all indications instead of target disease — no indication-specific filtering applied.
+- Tool `model_dump()` payloads are large (200+ trials); LLM context cost identified but not yet optimized (condensed dicts for LLM vs full data for downstream still open).
+- LLM model choice (Opus vs Sonnet vs Haiku for agent) was cycling during session for quality comparison; final choice pending user evaluation.
+
+
+---
+
+## Update (2026-03-29)
+
+### Implementation Status Changes
+- `models/model_clinical_trials.py` — Complete. Removed unused fields from `Trial` (`collaborators`, `study_type`, `results_posted`) and `TerminatedTrial` (`title`, `enrollment`, `sponsor`, `start_date`, `termination_date`, `references`). `TerminatedTrial` now contains only 6 essential fields: `nct_id`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category`.
+- `data_sources/clinical_trials.py` — Complete. Updated `_parse_trial()` and `_parse_terminated_trial()` parsing logic to remove assignments for deleted fields.
+- `agents/clinical_trials.py` — Complete. Fixed subtle `AIMessage.name` bug (property is `None`, not absent); changed `hasattr` to `getattr(msg, 'name', None)`. Added JSON string fallback parsing for tool responses (`json.loads()` before type checks). Updated `docs/agents.md` with `model_dump()` serialization boundary and multi-tool collation explanation (slot-per-tool, no merging).
+- All test files updated to remove assertions/fixtures for deleted fields across unit and integration test suites (7 test files modified, 59 tests pass).
+
+### New Patterns / Decisions
+- Model trimming applied to `TerminatedTrial`: LLM red-flag assessment requires only 6 fields; full dataset fetched from API but Pydantic model projects down to what agents actually consume.
+- `AIMessage.name = None` requires defensive `getattr()` — unit tests using `SimpleNamespace` passed but integration tests with real `AIMessage` failed with `hasattr` approach.
+- Tool response parsing must handle JSON string stringification from LangChain: added `json.loads()` fallback before `isinstance` checks.
+
+### Known Issues / Caveats Added
+- `Intervention` model still on `Trial` (needed by `_primary_drug()` helper) — open question whether to flatten into scalar `drug_name`/`drug_type` fields for consistency with trimmed model philosophy.
+- `get_terminated` broad query + LLM context issue remains: tool may retrieve all terminated trials across all indications if LLM passes only drug name without indication context.

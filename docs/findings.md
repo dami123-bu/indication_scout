@@ -107,7 +107,15 @@ Each entry is dated and categorized.
 
 ### Tool `model_dump()` payload size for LLM context (2026-03-29)
 - Tools return full `model_dump()` dicts which can be very large (e.g. 200 trials with all fields). This goes into the LLM input context and is wasteful/slow.
-- Open issue: tool responses should be slimmed down for the LLM while preserving full data for downstream consumers.
+- Mitigation: slimmed `TerminatedTrial` from 12 fields to 6 (removed `title`, `enrollment`, `sponsor`, `start_date`, `termination_date`, `references`). Kept `nct_id`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category`.
+
+### LangChain `AIMessage.name` attribute breaks `_parse_result` summary extraction (2026-03-29)
+- `_parse_result()` used `not hasattr(msg, "name")` to distinguish AIMessage from ToolMessage. But real LangChain `AIMessage` objects have `.name = None` (attribute exists but is `None`), so `hasattr` returns `True` and every message is skipped — summary is always empty string.
+- Fix: changed to `not getattr(msg, "name", None)` which correctly treats `None` as falsy.
+
+### LangChain `ToolMessage.content` may be JSON string, not dict (2026-03-29)
+- `_parse_result()` checked `isinstance(content, dict)` to parse tool responses, but LangChain may serialize tool return values as JSON strings in `ToolMessage.content`. The `isinstance` check silently skipped the data.
+- Fix: added `json.loads(content)` fallback when content is a string before the type checks.
 
 ---
 

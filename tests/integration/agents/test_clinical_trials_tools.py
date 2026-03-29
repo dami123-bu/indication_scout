@@ -177,7 +177,6 @@ async def test_get_landscape_gastroparesis():
     assert cuhk["max_phase"] == "Phase 4"
     assert cuhk["trial_count"] == 1
     assert cuhk["total_enrollment"] == 155
-    assert cuhk["most_recent_start"] == "2009-12-03"
 
 
 async def test_get_landscape_nonexistent_indication():
@@ -207,17 +206,11 @@ async def test_get_terminated_semaglutide():
     [novo_trial] = [t for t in result if t["nct_id"] == "NCT04012255"]
 
     assert novo_trial["nct_id"] == "NCT04012255"
-    assert novo_trial["title"] == "A Research Study to Compare Two Forms of Semaglutide in Two Different Pen-injectors in People With Overweight or Obesity"
     assert novo_trial["drug_name"] == "Semaglutide (administered by DV3396 pen)"
     assert novo_trial["indication"] == "Overweight"
     assert novo_trial["phase"] == "Phase 1"
     assert novo_trial["why_stopped"] == "The trial was terminated for strategic reasons."
     assert novo_trial["stop_category"] == "business"
-    assert novo_trial["enrollment"] == 29
-    assert novo_trial["sponsor"] == "Novo Nordisk A/S"
-    assert novo_trial["start_date"] == "2019-07-15"
-    assert novo_trial["termination_date"] == "2019-08-30"
-    assert novo_trial["references"] == []
 
 
 async def test_get_terminated_nonexistent_query():
