@@ -447,6 +447,7 @@ class ClinicalTrialsClient(BaseClient):
 
         return TerminatedTrial(
             nct_id=trial.nct_id,
+            title=trial.title,
             drug_name=drug_name,
             indication=trial.indications[0] if trial.indications else None,
             phase=trial.phase,

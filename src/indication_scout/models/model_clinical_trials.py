@@ -135,9 +135,9 @@ class CompetitorEntry(BaseModel):
     drug_name: str = ""
     drug_type: str | None = None
     max_phase: str = ""
-    trial_count: int | None = None
+    trial_count: int = 0
     statuses: set[str] = set()
-    total_enrollment: int | None = None
+    total_enrollment: int = 0
 
     @model_validator(mode="before")
     @classmethod
