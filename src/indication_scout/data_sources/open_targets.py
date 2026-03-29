@@ -133,12 +133,26 @@ class OpenTargetsClient(BaseClient):
         cache_params = {"drug_name": normalized_name, "min_stage": min_stage}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
         if cached is not None:
-            return {disease: set(drugs) for disease, drugs in cached.items()}
+            return CompetitorRawData(
+                diseases={
+                    disease: set(drugs)
+                    for disease, drugs in cached["diseases"].items()
+                },
+                drug_indications=cached["drug_indications"],
+            )
 
         drug = await self.get_drug(normalized_name)
         targets = drug.targets
 
+        # Build set of approved indication names to exclude from repurposing candidates.
+        approved_indications: set[str] = {
+            i.disease_name.lower()
+            for i in drug.indications
+            if i.max_clinical_stage == "APPROVAL" and i.disease_name is not None
+        }
+
         siblings_with_stage: dict[str, dict[str, int]] = {}
+        id_to_canonical: dict[str, str] = {}
 
         all_summaries = await asyncio.gather(
             *[self.get_target_data_drug_summaries(t.target_id) for t in targets]
@@ -151,10 +165,17 @@ class OpenTargetsClient(BaseClient):
                 )
                 if stage_rank >= min_rank:
                     drug_name = normalize_drug_name(summary.drug_name)
+                    if drug_name == normalized_name:
+                        continue
                     for cd in summary.diseases:
                         if cd.disease_name is None:
                             continue
-                        disease = cd.disease_name.lower()
+                        if cd.disease_id and cd.disease_id in id_to_canonical:
+                            disease = id_to_canonical[cd.disease_id]
+                        else:
+                            disease = cd.disease_name.lower()
+                            if cd.disease_id:
+                                id_to_canonical[cd.disease_id] = disease
                         if disease not in siblings_with_stage:
                             siblings_with_stage[disease] = {}
                         existing = siblings_with_stage[disease].get(drug_name, 0)
@@ -162,12 +183,10 @@ class OpenTargetsClient(BaseClient):
                             existing, stage_rank
                         )
 
-        approval_rank = CLINICAL_STAGE_RANK["APPROVAL"]
+        # Remove diseases that are already approved indications for this drug.
         for key in list(siblings_with_stage):
-            drug_stages = siblings_with_stage[key]
-            if normalized_name in drug_stages:
-                if drug_stages[normalized_name] >= approval_rank:
-                    del siblings_with_stage[key]
+            if key in approved_indications:
+                del siblings_with_stage[key]
 
         siblings: dict[str, set[str]] = {
             disease: set(drugs.keys())
@@ -185,15 +204,23 @@ class OpenTargetsClient(BaseClient):
             sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
         )
 
-        indications = [
-            i.disease_name.lower()
-            for i in drug.indications
-            if i.max_clinical_stage == "APPROVAL"
-        ]
-        drug_indications = list(set(indications))
+        drug_indications = list(approved_indications)
         top_40 = dict(list(sorted_siblings.items())[:40])
 
-        return CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
+        result = CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
+
+        cache_set(
+            "drug_competitors",
+            cache_params,
+            {
+                "diseases": {d: list(drugs) for d, drugs in top_40.items()},
+                "drug_indications": drug_indications,
+            },
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
+
+        return result
 
     async def get_drug_indications(self, drug_name: str) -> list[Indication]:
         drug = await self.get_drug(drug_name)

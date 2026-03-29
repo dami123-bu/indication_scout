@@ -23,19 +23,20 @@ Both use `AsyncAnthropic`, `temperature=0`, `max_tokens=1024`.
 | 73 | `merge_duplicate_diseases()` | Merges duplicate disease names, removes overly broad terms |
 | 154 | `llm_normalize_disease()` | Generalizes to a broader disease category when initial results are sparse |
 
-### `src/indication_scout/services/retrieval.py` — 4 calls
+### `src/indication_scout/services/retrieval.py` — 5 calls
 
 | Line | Function | Model | Purpose |
 |------|----------|-------|---------|
-| 408 | `synthesize()` | Main | Summarizes PubMed abstracts into structured evidence summaries |
-| 436 | `extract_organ_term()` | Small | Extracts primary organ/tissue for a disease |
-| 512 | `expand_search_terms()` | Small | Generates diverse PubMed search queries |
-| 550 | `get_disease_synonyms()` | Small | Generates disease synonyms |
+| 67 | `_normalize_disease_groups()` | Small (indirect) | Normalizes disease names via `llm_normalize_disease` before merging competitor groups |
+| 437 | `synthesize()` | Main | Summarizes PubMed abstracts into structured evidence summaries |
+| 465 | `extract_organ_term()` | Small | Extracts primary organ/tissue for a disease |
+| 541 | `expand_search_terms()` | Small | Generates diverse PubMed search queries |
+| 579 | `get_disease_synonyms()` | Small | Generates disease synonyms |
 
 ## Summary
 
-- **7 total LLM call sites** across 3 files
-- 6 out of 7 use the small model (Haiku); only `synthesize()` uses the main model (Sonnet)
+- **8 total LLM call sites** across 3 files
+- 7 out of 8 use the small model (Haiku); only `synthesize()` uses the main model (Sonnet)
 - All calls are async and use the centralized wrappers in `llm.py`
 
 ## Configuration

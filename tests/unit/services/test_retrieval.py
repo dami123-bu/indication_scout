@@ -1037,6 +1037,11 @@ def _make_open_targets_mock(raw: dict) -> AsyncMock:
     return mock_client
 
 
+async def _passthrough_normalize(term: str) -> str:
+    """Stub for llm_normalize_disease that returns the input unchanged."""
+    return term
+
+
 async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
     """When an alias appears in both merge values and remove, its data must not be merged in."""
     raw = {
@@ -1056,6 +1061,10 @@ async def test_get_drug_competitors_alias_in_removed_not_merged(tmp_path):
         patch(
             "indication_scout.services.retrieval.OpenTargetsClient",
             return_value=mock_client,
+        ),
+        patch(
+            "indication_scout.services.retrieval.llm_normalize_disease",
+            new=_passthrough_normalize,
         ),
         patch(
             "indication_scout.services.retrieval.merge_duplicate_diseases",
@@ -1084,4 +1093,58 @@ async def test_get_drug_competitors_returns_cached(tmp_path):
 
     assert result == {"depression": {"competitor_a"}}
     mock_client.__aenter__.assert_not_called()
+
+
+# --- _normalize_disease_groups ---
+
+
+async def test_normalize_disease_groups_merges_by_normalized_name(tmp_path):
+    """Diseases that normalize to the same string are merged with drug sets unioned."""
+    diseases = {
+        "breast cancer": {"drug_a", "drug_b"},
+        "breast neoplasm": {"drug_c"},
+        "colorectal cancer": {"drug_d"},
+    }
+
+    async def mock_normalize(term: str) -> str:
+        mapping = {
+            "breast cancer": "breast cancer",
+            "breast neoplasm": "breast cancer",
+            "colorectal cancer": "colorectal cancer",
+        }
+        return mapping[term]
+
+    with patch(
+        "indication_scout.services.retrieval.llm_normalize_disease",
+        new=mock_normalize,
+    ):
+        result = await RetrievalService(tmp_path)._normalize_disease_groups(diseases)
+
+    assert len(result) == 2
+    assert result["breast cancer"] == {"drug_a", "drug_b", "drug_c"}
+    assert result["colorectal cancer"] == {"drug_d"}
+
+
+async def test_normalize_disease_groups_uses_first_term_before_or(tmp_path):
+    """When llm_normalize_disease returns 'X OR Y', only the first term is used as key."""
+    diseases = {
+        "hepatocellular carcinoma": {"drug_a"},
+        "liver cancer": {"drug_b"},
+    }
+
+    async def mock_normalize(term: str) -> str:
+        mapping = {
+            "hepatocellular carcinoma": "liver cancer OR hepatocellular carcinoma",
+            "liver cancer": "liver cancer",
+        }
+        return mapping[term]
+
+    with patch(
+        "indication_scout.services.retrieval.llm_normalize_disease",
+        new=mock_normalize,
+    ):
+        result = await RetrievalService(tmp_path)._normalize_disease_groups(diseases)
+
+    assert len(result) == 1
+    assert result["liver cancer"] == {"drug_a", "drug_b"}
 

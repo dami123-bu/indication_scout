@@ -1,5 +1,6 @@
 """Retrieval service: PubMed fetch/embed/cache and semantic search via pgvector."""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -14,7 +15,10 @@ from sqlalchemy.orm import Session
 from indication_scout.constants import CACHE_TTL, PUBMED_MAX_RESULTS
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.open_targets import CompetitorRawData, OpenTargetsClient
-from indication_scout.services.disease_helper import merge_duplicate_diseases
+from indication_scout.services.disease_helper import (
+    llm_normalize_disease,
+    merge_duplicate_diseases,
+)
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
@@ -47,6 +51,31 @@ class RetrievalService:
         self.cache_dir = cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
 
+    async def _normalize_disease_groups(
+        self, diseases: dict[str, set[str]]
+    ) -> dict[str, set[str]]:
+        """Normalize disease names via LLM and merge groups that collapse to the same key.
+
+        Args:
+            diseases: Dict mapping disease name to set of competitor drug names.
+
+        Returns:
+            Dict with normalized disease names as keys and unioned drug sets.
+        """
+        original_names = list(diseases.keys())
+        normalized_names = await asyncio.gather(
+            *[llm_normalize_disease(name) for name in original_names]
+        )
+
+        merged: dict[str, set[str]] = {}
+        for original, normalized in zip(original_names, normalized_names):
+            key = normalized.split(" OR ")[0].strip().lower()
+            if key in merged:
+                merged[key] |= diseases[original]
+            else:
+                merged[key] = set(diseases[original])
+        return merged
+
     async def get_drug_competitors(self, drug_name: str) -> dict[str, set[str]]:
         """Fetch top disease indications and their competitor drugs from Open Targets.
 
@@ -61,13 +90,13 @@ class RetrievalService:
         """
         cache_params = {"drug_name": drug_name}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
-        if cached is not None:
+        if cached is not None and len(cached) > 0:
             return {disease: set(drugs) for disease, drugs in cached.items()}
 
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
             raw: CompetitorRawData = await client.get_drug_competitors(drug_name)
 
-        top_40 = raw["diseases"]
+        top_40 = await self._normalize_disease_groups(raw["diseases"])
         drug_indications = raw["drug_indications"]
         disease_names = list(top_40.keys())
         merge_result = await merge_duplicate_diseases(disease_names, drug_indications)
@@ -102,7 +131,7 @@ class RetrievalService:
         sorted_data = dict(
             sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
-        top_15 = dict(list(sorted_data.items())[:15])
+        top_15 = dict(list(sorted_data.items())[:10])
 
         cache_set(
             "drug_competitors",

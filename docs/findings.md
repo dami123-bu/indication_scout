@@ -51,6 +51,20 @@ Each entry is dated and categorized.
 - `drug_indications` must be included in `CompetitorRawData` because `merge_duplicate_diseases` passes it to the LLM prompt so the model knows which diseases are confirmed approved indications — context required for correct merging decisions.
 - Cache (keyed by `drug_name`) now lives in the service, not the client.
 
+### `get_drug_competitors` approval filter bug (2026-03-28)
+- The old filter checked `siblings_with_stage[disease][drug_name] >= APPROVAL_RANK` to remove diseases where the input drug is already approved. But `DrugSummary.max_clinical_stage` is the drug's **global** highest stage across all indications, not per-disease. So a drug approved for diabetes (rank 10) would get rank 10 for every disease in its `DrugSummary` — ovarian cancer, breast cancer, etc. — causing all diseases to be removed.
+- Fix: check against `drug.indications` filtered to `max_clinical_stage == "APPROVAL"` instead. Only diseases whose names match actual approved indications are removed.
+
+### `get_drug_competitors` self-exclusion and sparse results (2026-03-28)
+- The input drug must be excluded from its own competitor list (`if drug_name == normalized_name: continue`), otherwise it appears as the sole "competitor" for every disease.
+- **Known limitation**: after self-exclusion, drugs with unique mechanisms (e.g., metformin targeting AMPK/mitochondrial complex I) may have very few or zero competitor drugs on their targets. Diseases like ovarian cancer appear in metformin's own `DrugSummary.diseases` (from its clinical trials) but no other drug on the same targets is studying ovarian cancer — so it gets zero competitors and doesn't surface in the top-40.
+- The current `get_drug_competitors` approach (shared-target competitor drugs) works well for drugs in crowded target spaces (e.g., PD-1 inhibitors) but poorly for drugs with unique mechanisms. A complementary approach — using the drug's own trial disease landscape directly — would be needed to capture repurposing candidates for such drugs.
+
+### `get_drug_competitors` disease name normalization (2026-03-28)
+- Open Targets assigns different EFO/MONDO IDs to clinically near-identical diseases (e.g., "breast cancer" vs "breast neoplasm" vs "triple-negative breast cancer"), fragmenting competitor drug sets across multiple keys.
+- Two-step fix: (1) group by `disease_id` in the client layer (zero-cost, collapses entries sharing the same ID), (2) run `llm_normalize_disease` on surviving unique names in the service layer to collapse near-duplicates that OT gave different IDs.
+- `llm_normalize_disease` can return "X OR Y" format; only the first term before " OR " is used as the grouping key to avoid breaking downstream `merge_duplicate_diseases` matching.
+
 ### PubMed date filter bug (2026-03-11)
 - `PubMedClient.search()` and `get_count()` had `params["datetype_maxdate"]` — a single merged key that NCBI does not recognise, so date filtering was silently ignored.
 - Fix: two separate params — `datetype=pdat` and `maxdate=YYYY/MM/DD` (slash-separated, as required by NCBI eutils).

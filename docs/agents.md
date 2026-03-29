@@ -170,6 +170,8 @@ Drug → known targets → sibling drugs on same targets → sibling drug indica
 
 For each target, query Open Targets `knownDrugs` to find other drugs that act on the same target. Collect those sibling drugs' approved indications. This surfaces candidates supported by existing clinical translation — if a sibling drug is already approved for an indication, the repurposing hypothesis has prior clinical validation.
 
+At the service layer (`RetrievalService.get_drug_competitors`), disease names are normalized via `llm_normalize_disease` (from `disease_helper.py`) before merging, and approved indications are determined by filtering `drug.indications` to entries with `max_clinical_stage == "APPROVAL"` rather than using the phase rank check.
+
 ### Merge and Rank
 
 | Signal | Weight |

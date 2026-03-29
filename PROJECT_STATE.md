@@ -30,7 +30,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 | `services/llm.py` | Complete | `query_llm`, `query_small_llm`, and `parse_llm_response` via Anthropic SDK |
 | `services/disease_helper.py` | Complete | LLM normalization; blocklist guard; PubMed count verification; file-based cache for both LLM results and PubMed counts |
 | `services/pubmed_query.py` | Complete | Builds PubMed queries by normalizing disease name and combining with drug name |
-| `services/retrieval.py` | Complete | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search`, `synthesize` all implemented |
+| `services/retrieval.py` | Complete | `build_drug_profile`, `get_disease_synonyms`, `extract_organ_term`, `expand_search_terms`, `get_stored_pmids`, `fetch_new_abstracts`, `embed_abstracts`, `insert_abstracts`, `fetch_and_cache`, `semantic_search`, `synthesize`, `_normalize_disease_groups`, `get_drug_competitors` all implemented; `_normalize_disease_groups` normalizes disease names via `llm_normalize_disease` before the merge step; `get_drug_competitors` orchestrates raw fetch, normalization, LLM merge, sort, and top-10 slicing |
 | `sqlalchemy/pubmed_abstracts.py` | Complete | SQLAlchemy ORM model with pgvector embedding column (768 dims) |
 | `db/session.py` | Complete | SQLAlchemy session factory; `get_db()` dependency |
 | `api/main.py` | Partial | FastAPI app with `/health` endpoint only; `api/routes/` and `api/schemas/` subdirs contain only `__init__.py` |
@@ -75,7 +75,7 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 |------|---------|
 | `src/indication_scout/data_sources/open_targets.py` | Most complex client; GraphQL queries are defined as module-level strings at the bottom of the file |
 | `src/indication_scout/data_sources/clinical_trials.py` | `detect_whitespace()` runs 3 concurrent API calls; `get_landscape()` aggregates trials into a competitive map |
-| `src/indication_scout/services/disease_normalizer.py` | LLM-driven disease term normalization; two-step strategy (normalize then verify/broaden); uses `cache_get`/`cache_set` from `utils/cache.py` |
+| `src/indication_scout/services/disease_helper.py` | LLM-driven disease term normalization; two-step strategy (normalize then verify/broaden); uses `cache_get`/`cache_set` from `utils/cache.py` |
 | `src/indication_scout/services/retrieval.py` | RAG pipeline; Stage 0 (`expand_search_terms`, `extract_organ_term`), Stage 1 (`fetch_and_cache`, `embed_abstracts`, `insert_abstracts`, `get_stored_pmids`, `fetch_new_abstracts`), Stage 2 (`semantic_search`), and Stage 3 (`synthesize`) all implemented |
 | `src/indication_scout/models/model_drug_profile.py` | `DrugProfile` — flat LLM-facing projection of `RichDrugData`; built via `from_rich_drug_data(rich, atc_descriptions)` |
 | `src/indication_scout/prompts/` | All LLM prompt templates; `extract_organ_term.txt`, `expand_search_terms.txt`, `disease_synonyms.txt`, `synthesize.txt` |
