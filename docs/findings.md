@@ -93,6 +93,22 @@ Each entry is dated and categorized.
 - After the layering fix in commit `3719cdb`, `OpenTargetsClient.get_drug_competitors` cache-hit path returned `{disease: set(drugs)}` (old flat shape) instead of `CompetitorRawData`. `RetrievalService` then failed with `KeyError` on `raw["diseases"]`.
 - Decision: do not silently fix the shape mismatch — user deleted stale cache entries to resolve. The broken cache-hit return path (`line 133`) remains and will raise `KeyError` if a stale cache entry is hit again. Raising is the desired behaviour.
 
+### Agent architecture: 3-file-per-agent pattern (2026-03-29)
+- Each agent is split across three files: `agents/<name>.py` (agent class + system prompt), `agents/<name>_tools.py` (`@tool` wrappers), `agents/<name>_model.py` (output Pydantic model).
+- Tools use closures to capture config (e.g. `date_before`) that shouldn't be LLM-visible. Tools accept primitives, return dicts via `model_dump()`.
+- `_parse_result()` walks LangChain message history to reconstruct typed Pydantic output from ToolMessage objects.
+
+### `langchain.agents.create_agent` parameter name (2026-03-29)
+- The system prompt parameter is `system_prompt`, not `prompt`. Using `prompt` silently fails — the agent runs without system instructions.
+
+### `config.py` missing type annotation on `big_llm_model` (2026-03-29)
+- `big_llm_model="claude-opus-4-6"` was missing the `: str` annotation, causing `PydanticUserError` at import time.
+- Fixed to `big_llm_model: str = "claude-opus-4-6"`.
+
+### Tool `model_dump()` payload size for LLM context (2026-03-29)
+- Tools return full `model_dump()` dicts which can be very large (e.g. 200 trials with all fields). This goes into the LLM input context and is wasteful/slow.
+- Open issue: tool responses should be slimmed down for the LLM while preserving full data for downstream consumers.
+
 ---
 
 ## Prompt Engineering

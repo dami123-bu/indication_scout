@@ -262,3 +262,32 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 - `config.py` typo `wand_api_key` instead of `wandb_api_key` caused pydantic `ValidationError` blocking all unit tests at session start.
 - W&B table keys with spaces in disease names caused "No rows to display" in UI — fixed by replacing spaces with underscores in metric keys.
 
+
+---
+
+## Update (2026-03-29)
+
+### Implementation Status Changes
+- `agents/clinical_trials.py` — Partial → Complete. Implemented `ClinicalTrialsAgent` using LangChain ReAct pattern with system prompt and `_parse_result()` method to reconstruct Pydantic models from LLM message history.
+- `agents/clinical_trials_tools.py` — Partial → Complete. Created `build_clinical_trials_tools(date_before)` factory returning 4 `@tool` wrappers (`detect_whitespace`, `search_trials`, `get_landscape`, `get_terminated`) with date_before captured via closure.
+- `agents/clinical_trials_model.py` — Stub → Complete. New file defining `ClinicalTrialsOutput` Pydantic model referencing models from `models/model_clinical_trials.py`.
+- `tests/unit/agents/test_clinical_trials_tools.py` — Partial → Complete. Adapted to `build_clinical_trials_tools()` factory pattern; added `date_before` passthrough test.
+- `tests/unit/agents/test_clinical_trials_agent.py` — Stub → Complete. New file with 5 unit tests covering `_parse_result` paths (whitespace, active trials, minimal, empty, block content).
+- `tests/integration/agents/test_clinical_trials_agent.py` — Stub → Complete. New file with 3 end-to-end integration tests (whitespace, active trials, no data).
+- `tests/integration/agents/test_clinical_trials_tools.py` — Partial → Complete. Adapted to factory pattern.
+- `docs/agents.md` — Stub → Complete. Full architecture doc covering file layout, classes, tools, models, data flow, how to call, and how to add new agents.
+- `config.py` — Partial → Complete. Added missing type annotation to `big_llm_model` field (was `PydanticUserError`).
+- `pyproject.toml` — Complete. Added `langchain-anthropic>=0.3.0` to runtime dependencies.
+
+### New Patterns / Decisions
+- 3-file-per-agent pattern: `<name>.py` (agent class), `<name>_tools.py` (tool factory), `<name>_model.py` (output Pydantic model).
+- Tools use closure pattern for `date_before` (and other parameters) rather than exposing as tool parameters — keeps LLM context clean.
+- `get_landscape` passes `top_n=10` to keep LLM context manageable.
+- LangChain `create_agent` uses parameter `system_prompt` (not `prompt`) — silent failure if wrong.
+- Agent LLM set to Opus (`settings.big_llm_model`) instead of Haiku for this complex agent; `max_tokens` bumped from 1024 to 4096 for ReAct loop headroom.
+- Tool responses currently use full `model_dump()` — identified as open issue requiring context-size optimization.
+
+### Known Issues / Caveats Added
+- Tool response payloads can be very large (e.g. 200 trials in `get_landscape`), wasteful for LLM context — needs slimming to condensed dicts for LLM while preserving full data for downstream.
+- All 283 unit tests pass; integration tests may vary with real API data.
+
