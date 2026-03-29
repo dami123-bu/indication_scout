@@ -119,6 +119,14 @@ Each entry is dated and categorized.
 
 ---
 
+### RAG pipeline parallelization with semaphores (2026-03-29)
+- `run_rag` processed 10-15 diseases sequentially — each disease runs 4 steps (expand_search_terms → fetch_and_cache → semantic_search → synthesize), dominated by LLM + PubMed I/O waits.
+- Fix: replaced sequential loop with `asyncio.gather` gated by three semaphores: `RAG_DISEASE_CONCURRENCY` (max diseases in flight), `RAG_LLM_CONCURRENCY` (max concurrent Anthropic calls), `RAG_PUBMED_CONCURRENCY` (max concurrent PubMed fetch sessions).
+- The embedding model (`BioLORD-2023`) is a global singleton that is not safe for concurrent `model.encode()` calls. Added `asyncio.Lock` in `embed_async()` to serialize access.
+- Initial concurrency set to 2/2/2, raised to 4/4/3 after user feedback that 2 was too slow.
+
+---
+
 ## Prompt Engineering
 
 ### `expand_search_terms` axis balance (2026-03-01)

@@ -23,7 +23,7 @@ from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.sqlalchemy.pubmed_abstracts import PubmedAbstracts
-from indication_scout.services.embeddings import embed
+from indication_scout.services.embeddings import embed_async
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.llm import parse_llm_response, query_llm, query_small_llm
 from indication_scout.utils.cache import cache_get, cache_set
@@ -214,14 +214,14 @@ class RetrievalService:
         logger.debug("Fetching %d new abstracts from PubMed", len(new_pmids))
         return await client.fetch_abstracts(new_pmids)
 
-    def embed_abstracts(
+    async def embed_abstracts(
         self,
         abstracts: list[PubmedAbstract],
     ) -> list[tuple[PubmedAbstract, list[float]]]:
         """Embed a list of PubMed abstracts using BioLORD-2023.
 
         Builds embed text as "<title>. <abstract>" for each abstract and calls
-        embed() in a single batch. Returns (abstract, vector) pairs aligned by index.
+        embed_async() in a single batch. Returns (abstract, vector) pairs aligned by index.
 
         Args:
             abstracts: Abstracts to embed.
@@ -234,7 +234,7 @@ class RetrievalService:
             return []
 
         texts = [f"{a.title}. {a.abstract or ''}" for a in abstracts]
-        vectors = embed(texts)
+        vectors = await embed_async(texts)
         return list(zip(abstracts, vectors))
 
     def insert_abstracts(
@@ -278,14 +278,14 @@ class RetrievalService:
         logger.debug("Inserted %d abstracts into pubmed_abstracts", len(rows))
 
     async def fetch_and_cache(self, queries: list[str], db: Session) -> list[str]:
-        """Hit PubMed for each query, fetch new abstracts, embed, cache in pgvector.
+        """Hit PubMed for all queries concurrently, fetch new abstracts, embed in one batch, cache in pgvector.
 
-        For each keyword query:
-          1. Search PubMed → up to 500 PMIDs
-          2. Filter to PMIDs not already in pgvector
-          3. Fetch abstracts for new PMIDs
-          4. Embed each abstract with BioLORD-2023
-          5. Bulk INSERT into pgvector (ON CONFLICT DO NOTHING)
+        Steps:
+          1. Search PubMed concurrently for all queries → deduplicated PMIDs
+          2. Single bulk check against pgvector for already-stored PMIDs
+          3. Single fetch for all new abstracts
+          4. Single embed call with BioLORD-2023
+          5. Single bulk INSERT into pgvector (ON CONFLICT DO NOTHING)
 
         Returns the deduplicated union of all PMIDs across all queries.
 
@@ -300,34 +300,34 @@ class RetrievalService:
             that pass this list to semantic_search will see those PMIDs silently skipped
             by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
         """
-        all_pmids: list[str] = []
-
         async with PubMedClient(cache_dir=self.cache_dir) as client:
-            for query in queries:
-                # For this query, gets upto 500 pmids
-                pmids = await client.search(query, max_results=PUBMED_MAX_RESULTS)
+            # 1. Search all queries concurrently
+            search_results = await asyncio.gather(
+                *[client.search(query, max_results=PUBMED_MAX_RESULTS) for query in queries]
+            )
 
-                # Check what pmids are already in the db
-                stored = self.get_stored_pmids(pmids, db)
+            # Flatten and deduplicate while preserving first-seen order
+            all_pmids: list[str] = list(dict.fromkeys(
+                pmid for pmids in search_results for pmid in pmids
+            ))
 
-                # For pmids not in db, get the abstracts from pubmed
-                new_abstracts = await self.fetch_new_abstracts(pmids, stored, client)
+            # 2. Single bulk check against pgvector
+            stored = self.get_stored_pmids(all_pmids, db)
 
-                # Articles with no abstract (letters, editorials) are excluded —
-                # they have no text to embed meaningfully.
-                abstracts_with_text = [a for a in new_abstracts if a.abstract]
+            # 3. Single fetch for all new abstracts
+            new_abstracts = await self.fetch_new_abstracts(all_pmids, stored, client)
 
-                # create embeddings - embed abstracts returns a tuple
-                # fields from actual abstract, and the embedding
-                pairs = self.embed_abstracts(abstracts_with_text)
+        # Articles with no abstract (letters, editorials) are excluded —
+        # they have no text to embed meaningfully.
+        abstracts_with_text = [a for a in new_abstracts if a.abstract]
 
-                # put the new abstract/embedding in the ab
-                self.insert_abstracts(pairs, db)
+        # 4. Single embed call for the entire batch
+        pairs = await self.embed_abstracts(abstracts_with_text)
 
-                # all pmids, whether inserted or no
-                all_pmids.extend(pmids)
+        # 5. Single bulk insert
+        self.insert_abstracts(pairs, db)
 
-        return list(dict.fromkeys(all_pmids))
+        return all_pmids
 
     async def semantic_search(
         self, disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
@@ -353,7 +353,7 @@ class RetrievalService:
             "including clinical trials, efficacy data, mechanism of action, "
             "and preclinical studies"
         )
-        query_vector = embed([query_string])[0]
+        query_vector = (await embed_async([query_string]))[0]
 
         rows = db.execute(
             text("""

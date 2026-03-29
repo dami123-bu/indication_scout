@@ -368,3 +368,25 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 ### Known Issues / Caveats Added
 - `Intervention` model still on `Trial` (needed by `_primary_drug()` helper) — open question whether to flatten into scalar `drug_name`/`drug_type` fields for consistency with trimmed model philosophy.
 - `get_terminated` broad query + LLM context issue remains: tool may retrieve all terminated trials across all indications if LLM passes only drug name without indication context.
+
+---
+
+## Update (2026-03-29)
+
+### Implementation Status Changes
+- `runners/rag_runner.py` — Complete. Parallelized disease-loop processing using `asyncio.gather` with three semaphores (`RAG_DISEASE_CONCURRENCY=4`, `RAG_LLM_CONCURRENCY=4`, `RAG_PUBMED_CONCURRENCY=3`). Extracted `_process_disease()` helper for per-disease pipeline encapsulation.
+- `constants.py` — Complete. Added three new concurrency limit constants for RAG pipeline parallelization.
+- `services/embeddings.py` — Complete. Implemented async `embed_async()` wrapper with `asyncio.Lock` to serialize access to shared `SentenceTransformer` singleton; made `RetrievalService.embed_abstracts()` async.
+- `services/retrieval.py` — Complete. Updated `semantic_search()` to use new `embed_async()` instead of sync `embed`.
+- All unit tests for `retrieval.py` — Complete. Updated mock targets from `retrieval.embed` to `retrieval.embed_async`; made test functions async.
+- Integration test for embeddings — Complete. Updated to await now-async `embed_abstracts()` call.
+
+### New Patterns / Decisions
+- Parallelization strategy: cross-disease parallelism is preferred axis (4 diseases in parallel) since per-disease pipeline steps are inherently sequential.
+- Three-semaphore design enforces rate limits: disease-level limits overall concurrency, LLM semaphore prevents Anthropic rate limits, PubMed semaphore respects NCBI.
+- Embedding lock (not semaphore): `SentenceTransformer` model is a non-thread-safe global singleton — `asyncio.Lock` ensures only 1 concurrent `model.encode()`.
+- Concurrency constants live in `constants.py` for easy tuning; tuned empirically from 2/2/2 up to 4/4/3.
+
+### Known Issues / Caveats Added
+- `SentenceTransformer` model lacks native async support — required wrapper with `asyncio.Lock` for safe concurrent access.
+- After making `embed_abstracts()` async, all callers and mocks must be updated; transitional cache invalidation needed if deploying to running systems.

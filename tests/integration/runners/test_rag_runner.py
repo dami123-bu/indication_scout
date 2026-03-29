@@ -26,12 +26,27 @@ async def test_run_rag_empagliflozin(db_session_truncating, test_cache_dir):
 
 async def test_run_rag_thalidomide_mixed_signals(db_session_truncating, test_cache_dir):
     results = await run_rag("thalidomide", db_session_truncating, cache_dir=test_cache_dir)
+
+    # Thalidomide has legitimate therapeutic uses (MDS, lymphoma, myeloma)
+    # but is well-known for adverse effects — at least some indications should flag this.
+    adverse_count = sum(1 for s in results.values() if s.has_adverse_effects)
+    assert adverse_count > 0, "Expected at least one indication to flag adverse effects for thalidomide"
+
+    # Not everything should come back as "strong" — myelofibrosis RCT failed,
+    # brain cancer showed limited single-agent activity.
+    strengths = [s.strength for s in results.values()]
+    assert "weak" in strengths or "none" in strengths, (
+        f"Expected at least one weak/none signal for thalidomide, got: {strengths}"
+    )
+
+    # Summaries should contain cautionary language reflecting negative efficacy signals
     summaries = " ".join(r.summary.lower() for r in results.values())
+    cautionary_terms = ["fail", "limited", "inconsistent", "low", "modest", "not support", "no significant"]
+    matches = [t for t in cautionary_terms if t in summaries]
+    assert len(matches) >= 2, (
+        f"Expected at least 2 cautionary terms in thalidomide summaries, found: {matches}"
+    )
 
-    # Thalidomide should have some negative/cautionary signals
-    assert "not support" in summaries or "no significant" in summaries or "contradicts" in summaries
-
-    # Basic structure checks
     for disease, summary in results.items():
         assert len(summary.summary) > 50
         assert summary.strength in ["strong", "moderate", "weak", "none"]

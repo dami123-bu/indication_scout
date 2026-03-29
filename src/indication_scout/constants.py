@@ -36,6 +36,11 @@ PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
 PUBMED_MAX_RESULTS: int = 200
 
+# -- RAG pipeline concurrency -----------------------------------------------
+RAG_LLM_CONCURRENCY: int = 4
+RAG_PUBMED_CONCURRENCY: int = 3
+RAG_DISEASE_CONCURRENCY: int = 4
+
 # -- Clinical stage ranking (Open Targets) ----------------------------------
 # Maps maximumClinicalStage / maxClinicalStage string values to numeric ranks
 # for comparison. Higher rank = further in pipeline.

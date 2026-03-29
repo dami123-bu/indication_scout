@@ -571,15 +571,15 @@ def _make_abstract(pmid: str, title: str, abstract: str | None) -> PubmedAbstrac
     return PubmedAbstract(pmid=pmid, title=title, abstract=abstract)
 
 
-def test_embed_abstracts_texts_contain_title_and_abstract(svc):
-    """embed() is called with '<title>. <abstract>' for each abstract."""
+async def test_embed_abstracts_texts_contain_title_and_abstract(svc):
+    """embed_async() is called with '<title>. <abstract>' for each abstract."""
     abstracts = [_make_abstract("1", "My Title", "My abstract text.")]
     mock_vectors = [[0.1] * 768]
 
     with patch(
-        "indication_scout.services.retrieval.embed", return_value=mock_vectors
+        "indication_scout.services.retrieval.embed_async", return_value=mock_vectors
     ) as mock_embed:
-        result = svc.embed_abstracts(abstracts)
+        result = await svc.embed_abstracts(abstracts)
 
     mock_embed.assert_called_once_with(["My Title. My abstract text."])
     assert len(result) == 1
@@ -587,30 +587,30 @@ def test_embed_abstracts_texts_contain_title_and_abstract(svc):
     assert result[0][1] == mock_vectors[0]
 
 
-def test_embed_abstracts_none_abstract_produces_title_dot_space(svc):
+async def test_embed_abstracts_none_abstract_produces_title_dot_space(svc):
     """An abstract of None produces '<title>. ' without crashing."""
     abstracts = [_make_abstract("2", "Only Title", None)]
     mock_vectors = [[0.2] * 768]
 
     with patch(
-        "indication_scout.services.retrieval.embed", return_value=mock_vectors
+        "indication_scout.services.retrieval.embed_async", return_value=mock_vectors
     ) as mock_embed:
-        result = svc.embed_abstracts(abstracts)
+        result = await svc.embed_abstracts(abstracts)
 
     mock_embed.assert_called_once_with(["Only Title. "])
     assert result[0][0].pmid == "2"
 
 
-def test_embed_abstracts_empty_input_skips_embed(svc):
-    """Empty input returns [] without calling embed()."""
-    with patch("indication_scout.services.retrieval.embed") as mock_embed:
-        result = svc.embed_abstracts([])
+async def test_embed_abstracts_empty_input_skips_embed(svc):
+    """Empty input returns [] without calling embed_async()."""
+    with patch("indication_scout.services.retrieval.embed_async") as mock_embed:
+        result = await svc.embed_abstracts([])
 
     mock_embed.assert_not_called()
     assert result == []
 
 
-def test_embed_abstracts_vectors_align_to_abstracts_by_index(svc):
+async def test_embed_abstracts_vectors_align_to_abstracts_by_index(svc):
     """Each abstract is paired with the vector at the same index."""
     abstracts = [
         _make_abstract("10", "Title A", "Abstract A"),
@@ -619,8 +619,8 @@ def test_embed_abstracts_vectors_align_to_abstracts_by_index(svc):
     ]
     mock_vectors = [[float(i)] * 768 for i in range(3)]
 
-    with patch("indication_scout.services.retrieval.embed", return_value=mock_vectors):
-        result = svc.embed_abstracts(abstracts)
+    with patch("indication_scout.services.retrieval.embed_async", return_value=mock_vectors):
+        result = await svc.embed_abstracts(abstracts)
 
     assert len(result) == 3
     for i, (abstract, vector) in enumerate(result):
@@ -726,7 +726,7 @@ async def test_fetch_and_cache_returns_deduped_pmids(svc):
         patch(
             "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
         ),
-        patch("indication_scout.services.retrieval.embed", return_value=[]),
+        patch("indication_scout.services.retrieval.embed_async", return_value=[]),
         patch("indication_scout.services.retrieval.insert"),
     ):
         result = await svc.fetch_and_cache(["query1", "query2"], mock_db)
@@ -801,7 +801,7 @@ async def test_semantic_search_returns_ranked_dicts(svc):
     mock_db = _make_db_with_rows(db_rows)
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
         result = await svc.semantic_search(
             "colorectal cancer", "metformin", ["111", "222"], mock_db
         )
@@ -831,7 +831,7 @@ async def test_semantic_search_embeds_therapeutic_query(svc):
         captured["texts"] = texts
         return [mock_vector]
 
-    with patch("indication_scout.services.retrieval.embed", side_effect=capture_embed):
+    with patch("indication_scout.services.retrieval.embed_async", side_effect=capture_embed):
         await svc.semantic_search("obesity", "bupropion", ["111"], mock_db)
 
     assert len(captured["texts"]) == 1
@@ -845,7 +845,7 @@ async def test_semantic_search_passes_pmids_to_query(svc):
     mock_vector = [0.1] * 768
     pmids = ["111", "222", "333"]
 
-    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
         await svc.semantic_search("diabetes", "metformin", pmids, mock_db)
 
     call_kwargs = mock_db.execute.call_args
@@ -858,7 +858,7 @@ async def test_semantic_search_respects_top_k(svc):
     mock_db = _make_db_with_rows([])
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
         await svc.semantic_search("diabetes", "metformin", ["111"], mock_db, top_k=5)
 
     call_kwargs = mock_db.execute.call_args
@@ -874,7 +874,7 @@ async def test_semantic_search_similarity_is_float(svc):
     mock_db = _make_db_with_rows(db_rows)
     mock_vector = [0.1] * 768
 
-    with patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]):
+    with patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]):
         result = await svc.semantic_search("diabetes", "metformin", ["111"], mock_db)
 
     assert isinstance(result[0]["similarity"], float)
@@ -896,7 +896,7 @@ async def test_semantic_search_logs_wandb_table_when_run_active(svc):
     mock_run = MagicMock()
 
     with (
-        patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]),
+        patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]),
         patch("indication_scout.services.retrieval.wandb.run", mock_run),
         patch("indication_scout.services.retrieval.wandb.Table", return_value=mock_table),
         patch("indication_scout.services.retrieval.wandb.log", side_effect=lambda d: logged.update(d)),
@@ -920,7 +920,7 @@ async def test_semantic_search_skips_wandb_log_when_no_run(svc):
     mock_vector = [0.1] * 768
 
     with (
-        patch("indication_scout.services.retrieval.embed", return_value=[mock_vector]),
+        patch("indication_scout.services.retrieval.embed_async", return_value=[mock_vector]),
         patch("indication_scout.services.retrieval.wandb.run", None),
         patch("indication_scout.services.retrieval.wandb.log") as mock_log,
     ):

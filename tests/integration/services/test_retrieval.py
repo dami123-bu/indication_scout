@@ -278,7 +278,7 @@ async def test_embed_abstracts_returns_768_dim_vectors(test_cache_dir):
 
     assert len(abstracts) == 1
 
-    result = RetrievalService(test_cache_dir).embed_abstracts(abstracts)
+    result = await RetrievalService(test_cache_dir).embed_abstracts(abstracts)
 
     assert len(result) == 1
     abstract, vector = result[0]
