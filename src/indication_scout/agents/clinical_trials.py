@@ -47,7 +47,7 @@ End with a 2-3 sentence assessment summarizing:
 
 Return your assessment as plain text in your final message."""
 
-MAX_TOOL_ROUNDS = 10
+MAX_TOOL_ROUNDS = 6
 
 
 class ClinicalTrialsAgent(BaseAgent):
@@ -64,15 +64,15 @@ class ClinicalTrialsAgent(BaseAgent):
             Dict with 'clinical_trials_output' key containing a
             ClinicalTrialsOutput instance.
         """
-        drug_name: str = input_data["drug_name"]
-        disease_name: str = input_data["disease_name"]
+        drug_name: str = input_data["drug_name"].lower()
+        disease_name: str = input_data["disease_name"].lower()
         date_before: date | None = input_data.get("date_before")
 
         settings = get_settings()
         tools = build_clinical_trials_tools(date_before=date_before)
 
         llm = ChatAnthropic(
-            model=settings.big_llm_model,
+            model=settings.llm_model,
             temperature=0,
             max_tokens=4096,
         )

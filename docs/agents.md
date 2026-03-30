@@ -53,12 +53,12 @@ class ClinicalTrialsAgent(BaseAgent):
 
 **Output**: `{"clinical_trials_output": ClinicalTrialsOutput}`
 
-**LLM**: `settings.small_llm_model` (Haiku) via `ChatAnthropic` from `langchain_anthropic`. Temperature 0, max_tokens 1024. Haiku is chosen because this agent runs once per drug-disease pair across up to 15 candidates per drug, so cost and latency matter.
+**LLM**: `settings.big_llm_model` via `ChatAnthropic` from `langchain_anthropic`. Temperature 0, max_tokens 4096.
 
 **Agent creation**:
 
 ```python
-agent = create_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
+agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
 ```
 
 Uses `langchain.agents.create_agent` to build a ReAct agent. The agent is invoked with:
@@ -98,9 +98,9 @@ Returns four LangChain `@tool` functions. The `date_before` parameter is capture
 
 | Tool | Arguments | Client Method | Returns |
 |------|-----------|--------------|---------|
-| `detect_whitespace` | `drug: str, condition: str` | `ClinicalTrialsClient.detect_whitespace()` | `WhitespaceResult.model_dump()` |
-| `search_trials` | `drug: str, condition: str` | `ClinicalTrialsClient.search_trials()` | `[Trial.model_dump(), ...]` |
-| `get_landscape` | `condition: str` | `ClinicalTrialsClient.get_landscape(top_n=10)` | `IndicationLandscape.model_dump()` |
+| `detect_whitespace` | `drug: str, indication: str` | `ClinicalTrialsClient.detect_whitespace()` | `WhitespaceResult.model_dump()` |
+| `search_trials` | `drug: str, indication: str` | `ClinicalTrialsClient.search_trials()` | `[Trial.model_dump(), ...]` |
+| `get_landscape` | `indication: str` | `ClinicalTrialsClient.get_landscape(top_n=10)` | `IndicationLandscape.model_dump()` |
 | `get_terminated` | `query: str` | `ClinicalTrialsClient.get_terminated()` | `[TerminatedTrial.model_dump(), ...]` |
 
 Design rules:
@@ -139,7 +139,7 @@ These are the contracts between `ClinicalTrialsClient` and the agents. All have 
 |-------|------------|
 | `Intervention` | `intervention_type`, `intervention_name`, `description` |
 | `PrimaryOutcome` | `measure`, `time_frame` |
-| `Trial` | `nct_id`, `title`, `brief_summary`, `phase`, `overall_status`, `why_stopped`, `indications`, `interventions` (list[Intervention]), `sponsor`, `collaborators`, `enrollment`, `start_date`, `completion_date`, `study_type`, `primary_outcomes` (list[PrimaryOutcome]), `results_posted`, `references` |
+| `Trial` | `nct_id`, `title`, `brief_summary`, `phase`, `overall_status`, `why_stopped`, `indications`, `interventions` (list[Intervention]), `sponsor`, `enrollment`, `start_date`, `completion_date`, `primary_outcomes` (list[PrimaryOutcome]), `references` |
 
 **Whitespace models**:
 
@@ -152,7 +152,7 @@ These are the contracts between `ClinicalTrialsClient` and the agents. All have 
 
 | Model | Key fields |
 |-------|------------|
-| `CompetitorEntry` | `sponsor`, `drug_name`, `drug_type`, `max_phase`, `trial_count`, `statuses` (set[str]), `total_enrollment`, `most_recent_start` |
+| `CompetitorEntry` | `sponsor`, `drug_name`, `drug_type`, `max_phase`, `trial_count` (int), `statuses` (set[str]), `total_enrollment` (int) |
 | `RecentStart` | `nct_id`, `sponsor`, `drug`, `phase` |
 | `IndicationLandscape` | `total_trial_count`, `competitors` (list[CompetitorEntry]), `phase_distribution` (dict[str, int]), `recent_starts` (list[RecentStart]) |
 
@@ -168,8 +168,8 @@ These are the contracts between `ClinicalTrialsClient` and the agents. All have 
 ClinicalTrialsAgent.run(input_data)
     |
     +-- build_clinical_trials_tools(date_before)   # creates 4 @tool functions
-    +-- ChatAnthropic(model=haiku)                 # LLM for tool-calling decisions
-    +-- create_agent(model, tools, prompt)          # LangChain ReAct agent
+    +-- ChatAnthropic(model=big_llm_model)           # LLM for tool-calling decisions
+    +-- create_agent(model, tools, system_prompt)   # LangChain ReAct agent
     |
     +-- agent.ainvoke(messages)                     # ReAct loop begins
     |       |
@@ -274,7 +274,7 @@ Key patterns to follow:
 
 | Agent | File | Status | LLM | Data Source |
 |-------|------|--------|-----|-------------|
-| ClinicalTrialsAgent | `agents/clinical_trials.py` | Implemented | Haiku | ClinicalTrialsClient |
+| ClinicalTrialsAgent | `agents/clinical_trials.py` | Implemented | big_llm_model | ClinicalTrialsClient |
 | LiteratureAgent | `agents/literature.py` | Planned | TBD | RetrievalService (PubMed + pgvector) |
 | MechanismAgent | `agents/mechanism.py` | Planned | TBD | OpenTargetsClient |
 | SafetyAgent | `agents/safety.py` | Planned | TBD | FDAClient |

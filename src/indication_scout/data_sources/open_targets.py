@@ -164,8 +164,8 @@ class OpenTargetsClient(BaseClient):
                 )
                 if stage_rank >= min_rank:
                     drug_name = normalize_drug_name(summary.drug_name)
-                    if drug_name == normalized_name:
-                        continue
+                    # if drug_name == normalized_name:
+                    #     continue
                     for cd in summary.diseases:
                         if cd.disease_name is None:
                             continue

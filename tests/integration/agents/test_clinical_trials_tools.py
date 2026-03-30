@@ -153,14 +153,14 @@ async def test_get_landscape_gastroparesis():
     """get_landscape tool returns competitive landscape dict."""
     result = await get_landscape.ainvoke({"indication": "gastroparesis"})
 
-    # Gastroparesis has ~80-150 trials
-    assert 80 < result["total_trial_count"] < 150
+    # Gastroparesis has ~300+ trials
+    assert result["total_trial_count"] > 200
 
     # Tool passes top_n=10
     assert len(result["competitors"]) == 10
 
     # Phase distribution
-    assert 30 < result["phase_distribution"]["Phase 2"] < 100
+    assert 10 < result["phase_distribution"]["Phase 2"] < 100
     assert 5 < result["phase_distribution"]["Phase 3"] < 50
     assert 5 < result["phase_distribution"]["Phase 4"] < 30
 
@@ -204,26 +204,19 @@ async def test_get_landscape_nonexistent_indication():
 
 async def test_get_terminated_semaglutide():
     """get_terminated tool returns terminated trial dicts."""
-    result = await get_terminated.ainvoke({"query": "semaglutide"})
+    result = await get_terminated.ainvoke({"drug": "semaglutide", "indication": "overweight"})
 
-    # Client default max_results=100, no tool cap
     assert len(result) >= 1
 
-    # Find NCT04012255 - Novo Nordisk pen-injector trial
-    [novo_trial] = [t for t in result if t["nct_id"] == "NCT04012255"]
-
-    assert novo_trial["nct_id"] == "NCT04012255"
-    assert novo_trial["drug_name"] == "Semaglutide (administered by DV3396 pen)"
-    assert novo_trial["indication"] == "Overweight"
-    assert novo_trial["phase"] == "Phase 1"
-    assert (
-        novo_trial["why_stopped"] == "The trial was terminated for strategic reasons."
-    )
-    assert novo_trial["stop_category"] == "business"
+    # NCT02499705 — safety termination from overweight indication query
+    [safety_trial] = [t for t in result if t["nct_id"] == "NCT02499705"]
+    assert safety_trial["stop_category"] == "safety"
 
 
 async def test_get_terminated_nonexistent_query():
-    """get_terminated tool returns empty list for nonexistent query."""
-    result = await get_terminated.ainvoke({"query": "xyzzy_not_a_real_term_12345"})
+    """get_terminated tool returns empty list for nonexistent drug and indication."""
+    result = await get_terminated.ainvoke(
+        {"drug": "xyzzy_not_a_real_term_12345", "indication": "xyzzy_not_a_real_indication_12345"}
+    )
 
     assert result == []

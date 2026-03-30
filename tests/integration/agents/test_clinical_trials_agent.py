@@ -31,7 +31,6 @@ async def test_agent_whitespace_path():
     )
 
     output = result["clinical_trials_output"]
-    print(f"{output=}")
 
     # Whitespace detected
     assert output.whitespace is not None

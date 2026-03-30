@@ -17,11 +17,14 @@ from typing import Any
 
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
+    CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS,
     CLINICAL_TRIALS_RECENT_START_YEAR,
+    CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE,
     CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX,
     CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
     CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
     CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS,
+    NEGATION_PREFIXES,
     STOP_KEYWORDS,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
@@ -46,6 +49,10 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
     lower = why_stopped.lower()
     for keyword, category in STOP_KEYWORDS.items():
         if keyword in lower:
+            idx = lower.index(keyword)
+            prefix = lower[max(0, idx - 20):idx]
+            if any(neg in prefix for neg in NEGATION_PREFIXES):
+                continue
             return category
     return "other"
 
@@ -211,13 +218,18 @@ class ClinicalTrialsClient(BaseClient):
         intervention_type in ("Drug", "Biological") only. Ranks competitors
         by phase then enrollment. Returns top_n competitors.
         """
-        trials = await self._fetch_all_indication_trials(
-            indication,
-            date_before=date_before,
-            phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
+        trials, total_count = await asyncio.gather(
+            self._fetch_all_indication_trials(
+                indication,
+                date_before=date_before,
+                phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
+                max_results=CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS,
+                sort="EnrollmentCount:desc",
+            ),
+            self._count_trials(drug=None, indication=indication, date_before=date_before),
         )
 
-        return self._aggregate_landscape(trials, top_n=top_n)
+        return self._aggregate_landscape(trials, total_count=total_count, top_n=top_n)
 
     # ------------------------------------------------------------------
     # Public: get_terminated
@@ -225,21 +237,60 @@ class ClinicalTrialsClient(BaseClient):
 
     async def get_terminated(
         self,
-        query: str,
+        drug: str,
+        indication: str,
         date_before: date | None = None,
-        max_results: int = 100,
+        max_results: int = 20,
     ) -> list[TerminatedTrial]:
-        """Terminated/withdrawn/suspended trials for a drug, class, or indication."""
-        params = self._build_search_params(
-            drug=None,
-            indication=None,
+        """Terminated trials for a drug and indication.
+
+        Runs two concurrent queries:
+          - Drug query: safety/efficacy terminations for this drug (any indication).
+            Filtered to stop_category in {safety, efficacy} only — enrollment,
+            business, and unknown terminations are dropped as noise.
+          - Indication query: what has failed in this indication space (any drug),
+            up to max_results.
+        Returns the union, deduped by nct_id.
+        """
+        drug_params = self._build_search_params(
+            drug=drug,
             date_before=date_before,
-            extra_term=query,
-            status_filter="TERMINATED,WITHDRAWN,SUSPENDED",
+            status_filter="TERMINATED",
         )
-        data = await self._rest_get(self.BASE_URL, params)
-        studies = data.get("studies", [])
-        return [self._parse_terminated_trial(s) for s in studies[:max_results]]
+        drug_params["pageSize"] = CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE
+        indication_params = self._build_search_params(
+            indication=indication,
+            date_before=date_before,
+            status_filter="TERMINATED",
+        )
+        drug_data, indication_data = await asyncio.gather(
+            self._rest_get(self.BASE_URL, drug_params),
+            self._rest_get(self.BASE_URL, indication_params),
+        )
+
+        # Drug query: only safety/efficacy terminations are meaningful signal
+        drug_results = [
+            self._parse_terminated_trial(s)
+            for s in drug_data.get("studies", [])
+        ]
+        drug_results = [
+            t for t in drug_results
+            if t.stop_category in {"safety", "efficacy"}
+        ]
+
+        # Indication query: all terminations up to max_results
+        indication_results = [
+            self._parse_terminated_trial(s)
+            for s in indication_data.get("studies", [])
+        ][:max_results]
+
+        seen: set[str] = set()
+        results: list[TerminatedTrial] = []
+        for trial in drug_results + indication_results:
+            if trial.nct_id not in seen:
+                seen.add(trial.nct_id)
+                results.append(trial)
+        return results
 
     # ------------------------------------------------------------------
     # Private: indication-level fetching (no drug filter)
@@ -251,6 +302,7 @@ class ClinicalTrialsClient(BaseClient):
         date_before: date | None = None,
         max_results: int | None = None,
         phase_filter: str | None = None,
+        sort: str | None = None,
     ) -> list[Trial]:
         """Fetch all trials for an indication.
 
@@ -261,6 +313,7 @@ class ClinicalTrialsClient(BaseClient):
             date_before=date_before,
             phase_filter=phase_filter,
             max_results=max_results,
+            sort=sort,
         )
 
     # ------------------------------------------------------------------
@@ -275,6 +328,7 @@ class ClinicalTrialsClient(BaseClient):
         date_before: date | None = None,
         phase_filter: str | None = None,
         max_results: int | None = None,
+        sort: str | None = None,
     ) -> list[Trial]:
         """Core pagination loop shared by all trial-fetching methods.
 
@@ -290,6 +344,7 @@ class ClinicalTrialsClient(BaseClient):
                 date_before=date_before,
                 phase_filter=phase_filter,
                 page_token=page_token,
+                sort=sort,
             )
             data = await self._rest_get(self.BASE_URL, params)
             studies = data.get("studies", [])
@@ -315,6 +370,7 @@ class ClinicalTrialsClient(BaseClient):
         extra_term: str | None = None,
         status_filter: str | None = None,
         phase_filter: str | None = None,
+        sort: str | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "format": "json",
@@ -353,6 +409,9 @@ class ClinicalTrialsClient(BaseClient):
 
         if page_token:
             params["pageToken"] = page_token
+
+        if sort:
+            params["sort"] = sort
 
         return params
 
@@ -453,6 +512,10 @@ class ClinicalTrialsClient(BaseClient):
             phase=trial.phase,
             why_stopped=trial.why_stopped,
             stop_category=_classify_stop_reason(trial.why_stopped),
+            enrollment=trial.enrollment,
+            sponsor=trial.sponsor,
+            start_date=trial.start_date,
+            termination_date=trial.completion_date,
         )
 
     # ------------------------------------------------------------------
@@ -460,7 +523,7 @@ class ClinicalTrialsClient(BaseClient):
     # ------------------------------------------------------------------
 
     def _aggregate_landscape(
-        self, trials: list[Trial], top_n: int = 50
+        self, trials: list[Trial], total_count: int, top_n: int = 50
     ) -> IndicationLandscape:
         """Group trials by sponsor + drug into a competitive landscape.
 
@@ -521,7 +584,7 @@ class ClinicalTrialsClient(BaseClient):
         )
 
         return IndicationLandscape(
-            total_trial_count=len(trials),
+            total_trial_count=total_count,
             competitors=ranked[:top_n],
             phase_distribution=phase_dist,
             recent_starts=recent_starts,

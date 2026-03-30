@@ -365,9 +365,9 @@ async def test_get_terminated_returns_terminated_dicts():
         "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
-        result = await get_terminated.ainvoke({"query": "semaglutide"})
+        result = await get_terminated.ainvoke({"drug": "semaglutide", "indication": "overweight"})
 
-    mock_client.get_terminated.assert_awaited_once_with("semaglutide", date_before=None)
+    mock_client.get_terminated.assert_awaited_once_with("semaglutide", "overweight", date_before=None)
 
     assert len(result) == 1
     t = result[0]
@@ -391,7 +391,7 @@ async def test_get_terminated_returns_all():
         "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
-        result = await get_terminated.ainvoke({"query": "some_drug"})
+        result = await get_terminated.ainvoke({"drug": "some_drug", "indication": "some_indication"})
 
     assert len(result) == 25
     assert result[0]["nct_id"] == "NCT00000000"

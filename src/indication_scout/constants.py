@@ -25,10 +25,12 @@ CHEMBL_BASE_URL: str = "https://www.ebi.ac.uk/chembl/api/data"
 # -- ClinicalTrials.gov -----------------------------------------------------
 CLINICAL_TRIALS_BASE_URL: str = "https://clinicaltrials.gov/api/v2/studies"
 CLINICAL_TRIALS_WHITESPACE_EXACT_MAX: int = 50
-CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX: int = 500
+CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX: int = 200
 CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER: str = "(PHASE2 OR PHASE3 OR PHASE4)"
 CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS: int = 50
 CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
+CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS: int = 50
+CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE: int = 20
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -79,19 +81,22 @@ BROADENING_BLOCKLIST: frozenset[str] = frozenset(
         "disorder",
         "syndrome",
         "indication",
+        "pain"
     }
 )
 
 # -- Stop-reason keywords → category (ClinicalTrials.gov) ------------------
 STOP_KEYWORDS: dict[str, str] = {
-    "efficacy": "efficacy",
-    "futility": "efficacy",
+    # Specific phrases first
     "lack of efficacy": "efficacy",
     "no benefit": "efficacy",
-    "safety": "safety",
-    "adverse": "safety",
-    "toxicity": "safety",
+    "no significant difference": "efficacy",
     "side effect": "safety",
+    "adverse event": "safety",
+    "toxicity": "safety",
+    "futility": "efficacy",
+    # Then broader terms
+    "efficacy": "efficacy",
     "enrollment": "enrollment",
     "accrual": "enrollment",
     "recruitment": "enrollment",
@@ -99,4 +104,10 @@ STOP_KEYWORDS: dict[str, str] = {
     "strategic": "business",
     "funding": "business",
     "commercial": "business",
+    # "safety" and "adverse" are too broad without negation handling
+    "safety concern": "safety",
+    "safety signal": "safety",
+    "clinical hold": "safety",
 }
+
+NEGATION_PREFIXES: list[str] = ["no ", "not ", "unrelated to ", "without ", "non-"]

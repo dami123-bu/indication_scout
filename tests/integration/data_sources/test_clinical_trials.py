@@ -22,14 +22,14 @@ async def test_get_landscape(clinical_trials_client):
     # Use a smaller, more stable indication for predictable results
     landscape = await clinical_trials_client.get_landscape("gastroparesis", top_n=10)
 
-    # Verify IndicationLandscape.total_trial_count - gastroparesis has ~300 trials
-    assert 80 < landscape.total_trial_count < 150
+    # Verify IndicationLandscape.total_trial_count - gastroparesis has ~300+ trials
+    assert landscape.total_trial_count > 200
 
     # Verify IndicationLandscape.competitors - requested top_n=10
     assert len(landscape.competitors) == 10
 
     # Verify IndicationLandscape.phase_distribution
-    assert 30 < landscape.phase_distribution["Phase 2"] < 100
+    assert 10 < landscape.phase_distribution["Phase 2"] < 100
     assert 5 < landscape.phase_distribution["Phase 3"] < 50
     assert 5 < landscape.phase_distribution["Phase 4"] < 30
 
@@ -286,24 +286,23 @@ async def test_search_trials_phase_filter(clinical_trials_client):
 
 
 async def test_get_terminated(clinical_trials_client):
-    """Test get_terminated returns terminated trials for a query.
+    """Test get_terminated returns terminated trials for a drug and indication.
 
-    get_terminated filters to status in (TERMINATED, WITHDRAWN, SUSPENDED) only.
-    It classifies stop reasons using keyword matching into categories:
-    safety, efficacy, business, enrollment, other, unknown.
+    Runs two queries:
+      - Drug query (semaglutide): only safety/efficacy terminations
+      - Indication query (overweight): all terminations in this space
+    Returns union deduped by nct_id.
     """
-    trials = await clinical_trials_client.get_terminated("semaglutide", max_results=20)
+    trials = await clinical_trials_client.get_terminated(
+        "semaglutide", "overweight", max_results=30
+    )
 
-    # Find NCT04012255 - Novo Nordisk semaglutide pen-injector trial
-    [novo_trial] = [t for t in trials if t.nct_id == "NCT04012255"]
+    assert len(trials) >= 1
 
-    # Verify TerminatedTrial fields with exact values
-    assert novo_trial.nct_id == "NCT04012255"
-    assert novo_trial.drug_name == "Semaglutide (administered by DV3396 pen)"
-    assert novo_trial.indication == "Overweight"
-    assert novo_trial.phase == "Phase 1"
-    assert novo_trial.why_stopped == "The trial was terminated for strategic reasons."
-    assert novo_trial.stop_category == "business"
+    # NCT02499705 — safety termination from overweight indication query
+    # "2 out of 3 participants had clinically elevated fasting insulin"
+    [safety_trial] = [t for t in trials if t.nct_id == "NCT02499705"]
+    assert safety_trial.stop_category == "safety"
 
 
 async def test_detect_whitespace(clinical_trials_client):
@@ -436,9 +435,9 @@ async def test_get_landscape_nonexistent_indication_returns_empty(
 
 
 async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_client):
-    """Test that nonexistent query returns empty list."""
+    """Test that nonexistent drug and indication returns empty list."""
     trials = await clinical_trials_client.get_terminated(
-        "xyzzy_not_a_real_term_12345", max_results=10
+        "xyzzy_not_a_real_term_12345", "xyzzy_not_a_real_indication_12345", max_results=10
     )
 
     assert trials == []

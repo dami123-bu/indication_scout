@@ -49,7 +49,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         """
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
-                drug, indication, date_before=date_before
+                drug, indication, date_before=date_before, max_results=50
             )
         return [t.model_dump() for t in trials]
 
@@ -68,15 +68,18 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         return result.model_dump()
 
     @tool
-    async def get_terminated(query: str) -> list[dict]:
-        """Get terminated, withdrawn, or suspended trials for a query.
+    async def get_terminated(drug: str, indication: str) -> list[dict]:
+        """Get terminated trials for a drug and indication.
 
-        The query can be a drug name, drug class, or indication name.
-        Each result includes a stop_category (safety, efficacy, enrollment,
-        business, other, unknown). Use to check for prior failures.
+        Runs two queries: (1) safety/efficacy terminations for this drug across
+        all indications — only stop_category 'safety' or 'efficacy' are returned,
+        noise is dropped; (2) all terminations in this indication space.
+        Each result includes a stop_category. Use to check for prior failures.
         """
         async with ClinicalTrialsClient() as client:
-            results = await client.get_terminated(query, date_before=date_before)
+            results = await client.get_terminated(
+                drug, indication, date_before=date_before
+            )
         return [t.model_dump() for t in results]
 
     return [detect_whitespace, search_trials, get_landscape, get_terminated]
