@@ -17,7 +17,7 @@ from langchain_anthropic import ChatAnthropic
 from indication_scout.agents.base import BaseAgent
 from indication_scout.agents.clinical_trials_tools import build_clinical_trials_tools
 from indication_scout.agents.model_clinical_trials_agent import ClinicalTrialsOutput
-from indication_scout.config import get_settings
+from indication_scout.constants import DEFAULT_LLM_MODEL
 from indication_scout.models.model_clinical_trials import (
     IndicationLandscape,
     TerminatedTrial,
@@ -47,11 +47,14 @@ End with a 2-3 sentence assessment summarizing:
 
 Return your assessment as plain text in your final message."""
 
-MAX_TOOL_ROUNDS = 6
+RECURSION_LIMIT = 15
 
 
 class ClinicalTrialsAgent(BaseAgent):
     """Agent that assesses clinical trial evidence for a drug-disease pair."""
+
+    def __init__(self, model: str = DEFAULT_LLM_MODEL) -> None:
+        self._model = model
 
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Run the clinical trials analysis.
@@ -68,11 +71,10 @@ class ClinicalTrialsAgent(BaseAgent):
         disease_name: str = input_data["disease_name"].lower()
         date_before: date | None = input_data.get("date_before")
 
-        settings = get_settings()
         tools = build_clinical_trials_tools(date_before=date_before)
 
         llm = ChatAnthropic(
-            model=settings.llm_model,
+            model=self._model,
             temperature=0,
             max_tokens=4096,
         )
@@ -96,7 +98,7 @@ class ClinicalTrialsAgent(BaseAgent):
 
         result = await agent.ainvoke(
             {"messages": [{"role": "user", "content": user_message}]},
-            config={"recursion_limit": MAX_TOOL_ROUNDS},
+            config={"recursion_limit": RECURSION_LIMIT},
         )
 
         output = self._parse_result(result)

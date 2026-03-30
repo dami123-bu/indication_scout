@@ -26,40 +26,38 @@ async def test_run_rag_empagliflozin(db_session_truncating, test_cache_dir):
         assert isinstance(summary.has_adverse_effects, bool)
 
 
-async def test_run_rag_thalidomide_mixed_signals(db_session_truncating, test_cache_dir):
+async def test_run_rag_colchicine_mixed_signals(db_session_truncating, test_cache_dir):
     results = await run_rag(
-        "thalidomide", db_session_truncating, cache_dir=test_cache_dir
+        "colchicine", db_session_truncating, cache_dir=test_cache_dir
     )
 
-    # Thalidomide has legitimate therapeutic uses (MDS, lymphoma, myeloma)
-    # but is well-known for adverse effects — at least some indications should flag this.
-    adverse_count = sum(1 for s in results.values() if s.has_adverse_effects)
-    assert (
-        adverse_count > 0
-    ), "Expected at least one indication to flag adverse effects for thalidomide"
-
-    # Not everything should come back as "strong" — myelofibrosis RCT failed,
-    # brain cancer showed limited single-agent activity.
+    # Colchicine has only preclinical cancer evidence — all indications should be weak or none.
     strengths = [s.strength for s in results.values()]
-    assert (
-        "weak" in strengths or "none" in strengths
-    ), f"Expected at least one weak/none signal for thalidomide, got: {strengths}"
+    assert all(
+        s in ("weak", "none") for s in strengths
+    ), f"Expected only weak/none signals for colchicine, got: {strengths}"
 
-    # Summaries should contain cautionary language reflecting negative efficacy signals
+    # Breast cancer, lung cancer, and sarcoma flag adverse effects (toxicity to normal cells,
+    # myelosuppression) — expect at least 2.
+    adverse_flags = {d for d, s in results.items() if s.has_adverse_effects}
+    assert len(adverse_flags) >= 2, (
+        f"Expected at least 2 indications to flag adverse effects, got: {adverse_flags}"
+    )
+
+    # Summaries should reflect the preclinical-only, no-clinical-trials nature of the evidence.
     summaries = " ".join(r.summary.lower() for r in results.values())
     cautionary_terms = [
-        "fail",
+        "no clinical",
+        "preclinical",
         "limited",
-        "inconsistent",
-        "low",
-        "modest",
-        "not support",
-        "no significant",
+        "toxicity",
+        "not colchicine",
+        "in vitro",
     ]
     matches = [t for t in cautionary_terms if t in summaries]
     assert (
-        len(matches) >= 2
-    ), f"Expected at least 2 cautionary terms in thalidomide summaries, found: {matches}"
+        len(matches) >= 3
+    ), f"Expected at least 3 cautionary terms in colchicine summaries, found: {matches}"
 
     for disease, summary in results.items():
         assert len(summary.summary) > 50

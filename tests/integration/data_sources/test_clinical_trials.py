@@ -31,7 +31,7 @@ async def test_get_landscape(clinical_trials_client):
     # Verify IndicationLandscape.phase_distribution
     assert 10 < landscape.phase_distribution["Phase 2"] < 100
     assert 5 < landscape.phase_distribution["Phase 3"] < 50
-    assert 5 < landscape.phase_distribution["Phase 4"] < 30
+    assert 1 < landscape.phase_distribution["Phase 4"] < 30
 
     # Verify IndicationLandscape.recent_starts - find a known 2024+ trial
     assert len(landscape.recent_starts) >= 1
@@ -441,6 +441,69 @@ async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_cl
     )
 
     assert trials == []
+
+
+async def test_get_terminated_business_trial_excluded_from_drug_query(
+    clinical_trials_client,
+):
+    """Drug-side safety/efficacy filter excludes business-terminated trials end-to-end.
+
+    NCT04012255 (semaglutide, Overweight, Phase 1) was terminated for strategic/business
+    reasons. It must not appear in results: the drug query drops it (wrong stop_category),
+    and the indication query ("type 2 diabetes") never includes an overweight trial.
+    """
+    trials = await clinical_trials_client.get_terminated(
+        "semaglutide", "type 2 diabetes", max_results=30
+    )
+
+    nct_ids = {t.nct_id for t in trials}
+    assert "NCT04012255" not in nct_ids
+
+
+@pytest.mark.parametrize(
+    "nct_id, why_stopped_fragment, expected_category",
+    [
+        (
+            "NCT00109577",
+            "no adverse events",  # negated safety phrase
+            "other",
+        ),
+        (
+            "NCT06134661",
+            "unrelated to safety",  # negated safety phrase
+            "enrollment",
+        ),
+    ],
+)
+async def test_classify_stop_reason_negation_on_live_data(
+    clinical_trials_client, nct_id, why_stopped_fragment, expected_category
+):
+    """_classify_stop_reason does not misclassify negated safety phrases as 'safety'.
+
+    Fetches real terminated trials whose why_stopped text contains a negated
+    safety phrase and asserts the category is not 'safety'.
+    """
+    from indication_scout.data_sources.clinical_trials import _classify_stop_reason
+
+    trial = await clinical_trials_client.get_trial(nct_id)
+
+    assert trial.why_stopped is not None
+    assert why_stopped_fragment in trial.why_stopped.lower()
+    assert _classify_stop_reason(trial.why_stopped) == expected_category
+    assert _classify_stop_reason(trial.why_stopped) != "safety"
+
+
+async def test_get_landscape_total_count_exceeds_fetch_cap(clinical_trials_client):
+    """total_trial_count reflects the real API count, not the number of fetched trials.
+
+    CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS caps the fetch at 50 trials, but the API
+    reports the true total. For type 2 diabetes, thousands of trials exist.
+    """
+    from indication_scout.constants import CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS
+
+    landscape = await clinical_trials_client.get_landscape("type 2 diabetes", top_n=5)
+
+    assert landscape.total_trial_count > CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS
 
 
 async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_client):

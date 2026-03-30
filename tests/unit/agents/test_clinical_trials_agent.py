@@ -2,6 +2,9 @@
 
 import logging
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from indication_scout.agents.clinical_trials import ClinicalTrialsAgent
 
@@ -307,3 +310,49 @@ def test_parse_result_ai_message_block_content():
     output = ClinicalTrialsAgent._parse_result(result)
 
     assert output.summary == "First part.\nSecond part."
+
+
+# ------------------------------------------------------------------
+# run(): input normalisation — drug_name and disease_name are lowercased
+# ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "drug_input, disease_input, expected_drug, expected_disease",
+    [
+        ("Metformin", "Type 2 Diabetes", "metformin", "type 2 diabetes"),
+        ("SEMAGLUTIDE", "OBESITY", "semaglutide", "obesity"),
+        ("Trastuzumab", "HER2-Positive Breast Cancer", "trastuzumab", "her2-positive breast cancer"),
+        ("aspirin", "heart disease", "aspirin", "heart disease"),
+    ],
+)
+async def test_run_lowercases_drug_and_disease(
+    drug_input, disease_input, expected_drug, expected_disease
+):
+    """ClinicalTrialsAgent.run() lowercases drug_name and disease_name before use."""
+    fake_agent_result = {
+        "messages": [
+            _ai_msg("No notable findings."),
+        ]
+    }
+
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke = AsyncMock(return_value=fake_agent_result)
+
+    with patch(
+        "indication_scout.agents.clinical_trials.create_agent",
+        return_value=mock_agent,
+    ), patch(
+        "indication_scout.agents.clinical_trials.build_clinical_trials_tools",
+        return_value=[],
+    ), patch(
+        "indication_scout.agents.clinical_trials.ChatAnthropic",
+        return_value=MagicMock(),
+    ):
+        agent = ClinicalTrialsAgent()
+        await agent.run({"drug_name": drug_input, "disease_name": disease_input})
+
+    call_args = mock_agent.ainvoke.call_args
+    user_message = call_args[0][0]["messages"][0]["content"]
+    assert expected_drug in user_message
+    assert expected_disease in user_message

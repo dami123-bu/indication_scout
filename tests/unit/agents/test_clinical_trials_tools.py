@@ -222,7 +222,7 @@ async def test_search_trials_returns_trial_dicts():
         )
 
     mock_client.search_trials.assert_awaited_once_with(
-        "trastuzumab", "breast cancer", date_before=None
+        "trastuzumab", "breast cancer", date_before=None, max_results=50
     )
 
     assert len(result) == 1

@@ -6,6 +6,9 @@ from pathlib import Path
 DEFAULT_TIMEOUT: float = 30.0
 DEFAULT_MAX_RETRIES: int = 3
 
+# -- LLM defaults -----------------------------------------------------------
+DEFAULT_LLM_MODEL: str = "claude-sonnet-4-6"
+
 # -- Cache ------------------------------------------------------------------
 # Anchored to the project root (two levels above this package's src/ dir) so
 # that a single _cache/ directory is used regardless of the working directory

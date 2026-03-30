@@ -1181,3 +1181,71 @@ async def test_normalize_disease_groups_uses_first_term_before_or(tmp_path):
 
     assert len(result) == 1
     assert result["liver cancer"] == {"drug_a", "drug_b"}
+
+
+async def test_normalize_disease_groups_calls_batch_not_per_term(tmp_path):
+    """_normalize_disease_groups calls llm_normalize_disease_batch once with all terms,
+    not once per disease (i.e. does not call the single-term variant)."""
+    diseases = {
+        "breast cancer": {"drug_a"},
+        "colorectal cancer": {"drug_b"},
+        "type 2 diabetes": {"drug_c"},
+    }
+
+    mock_batch = AsyncMock(
+        return_value={term: term for term in diseases}
+    )
+
+    with patch(
+        "indication_scout.services.retrieval.llm_normalize_disease_batch",
+        new=mock_batch,
+    ):
+        await RetrievalService(tmp_path)._normalize_disease_groups(diseases)
+
+    mock_batch.assert_awaited_once()
+    called_terms = set(mock_batch.call_args[0][0])
+    assert called_terms == {"breast cancer", "colorectal cancer", "type 2 diabetes"}
+
+
+# --- run_rag — batch normalisation ---
+
+
+async def test_run_rag_batch_normalisation_called_once(tmp_path):
+    """run_rag triggers exactly one llm_normalize_disease_batch call covering all diseases.
+
+    get_drug_competitors → _normalize_disease_groups batches all disease names into a
+    single LLM call. This asserts the batch is called once with all terms rather than
+    once per disease (N calls).
+    """
+    raw = {
+        "diseases": {
+            "type 2 diabetes": {"competitor_a"},
+            "obesity": {"competitor_b"},
+            "heart failure": {"competitor_c"},
+        },
+        "drug_indications": [],
+    }
+    mock_ot_client = AsyncMock()
+    mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)
+    mock_ot_client.__aexit__ = AsyncMock(return_value=None)
+    mock_ot_client.get_drug_competitors = AsyncMock(return_value=raw)
+
+    mock_batch = AsyncMock(
+        return_value={term: term for term in raw["diseases"]}
+    )
+
+    with patch(
+        "indication_scout.services.retrieval.OpenTargetsClient",
+        return_value=mock_ot_client,
+    ), patch(
+        "indication_scout.services.retrieval.llm_normalize_disease_batch",
+        new=mock_batch,
+    ), patch(
+        "indication_scout.services.retrieval.merge_duplicate_diseases",
+        new=AsyncMock(return_value={"merge": {}, "remove": []}),
+    ):
+        await RetrievalService(tmp_path).get_drug_competitors("metformin")
+
+    mock_batch.assert_awaited_once()
+    called_terms = set(mock_batch.call_args[0][0])
+    assert called_terms == {"type 2 diabetes", "obesity", "heart failure"}

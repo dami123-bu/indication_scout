@@ -52,7 +52,10 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
             idx = lower.index(keyword)
             prefix = lower[max(0, idx - 20):idx]
             if any(neg in prefix for neg in NEGATION_PREFIXES):
-                continue
+                neg_end = max(prefix.rfind(neg) + len(neg) for neg in NEGATION_PREFIXES if neg in prefix)
+                between = prefix[neg_end:]
+                if not any(sep in between for sep in (",", "-", ".", ";")):
+                    continue
             return category
     return "other"
 
