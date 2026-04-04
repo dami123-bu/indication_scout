@@ -1,4 +1,4 @@
-"""Integration tests for ClinicalTrialsAgent.
+"""Integration tests for build_clinical_trials_graph.
 
 These tests hit real ClinicalTrials.gov and Anthropic APIs.
 They verify the agent calls the right tools and produces structured output.
@@ -6,9 +6,24 @@ They verify the agent calls the right tools and produces structured output.
 
 import logging
 
-from indication_scout.agents.clinical_trials_agent import ClinicalTrialsAgent
+from langchain_core.messages import HumanMessage
+
+from indication_scout.constants import CLINICAL_TRIALS_RECURSION_LIMIT
 
 logger = logging.getLogger(__name__)
+
+
+async def _run(graph, drug: str, disease: str):
+    result = await graph.ainvoke(
+        {
+            "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
+            "drug_name": drug,
+            "disease_name": disease,
+            "date_before": None,
+        },
+        config={"recursion_limit": CLINICAL_TRIALS_RECURSION_LIMIT},
+    )
+    return result["final_output"]
 
 
 # ------------------------------------------------------------------
@@ -16,21 +31,13 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 
-async def test_agent_whitespace_path():
+async def test_agent_whitespace_path(clinical_trials_graph):
     """Agent detects whitespace for tirzepatide + Huntington disease.
 
     Expected behavior: detect_whitespace → whitespace found →
     get_terminated → get_landscape → summary.
     """
-    agent = ClinicalTrialsAgent()
-    result = await agent.run(
-        {
-            "drug_name": "tirzepatide",
-            "disease_name": "Huntington disease",
-        }
-    )
-
-    output = result["clinical_trials_output"]
+    output = await _run(clinical_trials_graph, "tirzepatide", "Huntington disease")
 
     # Whitespace detected
     assert output.whitespace is not None
@@ -57,21 +64,13 @@ async def test_agent_whitespace_path():
 # ------------------------------------------------------------------
 
 
-async def test_agent_active_trials_path():
+async def test_agent_active_trials_path(clinical_trials_graph):
     """Agent finds active trials for tofacitinib + alopecia areata.
 
     Expected behavior: detect_whitespace → not whitespace →
     search_trials → get_landscape → summary.
     """
-    agent = ClinicalTrialsAgent()
-    result = await agent.run(
-        {
-            "drug_name": "tofacitinib",
-            "disease_name": "alopecia areata",
-        }
-    )
-
-    output = result["clinical_trials_output"]
+    output = await _run(clinical_trials_graph, "tofacitinib", "alopecia areata")
 
     # Not whitespace
     assert output.whitespace is not None
@@ -80,10 +79,8 @@ async def test_agent_active_trials_path():
 
     # Agent should have fetched trial details
     assert len(output.trials) >= 5
-    nct_ids = [t.nct_id for t in output.trials]
-    # All NCT IDs should be valid format
-    for nct_id in nct_ids:
-        assert nct_id.startswith("NCT")
+    for trial in output.trials:
+        assert trial.nct_id.startswith("NCT")
 
     # Agent should have produced a summary
     assert len(output.summary) > 50
@@ -94,21 +91,13 @@ async def test_agent_active_trials_path():
 # ------------------------------------------------------------------
 
 
-async def test_agent_no_data():
+async def test_agent_no_data(clinical_trials_graph):
     """Agent handles nonexistent drug gracefully.
 
     Expected behavior: detect_whitespace → whitespace + no_data →
     brief summary noting lack of data.
     """
-    agent = ClinicalTrialsAgent()
-    result = await agent.run(
-        {
-            "drug_name": "xyzzy_fake_drug_99999",
-            "disease_name": "xyzzy_fake_disease_99999",
-        }
-    )
-
-    output = result["clinical_trials_output"]
+    output = await _run(clinical_trials_graph, "xyzzy_fake_drug_99999", "xyzzy_fake_disease_99999")
 
     # Whitespace with no data
     assert output.whitespace is not None
@@ -117,7 +106,7 @@ async def test_agent_no_data():
     assert output.whitespace.drug_only_trials == 0
     assert output.whitespace.indication_only_trials == 0
 
-    # No trials or terminated trials should exist
+    # No trials
     assert output.trials == []
 
     # Agent should still produce a summary

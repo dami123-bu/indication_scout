@@ -58,11 +58,27 @@ Required environment variables:
 
 The project requires a PostgreSQL database with the `pgvector` extension for storing PubMed abstract embeddings. See `docs/rag_details.md` for the Docker setup.
 
-### Database Migrations
+### Database Setup
+
+Start the database container:
 
 ```bash
-alembic upgrade head
+docker compose up -d
 ```
+
+Then apply migrations to both the main and test databases:
+
+```bash
+# Main database
+alembic upgrade head
+
+# Test database (used by integration tests)
+DATABASE_URL=postgresql+psycopg2://scout:<password>@localhost:5438/scout_test alembic upgrade head
+```
+
+Replace `<password>` with the value of `DB_PASSWORD` from your `.env` file.
+
+> **Note:** After deleting Docker volumes (`docker compose down -v`), you must re-run both migration commands — the schema is not persisted.
 
 ## Usage
 

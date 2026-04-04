@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
-from indication_scout.agents.clinical_trials_tools import build_clinical_trials_tools
+from indication_scout.agents.clinical_trials.clinical_trials_tools import build_clinical_trials_tools
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
     IndicationDrug,
@@ -79,7 +79,7 @@ async def test_detect_whitespace_whitespace_case():
     detect_whitespace = _get_tool(tools, "detect_whitespace")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await detect_whitespace.ainvoke(
@@ -128,7 +128,7 @@ async def test_detect_whitespace_not_whitespace_case():
     detect_whitespace = _get_tool(tools, "detect_whitespace")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await detect_whitespace.ainvoke(
@@ -164,7 +164,7 @@ async def test_detect_whitespace_passes_date_before():
     detect_whitespace = _get_tool(tools, "detect_whitespace")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         await detect_whitespace.ainvoke(
@@ -214,7 +214,7 @@ async def test_search_trials_returns_trial_dicts():
     search_trials = _get_tool(tools, "search_trials")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await search_trials.ainvoke(
@@ -222,7 +222,7 @@ async def test_search_trials_returns_trial_dicts():
         )
 
     mock_client.search_trials.assert_awaited_once_with(
-        "trastuzumab", "breast cancer", date_before=None, max_results=50
+        "trastuzumab", "breast cancer", date_before=None, max_results=50, sort="EnrollmentCount:desc"
     )
 
     assert len(result) == 1
@@ -264,7 +264,7 @@ async def test_search_trials_returns_all():
     search_trials = _get_tool(tools, "search_trials")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await search_trials.ainvoke(
@@ -312,7 +312,7 @@ async def test_get_landscape_returns_landscape_dict():
     get_landscape = _get_tool(tools, "get_landscape")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await get_landscape.ainvoke({"indication": "gastroparesis"})
@@ -341,6 +341,31 @@ async def test_get_landscape_returns_landscape_dict():
     assert rs["phase"] == "Phase 3"
 
 
+async def test_get_landscape_passes_date_before():
+    """get_landscape passes date_before from closure to client."""
+    cutoff = date(2020, 1, 1)
+    mock_result = IndicationLandscape(
+        total_trial_count=10,
+        competitors=[],
+        phase_distribution={},
+        recent_starts=[],
+    )
+
+    mock_client = _mock_client(get_landscape=mock_result)
+    tools = build_clinical_trials_tools(date_before=cutoff)
+    get_landscape = _get_tool(tools, "get_landscape")
+
+    with patch(
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+        return_value=mock_client,
+    ):
+        await get_landscape.ainvoke({"indication": "gastroparesis"})
+
+    mock_client.get_landscape.assert_awaited_once_with(
+        "gastroparesis", date_before=cutoff, top_n=10
+    )
+
+
 # ------------------------------------------------------------------
 # get_terminated
 # ------------------------------------------------------------------
@@ -362,12 +387,14 @@ async def test_get_terminated_returns_terminated_dicts():
     get_terminated = _get_tool(tools, "get_terminated")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await get_terminated.ainvoke({"drug": "semaglutide", "indication": "overweight"})
 
-    mock_client.get_terminated.assert_awaited_once_with("semaglutide", "overweight", date_before=None)
+    mock_client.get_terminated.assert_awaited_once_with(
+        "semaglutide", "overweight", date_before=None, sort="EnrollmentCount:desc"
+    )
 
     assert len(result) == 1
     t = result[0]
@@ -388,7 +415,7 @@ async def test_get_terminated_returns_all():
     get_terminated = _get_tool(tools, "get_terminated")
 
     with patch(
-        "indication_scout.agents.clinical_trials_tools.ClinicalTrialsClient",
+        "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
         result = await get_terminated.ainvoke({"drug": "some_drug", "indication": "some_indication"})

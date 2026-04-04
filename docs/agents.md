@@ -205,7 +205,7 @@ ClinicalTrialsAgent.run(input_data)
 ## How to Call
 
 ```python
-from indication_scout.agents.clinical_trials_agent import ClinicalTrialsAgent
+from indication_scout.agents.clinical_trials.clinical_trials_agent import ClinicalTrialsAgent
 from datetime import date
 
 agent = ClinicalTrialsAgent()
@@ -217,11 +217,11 @@ result = await agent.run({
 output = result["clinical_trials_output"]  # ClinicalTrialsOutput
 
 # Access structured data
-output.trials          # list[Trial]
-output.whitespace      # WhitespaceResult | None
-output.landscape       # IndicationLandscape | None
-output.terminated      # list[TerminatedTrial]
-output.summary         # str -- natural language assessment
+output.trials  # list[Trial]
+output.whitespace  # WhitespaceResult | None
+output.landscape  # IndicationLandscape | None
+output.terminated  # list[TerminatedTrial]
+output.summary  # str -- natural language assessment
 ```
 
 ## Dependencies

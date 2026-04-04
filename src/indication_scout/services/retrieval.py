@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
@@ -281,7 +282,9 @@ class RetrievalService:
         db.commit()
         logger.debug("Inserted %d abstracts into pubmed_abstracts", len(rows))
 
-    async def fetch_and_cache(self, queries: list[str], db: Session) -> list[str]:
+    async def fetch_and_cache(
+        self, queries: list[str], db: Session, date_before: date | None = None
+    ) -> list[str]:
         """Hit PubMed for all queries concurrently, fetch new abstracts, embed in one batch, cache in pgvector.
 
         Steps:
@@ -296,6 +299,8 @@ class RetrievalService:
         Args:
             queries: PubMed keyword queries (e.g. from expand_search_terms).
             db: Active SQLAlchemy session.
+            date_before: Optional temporal holdout cutoff; only articles published
+                before this date are returned by PubMed search.
 
         Returns:
             Deduplicated list of all PMIDs returned by PubMed search across all queries.
@@ -308,7 +313,7 @@ class RetrievalService:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
                 *[
-                    client.search(query, max_results=PUBMED_MAX_RESULTS)
+                    client.search(query, max_results=PUBMED_MAX_RESULTS, date_before=date_before)
                     for query in queries
                 ]
             )

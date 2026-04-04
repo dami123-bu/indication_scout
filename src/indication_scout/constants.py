@@ -34,11 +34,13 @@ CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS: int = 50
 CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
 CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS: int = 50
 CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE: int = 50
+CLINICAL_TRIALS_RECURSION_LIMIT: int = 15
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
+PUBMED_SUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
 PUBMED_MAX_RESULTS: int = 200
 
 # -- RAG pipeline concurrency -----------------------------------------------
