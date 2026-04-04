@@ -99,6 +99,7 @@ class ClinicalTrialsClient(BaseClient):
         date_before: date | None = None,
         phase_filter: str | None = None,
         max_results: int = 200,
+        sort: str | None = None,
     ) -> list[Trial]:
         """Search for trials matching drug and optional indication."""
         return await self._paginated_search(
@@ -107,6 +108,7 @@ class ClinicalTrialsClient(BaseClient):
             date_before=date_before,
             phase_filter=phase_filter,
             max_results=max_results,
+            sort=sort,
         )
 
     # ------------------------------------------------------------------
@@ -244,6 +246,7 @@ class ClinicalTrialsClient(BaseClient):
         indication: str,
         date_before: date | None = None,
         max_results: int = 20,
+        sort: str | None = None,
     ) -> list[TerminatedTrial]:
         """Terminated trials for a drug and indication.
 
@@ -259,12 +262,14 @@ class ClinicalTrialsClient(BaseClient):
             drug=drug,
             date_before=date_before,
             status_filter="TERMINATED",
+            sort=sort,
         )
         drug_params["pageSize"] = CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE
         indication_params = self._build_search_params(
             indication=indication,
             date_before=date_before,
             status_filter="TERMINATED",
+            sort=sort,
         )
         drug_data, indication_data = await asyncio.gather(
             self._rest_get(self.BASE_URL, drug_params),

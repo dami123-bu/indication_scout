@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from indication_scout.agents.clinical_trials import ClinicalTrialsAgent
+from indication_scout.agents.clinical_trials_agent import ClinicalTrialsAgent
 
 logger = logging.getLogger(__name__)
 

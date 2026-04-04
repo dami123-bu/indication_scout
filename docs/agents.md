@@ -10,7 +10,8 @@ For the overall system architecture see [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 All agents extend `BaseAgent`, which defines a single async interface:
 
-```python
+```
+python
 class BaseAgent(ABC):
     @abstractmethod
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
@@ -38,7 +39,8 @@ Data source models (e.g. `Trial`, `WhitespaceResult`, `IndicationLandscape`) liv
 
 **File**: `src/indication_scout/agents/clinical_trials.py`
 
-```python
+```
+python
 class ClinicalTrialsAgent(BaseAgent):
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
 ```
@@ -57,13 +59,15 @@ class ClinicalTrialsAgent(BaseAgent):
 
 **Agent creation**:
 
-```python
+```
+python
 agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
 ```
 
 Uses `langchain.agents.create_agent` to build a ReAct agent. The agent is invoked with:
 
-```python
+```
+python
 result = await agent.ainvoke(
     {"messages": [{"role": "user", "content": user_message}]},
     config={"recursion_limit": MAX_TOOL_ROUNDS},  # MAX_TOOL_ROUNDS = 10
@@ -114,7 +118,8 @@ Design rules:
 
 **File**: `src/indication_scout/agents/clinical_trials_model.py`
 
-```python
+```
+python
 class ClinicalTrialsOutput(BaseModel):
     trials: list[Trial] = []
     whitespace: WhitespaceResult | None = None
@@ -200,7 +205,7 @@ ClinicalTrialsAgent.run(input_data)
 ## How to Call
 
 ```python
-from indication_scout.agents.clinical_trials import ClinicalTrialsAgent
+from indication_scout.agents.clinical_trials_agent import ClinicalTrialsAgent
 from datetime import date
 
 agent = ClinicalTrialsAgent()
@@ -221,7 +226,8 @@ output.summary         # str -- natural language assessment
 
 ## Dependencies
 
-```toml
+```
+toml
 "langchain-core>=1.2.23"
 "langchain>=1.2.13"
 "langchain-anthropic>=0.3.0"

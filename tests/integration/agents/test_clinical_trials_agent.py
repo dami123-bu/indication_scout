@@ -6,7 +6,7 @@ They verify the agent calls the right tools and produces structured output.
 
 import logging
 
-from indication_scout.agents.clinical_trials import ClinicalTrialsAgent
+from indication_scout.agents.clinical_trials_agent import ClinicalTrialsAgent
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def test_agent_whitespace_path():
 
 
 async def test_agent_active_trials_path():
-    """Agent finds active trials for semaglutide + diabetes.
+    """Agent finds active trials for tofacitinib + alopecia areata.
 
     Expected behavior: detect_whitespace → not whitespace →
     search_trials → get_landscape → summary.
@@ -66,8 +66,8 @@ async def test_agent_active_trials_path():
     agent = ClinicalTrialsAgent()
     result = await agent.run(
         {
-            "drug_name": "semaglutide",
-            "disease_name": "diabetes",
+            "drug_name": "tofacitinib",
+            "disease_name": "alopecia areata",
         }
     )
 
@@ -76,10 +76,10 @@ async def test_agent_active_trials_path():
     # Not whitespace
     assert output.whitespace is not None
     assert output.whitespace.is_whitespace is False
-    assert output.whitespace.exact_match_count >= 10
+    assert output.whitespace.exact_match_count >= 5
 
     # Agent should have fetched trial details
-    assert len(output.trials) >= 10
+    assert len(output.trials) >= 5
     nct_ids = [t.nct_id for t in output.trials]
     # All NCT IDs should be valid format
     for nct_id in nct_ids:

@@ -8,6 +8,7 @@ from anthropic import AsyncAnthropic, NOT_GIVEN
 from dotenv import load_dotenv
 
 from indication_scout.config import get_settings
+from indication_scout.data_sources.base_client import DataSourceError
 
 load_dotenv()
 
@@ -35,6 +36,8 @@ async def query_llm(prompt: str, system: str = "") -> str:
         system=system or NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],
     )
+    if not response.content:
+        raise DataSourceError("llm", f"Empty content in LLM response (stop_reason={response.stop_reason})")
     return response.content[0].text
 
 
@@ -46,4 +49,6 @@ async def query_small_llm(prompt: str, system: str = "") -> str:
         system=system or NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],
     )
+    if not response.content:
+        raise DataSourceError("llm", f"Empty content in LLM response (stop_reason={response.stop_reason})")
     return response.content[0].text

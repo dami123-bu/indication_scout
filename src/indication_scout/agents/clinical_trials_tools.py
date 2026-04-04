@@ -49,7 +49,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         """
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
-                drug, indication, date_before=date_before, max_results=50
+                drug, indication, date_before=date_before, max_results=50, sort="EnrollmentCount:desc"
             )
         return [t.model_dump() for t in trials]
 
@@ -78,7 +78,7 @@ def build_clinical_trials_tools(date_before: date | None = None) -> list:
         """
         async with ClinicalTrialsClient() as client:
             results = await client.get_terminated(
-                drug, indication, date_before=date_before
+                drug, indication, date_before=date_before, sort="EnrollmentCount:desc"
             )
         return [t.model_dump() for t in results]
 
