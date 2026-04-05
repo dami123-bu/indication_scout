@@ -73,7 +73,9 @@ async def test_agent_active_trials_path():
     search_trials → get_landscape → summary.
     """
     from langchain_anthropic import ChatAnthropic
-    from indication_scout.agents.clinical_trials.clinical_trials_agent import build_clinical_trials_graph
+    from indication_scout.agents.clinical_trials.clinical_trials_agent import (
+        build_clinical_trials_graph,
+    )
 
     cutoff = date(2018, 1, 1)
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
@@ -110,7 +112,9 @@ async def test_agent_no_data(clinical_trials_graph):
     Expected behavior: detect_whitespace → whitespace + no_data →
     brief summary noting lack of data.
     """
-    output = await _run(clinical_trials_graph, "xyzzy_fake_drug_99999", "xyzzy_fake_disease_99999")
+    output = await _run(
+        clinical_trials_graph, "xyzzy_fake_drug_99999", "xyzzy_fake_disease_99999"
+    )
 
     # Whitespace with no data
     assert output.whitespace is not None

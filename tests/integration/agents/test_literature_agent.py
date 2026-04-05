@@ -24,7 +24,9 @@ async def _run(drug: str, disease: str, date_before: date | None = None) -> obje
     svc = RetrievalService(DEFAULT_CACHE_DIR)
     drug_profile = await svc.build_drug_profile(drug)
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
-    graph = build_literature_graph(llm=llm, svc=svc, drug_profile=drug_profile, max_search_results=20)
+    graph = build_literature_graph(
+        llm=llm, svc=svc, drug_profile=drug_profile, max_search_results=20
+    )
     result = await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],

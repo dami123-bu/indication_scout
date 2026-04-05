@@ -437,7 +437,9 @@ async def test_get_landscape_nonexistent_indication_returns_empty(
 async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_client):
     """Test that nonexistent drug and indication returns empty list."""
     trials = await clinical_trials_client.get_terminated(
-        "xyzzy_not_a_real_term_12345", "xyzzy_not_a_real_indication_12345", max_results=10
+        "xyzzy_not_a_real_term_12345",
+        "xyzzy_not_a_real_indication_12345",
+        max_results=10,
     )
 
     assert trials == []

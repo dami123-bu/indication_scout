@@ -1,13 +1,18 @@
-from indication_scout.agents.clinical_trials.clinical_trials_output import ClinicalTrialsOutput
-from indication_scout.agents.clinical_trials.clinical_trials_state import ClinicalTrialsState
-from indication_scout.agents.clinical_trials.clinical_trials_tools import build_clinical_trials_tools
+from indication_scout.agents.clinical_trials.clinical_trials_output import (
+    ClinicalTrialsOutput,
+)
+from indication_scout.agents.clinical_trials.clinical_trials_state import (
+    ClinicalTrialsState,
+)
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    build_clinical_trials_tools,
+)
 
 import json
 import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
-
 
 logger = logging.getLogger(__name__)
 from langgraph.graph import StateGraph, START, END
@@ -18,7 +23,7 @@ from indication_scout.models.model_clinical_trials import (
     WhitespaceResult,
     Trial,
     IndicationLandscape,
-    TerminatedTrial
+    TerminatedTrial,
 )
 
 
@@ -27,7 +32,9 @@ def build_clinical_trials_graph(llm, date_before=None, max_search_results=50):
     ClinicalTrialsAgent using LangGraph with system prompt.
     """
 
-    tools = build_clinical_trials_tools(date_before=date_before, max_search_results=max_search_results)
+    tools = build_clinical_trials_tools(
+        date_before=date_before, max_search_results=max_search_results
+    )
     model_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
 
@@ -52,7 +59,6 @@ Instructions:
 
 Always batch independent tool calls into a single response to minimise round-trips."""
 
-
     # ====================== NODES ======================
 
     async def agent_node(state: ClinicalTrialsState, config=None):
@@ -62,7 +68,7 @@ Always batch independent tool calls into a single response to minimise round-tri
         system_content = SYSTEM_PROMPT.format(
             drug_name=state.drug_name or "Not specified",
             disease_name=state.disease_name or "Not specified",
-            date_before=state.date_before or "None"
+            date_before=state.date_before or "None",
         )
 
         system_prompt = SystemMessage(content=system_content)
@@ -76,18 +82,28 @@ Always batch independent tool calls into a single response to minimise round-tri
 
     async def tools_node(state: ClinicalTrialsState):
 
-
         tool_results = await tool_node.ainvoke(state)
         updates: dict[str, Any] = {"messages": tool_results["messages"]}
 
         tool_handlers = {
             "detect_whitespace": ("whitespace", WhitespaceResult.model_validate),
-            "search_trials": ("trials",
-                              lambda data: [Trial.model_validate(t) for t in data] if isinstance(data, list) else []),
+            "search_trials": (
+                "trials",
+                lambda data: (
+                    [Trial.model_validate(t) for t in data]
+                    if isinstance(data, list)
+                    else []
+                ),
+            ),
             "get_landscape": ("landscape", IndicationLandscape.model_validate),
-            "get_terminated": ("terminated",
-                               lambda data: [TerminatedTrial.model_validate(t) for t in data] if isinstance(data,
-                                                                                                            list) else []),
+            "get_terminated": (
+                "terminated",
+                lambda data: (
+                    [TerminatedTrial.model_validate(t) for t in data]
+                    if isinstance(data, list)
+                    else []
+                ),
+            ),
         }
 
         for msg in tool_results.get("messages", []):
@@ -164,7 +180,7 @@ Always batch independent tool calls into a single response to minimise round-tri
 
         return {
             "final_output": final_output,
-            "messages": [AIMessage(content="Clinical trials analysis completed.")]
+            "messages": [AIMessage(content="Clinical trials analysis completed.")],
         }
 
     # ====================== BUILD GRAPH ======================
@@ -178,9 +194,7 @@ Always batch independent tool calls into a single response to minimise round-tri
     workflow.add_edge(START, "agent")
 
     workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
-        {"tools": "tools", "__end__": "assemble"}
+        "agent", tools_condition, {"tools": "tools", "__end__": "assemble"}
     )
 
     workflow.add_edge("tools", "agent")

@@ -18,20 +18,23 @@ _CUTOFF = date(2015, 1, 1)
 # PMID 28423651: Published 2017-Apr-25. A cutoff of 2020-01-01 must exclude it.
 # PMID 27039825: Published 2016. A cutoff of 2020-01-01 must exclude it.
 _PMID_INCLUDED_AFTER_CUTOFF = ["17571619"]
-_PMID_EXCLUDED_AFTER_CUTOFF = ["28423651","27039825"]
+_PMID_EXCLUDED_AFTER_CUTOFF = ["28423651", "27039825"]
 
-async def test_single(
-    db_session_truncating, test_cache_dir
-):
+
+async def test_single(db_session_truncating, test_cache_dir):
     # 28423651 was published in 2017-Apr-25
     svc = RetrievalService(test_cache_dir)
     cutoff_1 = date(2015, 4, 10)
     PMID = "28423651"
-    pmids = await svc.fetch_and_cache([_QUERY], db_session_truncating, date_before=cutoff_1)
+    pmids = await svc.fetch_and_cache(
+        [_QUERY], db_session_truncating, date_before=cutoff_1
+    )
     assert PMID not in pmids
 
     cutoff_2 = date(2017, 5, 30)
-    pmids = await svc.fetch_and_cache([_QUERY], db_session_truncating, date_before=cutoff_2)
+    pmids = await svc.fetch_and_cache(
+        [_QUERY], db_session_truncating, date_before=cutoff_2
+    )
     assert PMID in pmids
 
 
@@ -46,11 +49,12 @@ async def test_fetch_and_cache_date_before_excludes_recent_pmids(
     """
     svc = RetrievalService(test_cache_dir)
 
-    pmids = await svc.fetch_and_cache([_QUERY], db_session_truncating, date_before=_CUTOFF)
+    pmids = await svc.fetch_and_cache(
+        [_QUERY], db_session_truncating, date_before=_CUTOFF
+    )
 
     assert all(p in pmids for p in _PMID_INCLUDED_AFTER_CUTOFF)
     assert all(excluded not in pmids for excluded in _PMID_EXCLUDED_AFTER_CUTOFF)
-
 
 
 async def test_fetch_and_cache_without_date_before_includes_recent_pmids(
@@ -61,5 +65,6 @@ async def test_fetch_and_cache_without_date_before_includes_recent_pmids(
 
     pmids = await svc.fetch_and_cache([_QUERY], db_session_truncating)
 
-    assert all(p in pmids  for p in _PMID_INCLUDED_AFTER_CUTOFF + _PMID_EXCLUDED_AFTER_CUTOFF)
-
+    assert all(
+        p in pmids for p in _PMID_INCLUDED_AFTER_CUTOFF + _PMID_EXCLUDED_AFTER_CUTOFF
+    )

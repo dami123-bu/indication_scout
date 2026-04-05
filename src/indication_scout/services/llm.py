@@ -37,7 +37,9 @@ async def query_llm(prompt: str, system: str = "") -> str:
         messages=[{"role": "user", "content": prompt}],
     )
     if not response.content:
-        raise DataSourceError("llm", f"Empty content in LLM response (stop_reason={response.stop_reason})")
+        raise DataSourceError(
+            "llm", f"Empty content in LLM response (stop_reason={response.stop_reason})"
+        )
     return response.content[0].text
 
 
@@ -50,5 +52,7 @@ async def query_small_llm(prompt: str, system: str = "") -> str:
         messages=[{"role": "user", "content": prompt}],
     )
     if not response.content:
-        raise DataSourceError("llm", f"Empty content in LLM response (stop_reason={response.stop_reason})")
+        raise DataSourceError(
+            "llm", f"Empty content in LLM response (stop_reason={response.stop_reason})"
+        )
     return response.content[0].text

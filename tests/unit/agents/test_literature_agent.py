@@ -89,10 +89,20 @@ async def test_tools_node_parses_search_results_into_state():
     """tools_node correctly parses expand_search_terms output into state.search_results."""
     from unittest.mock import patch, AsyncMock as AM
 
-    llm = _make_llm([
-        _ai_with_tool_calls([_tool_call("expand_search_terms", {"drug_name": "metformin", "disease_name": "colorectal cancer"}, "tc1")]),
-        _ai_final(SUMMARY_TEXT),
-    ])
+    llm = _make_llm(
+        [
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "expand_search_terms",
+                        {"drug_name": "metformin", "disease_name": "colorectal cancer"},
+                        "tc1",
+                    )
+                ]
+            ),
+            _ai_final(SUMMARY_TEXT),
+        ]
+    )
 
     tool_responses = [
         {"messages": [_tool_response("tc1", "expand_search_terms", SEARCH_TERMS)]},
@@ -123,10 +133,20 @@ async def test_assemble_node_extracts_summary_from_final_ai_message():
     """assemble_node picks up the final AIMessage content as the summary."""
     from unittest.mock import patch, AsyncMock as AM
 
-    llm = _make_llm([
-        _ai_with_tool_calls([_tool_call("expand_search_terms", {"drug_name": "metformin", "disease_name": "colorectal cancer"}, "tc1")]),
-        _ai_final(SUMMARY_TEXT),
-    ])
+    llm = _make_llm(
+        [
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "expand_search_terms",
+                        {"drug_name": "metformin", "disease_name": "colorectal cancer"},
+                        "tc1",
+                    )
+                ]
+            ),
+            _ai_final(SUMMARY_TEXT),
+        ]
+    )
 
     tool_responses = [
         {"messages": [_tool_response("tc1", "expand_search_terms", SEARCH_TERMS)]},

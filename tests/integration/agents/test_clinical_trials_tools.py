@@ -5,7 +5,9 @@ These tests hit real ClinicalTrials.gov APIs.
 
 import logging
 
-from indication_scout.agents.clinical_trials.clinical_trials_tools import build_clinical_trials_tools
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    build_clinical_trials_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +126,10 @@ async def test_search_trials_drug_and_indication():
 
     assert len(top["primary_outcomes"]) == 1
     assert top["primary_outcomes"][0]["measure"] == "Breast cancer specific death"
-    assert top["primary_outcomes"][0]["time_frame"] == "January 1, 1977 to December 31, 2014"
+    assert (
+        top["primary_outcomes"][0]["time_frame"]
+        == "January 1, 1977 to December 31, 2014"
+    )
 
 
 async def test_search_trials_nonexistent_drug():
@@ -196,7 +201,9 @@ async def test_get_landscape_nonexistent_indication():
 
 async def test_get_terminated_semaglutide():
     """get_terminated tool returns terminated trial dicts."""
-    result = await get_terminated.ainvoke({"drug": "troglitazone", "indication": "diabetes"})
+    result = await get_terminated.ainvoke(
+        {"drug": "troglitazone", "indication": "diabetes"}
+    )
 
     assert len(result) >= 1
     assert any(t["stop_category"] == "safety" for t in result)
@@ -205,7 +212,10 @@ async def test_get_terminated_semaglutide():
 async def test_get_terminated_nonexistent_query():
     """get_terminated tool returns empty list for nonexistent drug and indication."""
     result = await get_terminated.ainvoke(
-        {"drug": "xyzzy_not_a_real_term_12345", "indication": "xyzzy_not_a_real_indication_12345"}
+        {
+            "drug": "xyzzy_not_a_real_term_12345",
+            "indication": "xyzzy_not_a_real_indication_12345",
+        }
     )
 
     assert result == []

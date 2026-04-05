@@ -38,7 +38,11 @@ async def test_expand_search_terms_returns_queries():
     tools = build_literature_tools(svc=svc, drug_profile=profile)
     expand = _get_tool(tools, "expand_search_terms")
 
-    result = await expand.ainvoke({"drug_name": "metformin", "disease_name": "colorectal cancer"})
+    result = await expand.ainvoke(
+        {"drug_name": "metformin", "disease_name": "colorectal cancer"}
+    )
 
-    svc.expand_search_terms.assert_awaited_once_with("metformin", "colorectal cancer", profile)
+    svc.expand_search_terms.assert_awaited_once_with(
+        "metformin", "colorectal cancer", profile
+    )
     assert result == ["metformin colorectal cancer", "AMPK colon neoplasm"]

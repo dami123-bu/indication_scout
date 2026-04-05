@@ -1,4 +1,5 @@
 """Output model for the ClinicalTrialsAgent."""
+
 import datetime
 
 from pydantic import BaseModel, model_validator, Field
@@ -26,4 +27,3 @@ class ClinicalTrialsOutput(BaseModel):
 
     # Optional metadata
     analyzed_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
-

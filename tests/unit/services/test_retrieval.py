@@ -1192,9 +1192,7 @@ async def test_normalize_disease_groups_calls_batch_not_per_term(tmp_path):
         "type 2 diabetes": {"drug_c"},
     }
 
-    mock_batch = AsyncMock(
-        return_value={term: term for term in diseases}
-    )
+    mock_batch = AsyncMock(return_value={term: term for term in diseases})
 
     with patch(
         "indication_scout.services.retrieval.llm_normalize_disease_batch",
@@ -1230,19 +1228,21 @@ async def test_run_rag_batch_normalisation_called_once(tmp_path):
     mock_ot_client.__aexit__ = AsyncMock(return_value=None)
     mock_ot_client.get_drug_competitors = AsyncMock(return_value=raw)
 
-    mock_batch = AsyncMock(
-        return_value={term: term for term in raw["diseases"]}
-    )
+    mock_batch = AsyncMock(return_value={term: term for term in raw["diseases"]})
 
-    with patch(
-        "indication_scout.services.retrieval.OpenTargetsClient",
-        return_value=mock_ot_client,
-    ), patch(
-        "indication_scout.services.retrieval.llm_normalize_disease_batch",
-        new=mock_batch,
-    ), patch(
-        "indication_scout.services.retrieval.merge_duplicate_diseases",
-        new=AsyncMock(return_value={"merge": {}, "remove": []}),
+    with (
+        patch(
+            "indication_scout.services.retrieval.OpenTargetsClient",
+            return_value=mock_ot_client,
+        ),
+        patch(
+            "indication_scout.services.retrieval.llm_normalize_disease_batch",
+            new=mock_batch,
+        ),
+        patch(
+            "indication_scout.services.retrieval.merge_duplicate_diseases",
+            new=AsyncMock(return_value={"merge": {}, "remove": []}),
+        ),
     ):
         await RetrievalService(tmp_path).get_drug_competitors("metformin")
 

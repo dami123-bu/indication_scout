@@ -86,7 +86,7 @@ BROADENING_BLOCKLIST: frozenset[str] = frozenset(
         "disorder",
         "syndrome",
         "indication",
-        "pain"
+        "pain",
     }
 )
 

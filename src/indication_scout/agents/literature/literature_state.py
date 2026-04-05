@@ -18,7 +18,6 @@ class LiteratureState(BaseModel):
     search_results: list[str] = []
     summary: str = ""
 
-
     # Final assembled output
     final_output: Optional[LiteratureOutput] = None
 

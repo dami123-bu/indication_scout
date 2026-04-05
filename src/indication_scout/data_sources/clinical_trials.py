@@ -50,9 +50,13 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
     for keyword, category in STOP_KEYWORDS.items():
         if keyword in lower:
             idx = lower.index(keyword)
-            prefix = lower[max(0, idx - 20):idx]
+            prefix = lower[max(0, idx - 20) : idx]
             if any(neg in prefix for neg in NEGATION_PREFIXES):
-                neg_end = max(prefix.rfind(neg) + len(neg) for neg in NEGATION_PREFIXES if neg in prefix)
+                neg_end = max(
+                    prefix.rfind(neg) + len(neg)
+                    for neg in NEGATION_PREFIXES
+                    if neg in prefix
+                )
                 between = prefix[neg_end:]
                 if not any(sep in between for sep in (",", "-", ".", ";")):
                     continue
@@ -231,7 +235,9 @@ class ClinicalTrialsClient(BaseClient):
                 max_results=CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS,
                 sort="EnrollmentCount:desc",
             ),
-            self._count_trials(drug=None, indication=indication, date_before=date_before),
+            self._count_trials(
+                drug=None, indication=indication, date_before=date_before
+            ),
         )
 
         return self._aggregate_landscape(trials, total_count=total_count, top_n=top_n)
@@ -278,18 +284,15 @@ class ClinicalTrialsClient(BaseClient):
 
         # Drug query: only safety/efficacy terminations are meaningful signal
         drug_results = [
-            self._parse_terminated_trial(s)
-            for s in drug_data.get("studies", [])
+            self._parse_terminated_trial(s) for s in drug_data.get("studies", [])
         ]
         drug_results = [
-            t for t in drug_results
-            if t.stop_category in {"safety", "efficacy"}
+            t for t in drug_results if t.stop_category in {"safety", "efficacy"}
         ]
 
         # Indication query: all terminations up to max_results
         indication_results = [
-            self._parse_terminated_trial(s)
-            for s in indication_data.get("studies", [])
+            self._parse_terminated_trial(s) for s in indication_data.get("studies", [])
         ][:max_results]
 
         seen: set[str] = set()

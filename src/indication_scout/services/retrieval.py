@@ -313,7 +313,9 @@ class RetrievalService:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
                 *[
-                    client.search(query, max_results=PUBMED_MAX_RESULTS, date_before=date_before)
+                    client.search(
+                        query, max_results=PUBMED_MAX_RESULTS, date_before=date_before
+                    )
                     for query in queries
                 ]
             )

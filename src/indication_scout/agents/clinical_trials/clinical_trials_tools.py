@@ -16,8 +16,9 @@ from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 logger = logging.getLogger(__name__)
 
 
-
-def build_clinical_trials_tools(date_before: date | None = None, max_search_results:int=50) -> list:
+def build_clinical_trials_tools(
+    date_before: date | None = None, max_search_results: int = 50
+) -> list:
     """Build tool functions with date_before captured via closure.
 
     Args:

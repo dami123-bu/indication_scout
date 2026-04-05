@@ -1,4 +1,3 @@
-
 import json
 import logging
 from typing import Any
@@ -14,10 +13,16 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
 
+def build_literature_graph(
+    llm, svc, drug_profile, date_before=None, max_search_results=200
+):
 
-def build_literature_graph(llm, svc,drug_profile, date_before=None, max_search_results=200):
-
-    tools = build_literature_tools(svc, drug_profile, date_before=date_before, max_search_results=max_search_results)
+    tools = build_literature_tools(
+        svc,
+        drug_profile,
+        date_before=date_before,
+        max_search_results=max_search_results,
+    )
 
     model_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
@@ -46,7 +51,7 @@ Instructions:
         system_content = SYSTEM_PROMPT.format(
             drug_name=state.drug_name or "Not specified",
             disease_name=state.disease_name or "Not specified",
-            date_before=state.date_before or "None"
+            date_before=state.date_before or "None",
         )
 
         system_prompt = SystemMessage(content=system_content)
@@ -66,8 +71,7 @@ Instructions:
         # Dispatch table: maps each tool name to the LiteratureState field that should
         # receive its output, and the expected type. Used to generically process
         # ToolMessages without a chain of if/elif checks per tool.
-        tool_handlers = {
-            "expand_search_terms": ("search_results", list)}
+        tool_handlers = {"expand_search_terms": ("search_results", list)}
 
         for msg in tool_results.get("messages", []):
             if not isinstance(msg, ToolMessage):
@@ -87,7 +91,6 @@ Instructions:
                 logger.error("Failed to parse %s: %s", tool_name, e)
 
         return updates
-
 
     def assemble_node(state: LiteratureState):
         """Final step: combine everything into one output object.
@@ -135,13 +138,12 @@ Instructions:
                     break
 
         final_output = LiteratureOutput(
-            search_results=state.search_results,
-            summary=summary
+            search_results=state.search_results, summary=summary
         )
 
         return {
             "final_output": final_output,
-            "messages": [AIMessage(content="Literature analysis completed.")]
+            "messages": [AIMessage(content="Literature analysis completed.")],
         }
 
     # ====================== BUILD GRAPH ======================
@@ -155,9 +157,7 @@ Instructions:
     workflow.add_edge(START, "agent")
 
     workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
-        {"tools": "tools", "__end__": "assemble"}
+        "agent", tools_condition, {"tools": "tools", "__end__": "assemble"}
     )
 
     workflow.add_edge("tools", "agent")

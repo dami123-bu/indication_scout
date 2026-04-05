@@ -4,7 +4,9 @@ import logging
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
-from indication_scout.agents.clinical_trials.clinical_trials_tools import build_clinical_trials_tools
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    build_clinical_trials_tools,
+)
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
     IndicationDrug,
@@ -222,7 +224,11 @@ async def test_search_trials_returns_trial_dicts():
         )
 
     mock_client.search_trials.assert_awaited_once_with(
-        "trastuzumab", "breast cancer", date_before=None, max_results=50, sort="EnrollmentCount:desc"
+        "trastuzumab",
+        "breast cancer",
+        date_before=None,
+        max_results=50,
+        sort="EnrollmentCount:desc",
     )
 
     assert len(result) == 1
@@ -390,7 +396,9 @@ async def test_get_terminated_returns_terminated_dicts():
         "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
-        result = await get_terminated.ainvoke({"drug": "semaglutide", "indication": "overweight"})
+        result = await get_terminated.ainvoke(
+            {"drug": "semaglutide", "indication": "overweight"}
+        )
 
     mock_client.get_terminated.assert_awaited_once_with(
         "semaglutide", "overweight", date_before=None, sort="EnrollmentCount:desc"
@@ -418,7 +426,9 @@ async def test_get_terminated_returns_all():
         "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
         return_value=mock_client,
     ):
-        result = await get_terminated.ainvoke({"drug": "some_drug", "indication": "some_indication"})
+        result = await get_terminated.ainvoke(
+            {"drug": "some_drug", "indication": "some_indication"}
+        )
 
     assert len(result) == 25
     assert result[0]["nct_id"] == "NCT00000000"

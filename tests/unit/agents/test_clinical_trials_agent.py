@@ -80,7 +80,9 @@ TRIALS_DATA = [
     }
 ]
 
-SUMMARY_TEXT = "No trials exist for this drug-disease pair. One prior efficacy failure found."
+SUMMARY_TEXT = (
+    "No trials exist for this drug-disease pair. One prior efficacy failure found."
+)
 
 
 def _make_llm(turn_responses: list) -> MagicMock:
@@ -113,7 +115,9 @@ def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
 
 
 async def _run_graph(llm, drug: str, disease: str, date_before=None) -> dict:
-    graph = build_clinical_trials_graph(llm, max_search_results=50, date_before=date_before)
+    graph = build_clinical_trials_graph(
+        llm, max_search_results=50, date_before=date_before
+    )
     return await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
@@ -132,17 +136,33 @@ async def _run_graph(llm, drug: str, disease: str, date_before=None) -> dict:
 
 async def test_whitespace_path_tools_node_parses_state_correctly():
     """tools_node correctly parses whitespace, terminated, and landscape into state."""
-    llm = _make_llm([
-        # Turn 1: call detect_whitespace
-        _ai_with_tool_calls([_tool_call("detect_whitespace", {"drug": "somedrug", "indication": "huntingtons"}, "tc1")]),
-        # Turn 2: call get_terminated + get_landscape in one batch
-        _ai_with_tool_calls([
-            _tool_call("get_terminated", {"drug": "somedrug", "indication": "huntingtons"}, "tc2"),
-            _tool_call("get_landscape", {"indication": "huntingtons"}, "tc3"),
-        ]),
-        # Turn 3: final summary
-        _ai_final(SUMMARY_TEXT),
-    ])
+    llm = _make_llm(
+        [
+            # Turn 1: call detect_whitespace
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "detect_whitespace",
+                        {"drug": "somedrug", "indication": "huntingtons"},
+                        "tc1",
+                    )
+                ]
+            ),
+            # Turn 2: call get_terminated + get_landscape in one batch
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "get_terminated",
+                        {"drug": "somedrug", "indication": "huntingtons"},
+                        "tc2",
+                    ),
+                    _tool_call("get_landscape", {"indication": "huntingtons"}, "tc3"),
+                ]
+            ),
+            # Turn 3: final summary
+            _ai_final(SUMMARY_TEXT),
+        ]
+    )
 
     # Patch ToolNode to return pre-scripted ToolMessages without hitting real APIs
     from unittest.mock import patch, AsyncMock as AM
@@ -151,10 +171,12 @@ async def test_whitespace_path_tools_node_parses_state_correctly():
         # After turn 1 tool calls
         {"messages": [_tool_response("tc1", "detect_whitespace", WHITESPACE_DATA)]},
         # After turn 2 tool calls
-        {"messages": [
-            _tool_response("tc2", "get_terminated", TERMINATED_DATA),
-            _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
-        ]},
+        {
+            "messages": [
+                _tool_response("tc2", "get_terminated", TERMINATED_DATA),
+                _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
+            ]
+        },
     ]
     mock_tool_node_instance = AM()
     mock_tool_node_instance.ainvoke = AM(side_effect=tool_responses_by_turn)
@@ -215,26 +237,45 @@ async def test_active_trials_path_tools_node_parses_state_correctly():
         "indication_drugs": [],
     }
 
-    llm = _make_llm([
-        _ai_with_tool_calls([_tool_call("detect_whitespace", {"drug": "riluzole", "indication": "als"}, "tc1")]),
-        _ai_with_tool_calls([
-            _tool_call("search_trials", {"drug": "riluzole", "indication": "als"}, "tc2"),
-            _tool_call("get_landscape", {"indication": "als"}, "tc3"),
-        ]),
-        _ai_final("5 trials found. ALS space is moderately active."),
-    ])
+    llm = _make_llm(
+        [
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "detect_whitespace",
+                        {"drug": "riluzole", "indication": "als"},
+                        "tc1",
+                    )
+                ]
+            ),
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "search_trials",
+                        {"drug": "riluzole", "indication": "als"},
+                        "tc2",
+                    ),
+                    _tool_call("get_landscape", {"indication": "als"}, "tc3"),
+                ]
+            ),
+            _ai_final("5 trials found. ALS space is moderately active."),
+        ]
+    )
 
     tool_responses_by_turn = [
         {"messages": [_tool_response("tc1", "detect_whitespace", active_whitespace)]},
-        {"messages": [
-            _tool_response("tc2", "search_trials", TRIALS_DATA),
-            _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
-        ]},
+        {
+            "messages": [
+                _tool_response("tc2", "search_trials", TRIALS_DATA),
+                _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
+            ]
+        },
     ]
     mock_tool_node_instance = AsyncMock()
     mock_tool_node_instance.ainvoke = AsyncMock(side_effect=tool_responses_by_turn)
 
     from unittest.mock import patch
+
     with patch(
         "indication_scout.agents.clinical_trials.clinical_trials_agent.ToolNode",
         return_value=mock_tool_node_instance,
@@ -277,10 +318,20 @@ async def test_active_trials_path_tools_node_parses_state_correctly():
 
 async def test_assemble_node_produces_final_output():
     """assemble_node assembles ClinicalTrialsOutput from accumulated state, extracting summary from last AIMessage."""
-    llm = _make_llm([
-        _ai_with_tool_calls([_tool_call("detect_whitespace", {"drug": "somedrug", "indication": "huntingtons"}, "tc1")]),
-        _ai_final(SUMMARY_TEXT),
-    ])
+    llm = _make_llm(
+        [
+            _ai_with_tool_calls(
+                [
+                    _tool_call(
+                        "detect_whitespace",
+                        {"drug": "somedrug", "indication": "huntingtons"},
+                        "tc1",
+                    )
+                ]
+            ),
+            _ai_final(SUMMARY_TEXT),
+        ]
+    )
 
     tool_responses_by_turn = [
         {"messages": [_tool_response("tc1", "detect_whitespace", WHITESPACE_DATA)]},
@@ -289,6 +340,7 @@ async def test_assemble_node_produces_final_output():
     mock_tool_node_instance.ainvoke = AsyncMock(side_effect=tool_responses_by_turn)
 
     from unittest.mock import patch
+
     with patch(
         "indication_scout.agents.clinical_trials.clinical_trials_agent.ToolNode",
         return_value=mock_tool_node_instance,
@@ -327,7 +379,9 @@ async def test_date_before_passed_to_tools():
 
     def capturing_build(date_before=None, max_search_results=50):
         captured_date.append(date_before)
-        return original_build(date_before=date_before, max_search_results=max_search_results)
+        return original_build(
+            date_before=date_before, max_search_results=max_search_results
+        )
 
     with patch(
         "indication_scout.agents.clinical_trials.clinical_trials_agent.build_clinical_trials_tools",

@@ -11,7 +11,12 @@ from indication_scout.services.retrieval import RetrievalService
 logger = logging.getLogger(__name__)
 
 
-def build_literature_tools(svc: RetrievalService, drug_profile:DrugProfile, date_before: date | None = None, max_search_results:int=50) -> list:
+def build_literature_tools(
+    svc: RetrievalService,
+    drug_profile: DrugProfile,
+    date_before: date | None = None,
+    max_search_results: int = 50,
+) -> list:
 
     @tool
     async def expand_search_terms(drug_name: str, disease_name: str) -> list[str]:
@@ -21,6 +26,5 @@ def build_literature_tools(svc: RetrievalService, drug_profile:DrugProfile, date
         5-10 varied queries. Always call this first.
         """
         return await svc.expand_search_terms(drug_name, disease_name, drug_profile)
-
 
     return [expand_search_terms]
