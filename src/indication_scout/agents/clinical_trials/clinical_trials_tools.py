@@ -51,6 +51,8 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
         Returns trial records including phase, status, enrollment, sponsor,
         interventions, and outcomes. Use when detect_whitespace shows trials
         exist and you need details.
+
+        Only trials with a start date before the session cutoff are returned.
         """
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
@@ -60,6 +62,7 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
                 max_results=max_search_results,
                 sort="EnrollmentCount:desc",
             )
+
         return [t.model_dump() for t in trials]
 
     @tool

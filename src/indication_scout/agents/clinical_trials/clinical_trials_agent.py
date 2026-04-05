@@ -21,10 +21,14 @@ from indication_scout.models.model_clinical_trials import (
 )
 
 
-def build_clinical_trials_graph(llm, max_search_results):
+def build_clinical_trials_graph(llm, max_search_results, date_before=None):
     """
     ClinicalTrialsAgent using LangGraph with system prompt.
     """
+
+    tools = build_clinical_trials_tools(date_before=date_before, max_search_results=max_search_results)
+    model_with_tools = llm.bind_tools(tools)
+    tool_node = ToolNode(tools)
 
     # System prompt template
     SYSTEM_PROMPT = """You are an expert Clinical Trials Research Assistant.
@@ -47,15 +51,11 @@ Instructions:
 
 Always batch independent tool calls into a single response to minimise round-trips."""
 
-    # Helper to create tools
-    def get_tools(date_before=None):
-        return build_clinical_trials_tools(date_before=date_before, max_search_results=max_search_results)
 
     # ====================== NODES ======================
 
     async def agent_node(state: ClinicalTrialsState, config=None):
         """LLM decides what to do with a clear system prompt."""
-        tools = get_tools(state.date_before)
 
         # Format the system prompt with current context
         system_content = SYSTEM_PROMPT.format(
@@ -69,14 +69,12 @@ Always batch independent tool calls into a single response to minimise round-tri
         # Combine system prompt + conversation history
         messages_to_send = [system_prompt] + list(state.messages)
 
-        model_with_tools = llm.bind_tools(tools)
         response = await model_with_tools.ainvoke(messages_to_send, config=config)
 
         return {"messages": [response]}
 
     async def tools_node(state: ClinicalTrialsState):
-        tools = get_tools(state.date_before)
-        tool_node = ToolNode(tools)
+
 
         tool_results = await tool_node.ainvoke(state)
         updates: dict[str, Any] = {"messages": tool_results["messages"]}
@@ -104,9 +102,9 @@ Always batch independent tool calls into a single response to minimise round-tri
                 if tool_name in tool_handlers:
                     field_name, parser = tool_handlers[tool_name]
                     updates[field_name] = parser(data)
-                    print(f"✓ Parsed {tool_name} into state.{field_name}")  # helpful debug
+                    logger.debug("Parsed %s into state.%s", tool_name, field_name)
             except Exception as e:
-                print(f"[ERROR] Failed to parse {tool_name}: {e}")
+                logger.error("Failed to parse %s: %s", tool_name, e)
 
         return updates
 
