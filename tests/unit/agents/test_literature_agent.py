@@ -69,7 +69,8 @@ def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
 
 async def _run_graph(llm, drug: str, disease: str) -> dict:
     svc = MagicMock()
-    graph = build_literature_graph(llm, svc=svc, drug_profile=_drug_profile())
+    db = MagicMock()
+    graph = build_literature_graph(llm, svc=svc, db=db, drug_profile=_drug_profile())
     return await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],

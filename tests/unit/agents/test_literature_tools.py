@@ -35,7 +35,7 @@ async def test_expand_search_terms_returns_queries():
     svc.expand_search_terms = AsyncMock(return_value=expected_queries)
     profile = _drug_profile()
 
-    tools = build_literature_tools(svc=svc, drug_profile=profile)
+    tools = build_literature_tools(svc=svc, db=MagicMock(), drug_profile=profile)
     expand = _get_tool(tools, "expand_search_terms")
 
     result = await expand.ainvoke(

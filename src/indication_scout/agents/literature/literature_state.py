@@ -16,6 +16,7 @@ class LiteratureState(BaseModel):
     date_before: Optional[date] = None
 
     search_results: list[str] = []
+    pmids: list[str] = []
     summary: str = ""
 
     # Final assembled output

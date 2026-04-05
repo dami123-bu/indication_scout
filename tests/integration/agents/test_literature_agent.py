@@ -7,11 +7,13 @@ They verify the agent calls expand_search_terms and produces structured output.
 import logging
 from datetime import date
 
-from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 from indication_scout.agents.literature.literature_agent import build_literature_graph
+from indication_scout.config import get_settings
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.services.retrieval import RetrievalService
 
@@ -21,11 +23,18 @@ RECURSION_LIMIT = 10
 
 
 async def _run(drug: str, disease: str, date_before: date | None = None) -> object:
+    settings = get_settings()
+    engine = create_engine(settings.test_database_url)
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+    db.execute(text("TRUNCATE TABLE pubmed_abstracts"))
+    db.commit()
+
     svc = RetrievalService(DEFAULT_CACHE_DIR)
     drug_profile = await svc.build_drug_profile(drug)
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
     graph = build_literature_graph(
-        llm=llm, svc=svc, drug_profile=drug_profile, max_search_results=20
+        llm=llm, svc=svc, db=db, drug_profile=drug_profile, max_search_results=20, date_before=date_before
     )
     result = await graph.ainvoke(
         {
@@ -40,27 +49,15 @@ async def _run(drug: str, disease: str, date_before: date | None = None) -> obje
 
 
 # ------------------------------------------------------------------
-# bupropion / depression — known drug-disease pair
+# semaglutide / NASH — date cutoff enforced
 # ------------------------------------------------------------------
 
 
-async def test_literature_agent_bupropion_depression():
-    """Agent generates search terms for bupropion in depression.
+async def test_literature_agent_semaglutide_nash_date_cutoff():
+    """Agent respects date_before cutoff: post-cutoff PMIDs must not appear in results."""
+    cutoff = date(2009, 1, 1)
+    output = await _run("Semaglutide", "NASH", date_before=cutoff)
 
-    Expected: expand_search_terms produces 8 queries derived from the bupropion
-    drug profile (synonyms, targets, MOA, ATC), and a substantive summary.
-    """
-    output = await _run("bupropion", "depression")
-
-    assert output.search_results == [
-        "bupropion AND depression",
-        "antidepressants AND brain",
-        "dopamine transporter inhibitor AND brain",
-        "norepinephrine transporter inhibitor AND depression",
-        "SLC6A3 AND depression",
-        "SLC6A2 AND depression",
-        "amfebutamone AND depression",
-        "bupropion extended release AND major depressive disorder",
-    ]
-
+    assert "21479465" in output.pmids
+    assert "30510243" not in output.pmids
     assert len(output.summary) > 100

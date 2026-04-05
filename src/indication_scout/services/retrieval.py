@@ -283,7 +283,7 @@ class RetrievalService:
         logger.debug("Inserted %d abstracts into pubmed_abstracts", len(rows))
 
     async def fetch_and_cache(
-        self, queries: list[str], db: Session, date_before: date | None = None
+        self, queries: list[str], db: Session, date_before: date | None = None, max_results: int | None = None
     ) -> list[str]:
         """Hit PubMed for all queries concurrently, fetch new abstracts, embed in one batch, cache in pgvector.
 
@@ -301,6 +301,7 @@ class RetrievalService:
             db: Active SQLAlchemy session.
             date_before: Optional temporal holdout cutoff; only articles published
                 before this date are returned by PubMed search.
+            max_results: Maximum number of PubMed results to fetch per query. Defaults to PUBMED_MAX_RESULTS.
 
         Returns:
             Deduplicated list of all PMIDs returned by PubMed search across all queries.
@@ -309,12 +310,13 @@ class RetrievalService:
             that pass this list to semantic_search will see those PMIDs silently skipped
             by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
         """
+        effective_max_results = max_results if max_results is not None else PUBMED_MAX_RESULTS
         async with PubMedClient(cache_dir=self.cache_dir) as client:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
                 *[
                     client.search(
-                        query, max_results=PUBMED_MAX_RESULTS, date_before=date_before
+                        query, max_results=effective_max_results, date_before=date_before
                     )
                     for query in queries
                 ]

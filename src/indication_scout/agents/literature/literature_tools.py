@@ -3,7 +3,7 @@ import logging
 from datetime import date
 
 from langchain_core.tools import tool
-
+from sqlalchemy.orm import Session
 
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.services.retrieval import RetrievalService
@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 
 def build_literature_tools(
     svc: RetrievalService,
+    db:Session,
     drug_profile: DrugProfile,
     date_before: date | None = None,
-    max_search_results: int = 50,
+    max_search_results: int | None = None,
 ) -> list:
 
     @tool
@@ -27,4 +28,14 @@ def build_literature_tools(
         """
         return await svc.expand_search_terms(drug_name, disease_name, drug_profile)
 
-    return [expand_search_terms]
+    @tool
+    async def fetch_and_cache(search_terms: list[str]) -> dict:
+        """Search PubMed for all search terms, embed abstracts, and store in pgvector.
+
+        Call this after expand_search_terms, passing the search terms it returned.
+        Returns pmid_count and pmids.
+        """
+        pmids = await svc.fetch_and_cache(search_terms, db, date_before=date_before, max_results=max_search_results)
+        return {"pmid_count": len(pmids), "pmids": pmids}
+
+    return [expand_search_terms, fetch_and_cache]

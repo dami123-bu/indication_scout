@@ -14,11 +14,12 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 
 def build_literature_graph(
-    llm, svc, drug_profile, date_before=None, max_search_results=200
+    llm, svc, db, drug_profile, date_before=None, max_search_results=None
 ):
 
     tools = build_literature_tools(
         svc,
+        db,
         drug_profile,
         date_before=date_before,
         max_search_results=max_search_results,
@@ -40,7 +41,8 @@ Current Context:
 Instructions:
 1. Always use the current drug and disease shown above when calling tools.
 2. Call `expand_search_terms` to generate diverse PubMed keyword queries for this drug-disease pair.
-3. When you have the search terms, summarize them briefly in 1-2 sentences."""
+3. Call `fetch_and_cache` passing the search terms returned by `expand_search_terms`.
+4. When done, summarize the findings briefly in 1-2 sentences."""
 
     # ====================== NODES ======================
 
@@ -71,7 +73,7 @@ Instructions:
         # Dispatch table: maps each tool name to the LiteratureState field that should
         # receive its output, and the expected type. Used to generically process
         # ToolMessages without a chain of if/elif checks per tool.
-        tool_handlers = {"expand_search_terms": ("search_results", list)}
+        tool_handlers = {"expand_search_terms": ("search_results", list), "fetch_and_cache": ("pmids", lambda d: d["pmids"])}
 
         for msg in tool_results.get("messages", []):
             if not isinstance(msg, ToolMessage):
@@ -138,7 +140,9 @@ Instructions:
                     break
 
         final_output = LiteratureOutput(
-            search_results=state.search_results, summary=summary
+            search_results=state.search_results,
+            pmids=state.pmids,
+            summary=summary,
         )
 
         return {
