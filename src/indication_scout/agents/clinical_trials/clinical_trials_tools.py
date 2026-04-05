@@ -7,7 +7,6 @@ types (strings) and return dicts so the LLM can read the results.
 
 import json
 import logging
-import time
 from datetime import date
 
 from langchain_core.tools import tool
@@ -15,6 +14,7 @@ from langchain_core.tools import tool
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 
 logger = logging.getLogger(__name__)
+
 
 
 def build_clinical_trials_tools(date_before: date | None = None, max_search_results:int=50) -> list:
@@ -38,12 +38,10 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
         (when whitespace exists) other drugs being tested for the same indication.
         This should almost always be the first tool called.
         """
-        t0 = time.perf_counter()
         async with ClinicalTrialsClient() as client:
             result = await client.detect_whitespace(
                 drug, indication, date_before=date_before
             )
-        logger.info("detect_whitespace(%s, %s) took %.2fs", drug, indication, time.perf_counter() - t0)
         return result.model_dump()
 
     @tool
@@ -54,7 +52,6 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
         interventions, and outcomes. Use when detect_whitespace shows trials
         exist and you need details.
         """
-        t0 = time.perf_counter()
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
                 drug,
@@ -63,7 +60,6 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
                 max_results=max_search_results,
                 sort="EnrollmentCount:desc",
             )
-        logger.info("search_trials(%s, %s) took %.2fs", drug, indication, time.perf_counter() - t0)
         return [t.model_dump() for t in trials]
 
     @tool
@@ -74,12 +70,10 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
         phase then enrollment, plus phase distribution and recent starts.
         Use to understand how crowded the space is.
         """
-        t0 = time.perf_counter()
         async with ClinicalTrialsClient() as client:
             result = await client.get_landscape(
                 indication, date_before=date_before, top_n=10
             )
-        logger.info("get_landscape(%s) took %.2fs", indication, time.perf_counter() - t0)
         return json.loads(result.model_dump_json())
 
     @tool
@@ -91,12 +85,10 @@ def build_clinical_trials_tools(date_before: date | None = None, max_search_resu
         noise is dropped; (2) all terminations in this indication space.
         Each result includes a stop_category. Use to check for prior failures.
         """
-        t0 = time.perf_counter()
         async with ClinicalTrialsClient() as client:
             results = await client.get_terminated(
                 drug, indication, date_before=date_before, sort="EnrollmentCount:desc"
             )
-        logger.info("get_terminated(%s, %s) took %.2fs", drug, indication, time.perf_counter() - t0)
         return [t.model_dump() for t in results]
 
     return [detect_whitespace, search_trials, get_landscape, get_terminated]
