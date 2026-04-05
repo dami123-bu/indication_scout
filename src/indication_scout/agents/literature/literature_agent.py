@@ -1,6 +1,3 @@
-from indication_scout.agents.clinical_trials.clinical_trials_output import ClinicalTrialsOutput
-from indication_scout.agents.clinical_trials.clinical_trials_state import ClinicalTrialsState
-from indication_scout.agents.clinical_trials.clinical_trials_tools import build_clinical_trials_tools
 
 import json
 import logging
@@ -8,33 +5,27 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
 
+from indication_scout.agents.literature.literature_output import LiteratureOutput
+from indication_scout.agents.literature.literature_state import LiteratureState
+from indication_scout.agents.literature.literature_tools import build_literature_tools
 
 logger = logging.getLogger(__name__)
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
 
-from indication_scout.models.model_clinical_trials import (
-    WhitespaceResult,
-    Trial,
-    IndicationLandscape,
-    TerminatedTrial
-)
 
+def build_literature_graph(llm, svc,drug_profile, date_before=None, max_search_results=200):
 
-def build_clinical_trials_graph(llm, date_before=None, max_search_results=50):
-    """
-    ClinicalTrialsAgent using LangGraph with system prompt.
-    """
+    tools = build_literature_tools(svc, drug_profile, date_before=date_before, max_search_results=max_search_results)
 
-    tools = build_clinical_trials_tools(date_before=date_before, max_search_results=max_search_results)
     model_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
 
     # System prompt template
-    SYSTEM_PROMPT = """You are an expert Clinical Trials Research Assistant.
+    SYSTEM_PROMPT = """You are an expert biomedical literature researcher.
 
-Your goal is to gather comprehensive information about a drug in a specific disease/indication.
+Your goal is to identify published evidence for a drug in a specific disease/indication.
 
 Current Context:
 - Drug: {drug_name}
@@ -43,19 +34,12 @@ Current Context:
 
 Instructions:
 1. Always use the current drug and disease shown above when calling tools.
-2. Start with `detect_whitespace` to understand if there's opportunity in this drug-indication pair.
-3. Based on the result, call remaining tools in a single batch where possible:
-   - If trials exist: call `search_trials` and `get_landscape` together in one response.
-   - If whitespace: call `get_terminated` and `get_landscape` together in one response.
-   - If `get_terminated` finds safety/efficacy failures, you may skip `get_landscape`.
-4. When you have enough information, summarize the findings clearly in 2-3 sentences.
-
-Always batch independent tool calls into a single response to minimise round-trips."""
-
+2. Call `expand_search_terms` to generate diverse PubMed keyword queries for this drug-disease pair.
+3. When you have the search terms, summarize them briefly in 1-2 sentences."""
 
     # ====================== NODES ======================
 
-    async def agent_node(state: ClinicalTrialsState, config=None):
+    async def agent_node(state: LiteratureState, config=None):
         """LLM decides what to do with a clear system prompt."""
 
         # Format the system prompt with current context
@@ -74,21 +58,16 @@ Always batch independent tool calls into a single response to minimise round-tri
 
         return {"messages": [response]}
 
-    async def tools_node(state: ClinicalTrialsState):
-
+    async def tools_node(state: LiteratureState):
 
         tool_results = await tool_node.ainvoke(state)
         updates: dict[str, Any] = {"messages": tool_results["messages"]}
 
+        # Dispatch table: maps each tool name to the LiteratureState field that should
+        # receive its output, and the expected type. Used to generically process
+        # ToolMessages without a chain of if/elif checks per tool.
         tool_handlers = {
-            "detect_whitespace": ("whitespace", WhitespaceResult.model_validate),
-            "search_trials": ("trials",
-                              lambda data: [Trial.model_validate(t) for t in data] if isinstance(data, list) else []),
-            "get_landscape": ("landscape", IndicationLandscape.model_validate),
-            "get_terminated": ("terminated",
-                               lambda data: [TerminatedTrial.model_validate(t) for t in data] if isinstance(data,
-                                                                                                            list) else []),
-        }
+            "expand_search_terms": ("search_results", list)}
 
         for msg in tool_results.get("messages", []):
             if not isinstance(msg, ToolMessage):
@@ -109,7 +88,8 @@ Always batch independent tool calls into a single response to minimise round-tri
 
         return updates
 
-    def assemble_node(state: ClinicalTrialsState):
+
+    def assemble_node(state: LiteratureState):
         """Final step: combine everything into one output object.
 
         The message history looks like:
@@ -154,22 +134,19 @@ Always batch independent tool calls into a single response to minimise round-tri
                     summary = "\n".join(text_parts).strip()
                     break
 
-        final_output = ClinicalTrialsOutput(
-            trials=state.trials,
-            whitespace=state.whitespace,
-            landscape=state.landscape,
-            terminated=state.terminated,
-            summary=summary,
+        final_output = LiteratureOutput(
+            search_results=state.search_results,
+            summary=summary
         )
 
         return {
             "final_output": final_output,
-            "messages": [AIMessage(content="Clinical trials analysis completed.")]
+            "messages": [AIMessage(content="Literature analysis completed.")]
         }
 
     # ====================== BUILD GRAPH ======================
 
-    workflow = StateGraph(ClinicalTrialsState)
+    workflow = StateGraph(LiteratureState)
 
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tools_node)
