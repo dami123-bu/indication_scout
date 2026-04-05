@@ -113,7 +113,7 @@ def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
 
 
 async def _run_graph(llm, drug: str, disease: str, date_before=None) -> dict:
-    graph = build_clinical_trials_graph(llm)
+    graph = build_clinical_trials_graph(llm,max_search_results=50)
     return await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
@@ -325,9 +325,9 @@ async def test_date_before_passed_to_tools():
         fromlist=["build_clinical_trials_tools"],
     ).build_clinical_trials_tools
 
-    def capturing_build(date_before=None):
+    def capturing_build(date_before=None, max_search_results=50):
         captured_date.append(date_before)
-        return original_build(date_before=date_before)
+        return original_build(date_before=date_before, max_search_results=max_search_results)
 
     with patch(
         "indication_scout.agents.clinical_trials.clinical_trials_agent.build_clinical_trials_tools",

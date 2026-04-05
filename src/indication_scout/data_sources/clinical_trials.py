@@ -395,11 +395,11 @@ class ClinicalTrialsClient(BaseClient):
         if extra_term:
             params["query.term"] = extra_term
 
-        # Temporal holdout: restrict to trials posted before cutoff
+        # Temporal holdout: restrict to trials that started before cutoff
         if date_before:
             date_str = date_before.strftime("%Y-%m-%d")
             term = params.get("query.term", "")
-            date_filter = f"AREA[StudyFirstPostDate]RANGE[MIN, {date_str}]"
+            date_filter = f"AREA[StartDate]RANGE[MIN, {date_str}]"
             params["query.term"] = (
                 f"{term} {date_filter}".strip() if term else date_filter
             )

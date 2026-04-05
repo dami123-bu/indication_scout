@@ -119,4 +119,4 @@ def clinical_trials_graph():
     from indication_scout.agents.clinical_trials.clinical_trials_agent import build_clinical_trials_graph
 
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
-    return build_clinical_trials_graph(llm)
+    return build_clinical_trials_graph(llm,max_search_results=30)

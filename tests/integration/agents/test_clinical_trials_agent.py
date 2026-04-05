@@ -5,6 +5,7 @@ They verify the agent calls the right tools and produces structured output.
 """
 
 import logging
+from datetime import date
 
 from langchain_core.messages import HumanMessage
 
@@ -13,13 +14,13 @@ from indication_scout.constants import CLINICAL_TRIALS_RECURSION_LIMIT
 logger = logging.getLogger(__name__)
 
 
-async def _run(graph, drug: str, disease: str):
+async def _run(graph, drug: str, disease: str, date_before: date | None = None):
     result = await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
             "drug_name": drug,
             "disease_name": disease,
-            "date_before": None,
+            "date_before": date_before,
         },
         config={"recursion_limit": CLINICAL_TRIALS_RECURSION_LIMIT},
     )
@@ -65,22 +66,29 @@ async def test_agent_whitespace_path(clinical_trials_graph):
 
 
 async def test_agent_active_trials_path(clinical_trials_graph):
-    """Agent finds active trials for tofacitinib + alopecia areata.
+    """Agent finds active trials for tofacitinib + alopecia areata with a date cutoff.
 
+    Cutoff: 2018-1-1. NCT03800979 started after this date and must not appear.
     Expected behavior: detect_whitespace → not whitespace →
     search_trials → get_landscape → summary.
     """
-    output = await _run(clinical_trials_graph, "tofacitinib", "alopecia areata")
+    cutoff = date(2018, 1, 1)
+    output = await _run(clinical_trials_graph, "tofacitinib", "alopecia areata", date_before=cutoff)
 
     # Not whitespace
     assert output.whitespace is not None
     assert output.whitespace.is_whitespace is False
-    assert output.whitespace.exact_match_count >= 5
+    assert output.whitespace.exact_match_count >= 2
 
     # Agent should have fetched trial details
-    assert len(output.trials) >= 5
-    for trial in output.trials:
-        assert trial.nct_id.startswith("NCT")
+    assert len(output.trials) >= 2
+    nct_ids = [t.nct_id for t in output.trials]
+    for nct_id in nct_ids:
+        assert nct_id.startswith("NCT")
+
+    # Trial that started after cutoff must be excluded
+    assert "NCT03800979" not in nct_ids
+    assert "NCT02299297" in nct_ids
 
     # Agent should have produced a summary
     assert len(output.summary) > 50

@@ -4,6 +4,7 @@ from indication_scout.agents.clinical_trials.clinical_trials_tools import build_
 
 import json
 import logging
+import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
@@ -21,7 +22,7 @@ from indication_scout.models.model_clinical_trials import (
 )
 
 
-def build_clinical_trials_graph(llm):
+def build_clinical_trials_graph(llm, max_search_results):
     """
     ClinicalTrialsAgent using LangGraph with system prompt.
     """
@@ -49,7 +50,7 @@ Always batch independent tool calls into a single response to minimise round-tri
 
     # Helper to create tools
     def get_tools(date_before=None):
-        return build_clinical_trials_tools(date_before=date_before)
+        return build_clinical_trials_tools(date_before=date_before, max_search_results=max_search_results)
 
     # ====================== NODES ======================
 
@@ -70,7 +71,9 @@ Always batch independent tool calls into a single response to minimise round-tri
         messages_to_send = [system_prompt] + list(state.messages)
 
         model_with_tools = llm.bind_tools(tools)
+        t0 = time.perf_counter()
         response = await model_with_tools.ainvoke(messages_to_send, config=config)
+        logger.info("agent_node LLM call took %.2fs", time.perf_counter() - t0)
 
         return {"messages": [response]}
 
