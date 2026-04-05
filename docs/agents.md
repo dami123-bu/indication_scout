@@ -259,13 +259,13 @@ tests/
 
 ## Adding a New Agent
 
-To add a new agent (e.g. `LiteratureAgent`):
+To add a new agent (e.g. `MechanismAgent`):
 
-1. **Create `agents/literature_model.py`** -- output Pydantic model referencing models from `models/`. Include `coerce_nones` validator.
-2. **Create `agents/literature_tools.py`** -- `build_literature_tools()` returning a list of `@tool` functions wrapping data source client methods. Tools accept primitives, return dicts via `model_dump()`. Each tool manages its own client session.
-3. **Create `agents/literature.py`** -- agent class extending `BaseAgent`. Includes system prompt, `run()` method using `create_agent` and `ainvoke`, and a `_parse_result` static method that walks message history to reconstruct the typed output model.
-4. **Add unit tests** in `tests/unit/agents/test_literature_*.py`.
-5. **Add integration tests** in `tests/integration/agents/test_literature_*.py`.
+1. **Create `agents/mechanism_model.py`** -- output Pydantic model referencing models from `models/`. Include `coerce_nones` validator.
+2. **Create `agents/mechanism_tools.py`** -- `build_mechanism_tools()` returning a list of `@tool` functions wrapping data source client methods. Tools accept primitives, return dicts via `model_dump()`. Each tool manages its own client session.
+3. **Create `agents/mechanism.py`** -- agent class extending `BaseAgent`. Includes system prompt, `run()` method using `create_agent` and `ainvoke`, and a `_parse_result` static method that walks message history to reconstruct the typed output model.
+4. **Add unit tests** in `tests/unit/agents/test_mechanism_*.py`.
+5. **Add integration tests** in `tests/integration/agents/test_mechanism_*.py`.
 
 Key patterns to follow:
 
@@ -281,7 +281,7 @@ Key patterns to follow:
 | Agent | File | Status | LLM | Data Source |
 |-------|------|--------|-----|-------------|
 | ClinicalTrialsAgent | `agents/clinical_trials.py` | Implemented | big_llm_model | ClinicalTrialsClient |
-| LiteratureAgent | `agents/literature.py` | Planned | TBD | RetrievalService (PubMed + pgvector) |
+| LiteratureAgent | `agents/literature_agent.py` | Implemented | DEFAULT_LLM_MODEL | RetrievalService (PubMed + pgvector) |
 | MechanismAgent | `agents/mechanism.py` | Planned | TBD | OpenTargetsClient |
 | SafetyAgent | `agents/safety.py` | Planned | TBD | FDAClient |
 | Orchestrator | `agents/orchestrator.py` | Planned | Sonnet | Coordinates all agents |

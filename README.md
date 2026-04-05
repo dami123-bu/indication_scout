@@ -116,7 +116,7 @@ mypy src/                           # type checking
 
 ```
 src/indication_scout/
-├── agents/          # AI agents (orchestrator, literature, clinical_trials, mechanism, safety) -- all stubs
+├── agents/          # AI agents (orchestrator, literature, clinical_trials, mechanism, safety) -- clinical_trials and literature implemented; others are stubs
 ├── api/             # FastAPI application (main.py, routes/, schemas/) -- /health endpoint only
 ├── data_sources/    # Async API clients (OpenTargets, ClinicalTrials.gov, PubMed, ChEMBL, DrugBank)
 ├── db/              # SQLAlchemy session factory and declarative base
