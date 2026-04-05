@@ -115,6 +115,7 @@ async def clinical_trials_client():
 @pytest.fixture
 def clinical_trials_graph():
     """Reusable fixture for the ClinicalTrialsAgent graph."""
+    """NOTE if you need to set your cutoff date, do not use this fixture"""
     from langchain_anthropic import ChatAnthropic
     from indication_scout.agents.clinical_trials.clinical_trials_agent import build_clinical_trials_graph
 

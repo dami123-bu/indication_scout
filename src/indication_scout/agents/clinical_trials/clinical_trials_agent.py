@@ -8,6 +8,8 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
 
+from indication_scout.constants import CLINICAL_TRIALS_RECURSION_LIMIT
+
 logger = logging.getLogger(__name__)
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -21,7 +23,7 @@ from indication_scout.models.model_clinical_trials import (
 )
 
 
-def build_clinical_trials_graph(llm, max_search_results, date_before=None):
+def build_clinical_trials_graph(llm, date_before=None, max_search_results=50):
     """
     ClinicalTrialsAgent using LangGraph with system prompt.
     """
@@ -109,23 +111,49 @@ Always batch independent tool calls into a single response to minimise round-tri
         return updates
 
     def assemble_node(state: ClinicalTrialsState):
-        """Final step: combine everything into one output object."""
-        # Extract summary from the last AI message that has non-empty text content
+        """Final step: combine everything into one output object.
+
+        The message history looks like:
+            HumanMessage        ← initial user prompt
+            AIMessage           ← LLM decides to call tool(s)
+            ToolMessage(s)      ← tool results
+            AIMessage           ← LLM decides to call more tools, or produces final summary
+            ToolMessage(s)      ← tool results (if another round)
+            AIMessage           ← final plain-text summary (no tool calls)
+
+        We want the final AIMessage that comes *after* the last ToolMessage —
+        that is the LLM's narrative summary, not an intermediate tool-calling step.
+        """
+        messages = list(state.messages)
+
+        # Find the index of the last ToolMessage so we can ignore AI messages
+        # that appear before or at that point (those are tool-calling steps, not summaries).
+        last_tool_index = -1
+        for i, msg in enumerate(messages):
+            if isinstance(msg, ToolMessage):
+                last_tool_index = i
+
+        # Walk backwards through messages looking for the first AIMessage that
+        # appears after the last tool result and contains non-empty text.
         summary = ""
-        for msg in reversed(list(state.messages)):
-            if isinstance(msg, AIMessage):
-                if isinstance(msg.content, str) and msg.content.strip():
-                    summary = msg.content.strip()
+        for i, msg in reversed(list(enumerate(messages))):
+            if not isinstance(msg, AIMessage) or i <= last_tool_index:
+                continue
+            # Claude returns content as a plain string when there are no tool calls.
+            if isinstance(msg.content, str) and msg.content.strip():
+                summary = msg.content.strip()
+                break
+            # Claude returns content as a list of blocks when mixing text + tool_use.
+            # Extract only the text blocks and join them.
+            if isinstance(msg.content, list):
+                text_parts = [
+                    block.get("text", "")
+                    for block in msg.content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                if text_parts:
+                    summary = "\n".join(text_parts).strip()
                     break
-                if isinstance(msg.content, list):
-                    text_parts = [
-                        block.get("text", "")
-                        for block in msg.content
-                        if isinstance(block, dict) and block.get("type") == "text"
-                    ]
-                    if text_parts:
-                        summary = "\n".join(text_parts).strip()
-                        break
 
         final_output = ClinicalTrialsOutput(
             trials=state.trials,

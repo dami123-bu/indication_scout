@@ -113,7 +113,7 @@ def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
 
 
 async def _run_graph(llm, drug: str, disease: str, date_before=None) -> dict:
-    graph = build_clinical_trials_graph(llm,max_search_results=50)
+    graph = build_clinical_trials_graph(llm, max_search_results=50, date_before=date_before)
     return await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],

@@ -27,10 +27,3 @@ class ClinicalTrialsOutput(BaseModel):
     # Optional metadata
     analyzed_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
 
-    @model_validator(mode="before")
-    @classmethod
-    def coerce_nones(cls, values: dict) -> dict:
-        for field_name, field_info in cls.model_fields.items():
-            if values.get(field_name) is None and field_info.default is not None:
-                values[field_name] = field_info.default
-        return values

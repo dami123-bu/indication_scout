@@ -65,15 +65,20 @@ async def test_agent_whitespace_path(clinical_trials_graph):
 # ------------------------------------------------------------------
 
 
-async def test_agent_active_trials_path(clinical_trials_graph):
+async def test_agent_active_trials_path():
     """Agent finds active trials for tofacitinib + alopecia areata with a date cutoff.
 
     Cutoff: 2018-1-1. NCT03800979 started after this date and must not appear.
     Expected behavior: detect_whitespace → not whitespace →
     search_trials → get_landscape → summary.
     """
+    from langchain_anthropic import ChatAnthropic
+    from indication_scout.agents.clinical_trials.clinical_trials_agent import build_clinical_trials_graph
+
     cutoff = date(2018, 1, 1)
-    output = await _run(clinical_trials_graph, "tofacitinib", "alopecia areata", date_before=cutoff)
+    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
+    graph = build_clinical_trials_graph(llm, max_search_results=30, date_before=cutoff)
+    output = await _run(graph, "tofacitinib", "alopecia areata", date_before=cutoff)
 
     # Not whitespace
     assert output.whitespace is not None
