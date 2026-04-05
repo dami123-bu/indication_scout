@@ -516,14 +516,33 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
         for r in results
     )
 
+async def test_semantic_search_returns_relevant_results(svc, db_session_truncating):
+    """Semantic search should return abstracts about empagliflozin + MI."""
+    queries = [
+        "empagliflozin AND myocardial infarction",
+        "empagliflozin AND cardiovascular outcome",
+    ]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    results = await svc.semantic_search(
+        "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=5
+    )
 
-async def test_semantic_search_empagliflozin_nephropathy(svc, db_session_truncating):
+    assert len(results) == 5
+    # All results should have reasonable similarity
+    assert all(r["similarity"] > 0.5 for r in results)
+    # At least one title should mention empagliflozin or SGLT2
+    assert any(
+        "empagliflozin" in r["title"].lower() or "sglt2" in r["title"].lower()
+        for r in results
+    )
+
+async def test_semantic_search_sema_nash(svc, db_session_truncating):
     """Semantic search should return relevant abstracts ranked by similarity."""
-    queries = ["empagliflozin AND diabetic nephropathy"]
+    queries = ["semaglutide AND NASH"]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
 
     results = await svc.semantic_search(
-        "diabetic nephropathy", "empagliflozin", pmids, db_session_truncating, top_k=5
+        "NASH", "semaglutide", pmids, db_session_truncating, top_k=5
     )
 
     assert len(results) == 5

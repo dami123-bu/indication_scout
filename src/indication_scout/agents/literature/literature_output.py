@@ -4,11 +4,14 @@ import datetime
 
 from pydantic import BaseModel, Field
 
+from indication_scout.models.model_evidence_summary import EvidenceSummary
+
 
 class LiteratureOutput(BaseModel):
-    # evidence_summary:EvidenceSummary
-    search_results: list[str]
+    evidence_summary: EvidenceSummary | None = None
+    search_results: list[str] = []
     pmids: list[str] = []
+    semantic_search_results: list[dict] = []
 
     summary: str = ""  # 2-3 sentence natural language assessment from the agent
 

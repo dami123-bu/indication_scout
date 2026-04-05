@@ -403,28 +403,6 @@ class RetrievalService:
             sum(r["similarity"] for r in results) / len(results) if results else 0.0
         )
 
-        if wandb.run:
-            pass
-            # disease_key = disease.replace(" ", "_")
-            # table = wandb.Table(columns=["pmid", "title", "similarity"])
-            # for r in results:
-            #     table.add_data(r["pmid"], r["title"], r["similarity"])
-            # wandb.log({
-            #     f"semantic_search/{disease_key}/query": query_string,
-            #     f"semantic_search/{disease_key}/candidate_pmids": len(pmids),
-            #     f"semantic_search/{disease_key}/results_returned": len(results),
-            #     f"semantic_search/{disease_key}/top_similarity": results[0]["similarity"] if results else None,
-            #     f"semantic_search/{disease_key}/results_table": table,
-            # })
-            # wandb.log({
-            #     "disease": disease,
-            #     "drug": drug,
-            #     "avg_similarity_score": avg_similarity,
-            # })
-            # table = wandb.Table(columns=["drug", "disease", "avg_similarity"])
-            # table.add_data(drug, disease, avg_similarity)
-            # wandb.log({"searches": table})
-
         return results
 
     async def synthesize(

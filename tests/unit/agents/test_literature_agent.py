@@ -1,14 +1,13 @@
 """Unit tests for build_literature_graph nodes."""
 
-import json
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.messages.tool import ToolCall
+from langchain_core.messages import HumanMessage
 
 from indication_scout.agents.literature.literature_agent import build_literature_graph
 from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.models.model_evidence_summary import EvidenceSummary
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,22 @@ SEARCH_TERMS = [
     "biguanide colorectal carcinoma",
 ]
 
-SUMMARY_TEXT = "Generated 3 diverse PubMed queries for metformin in colorectal cancer."
+PMIDS = ["111", "222", "333"]
+
+SEMANTIC_RESULTS = [
+    {"pmid": "111", "title": "Metformin and CRC", "abstract": "Study A.", "similarity": 0.91},
+    {"pmid": "222", "title": "AMPK pathway", "abstract": "Study B.", "similarity": 0.85},
+]
+
+EVIDENCE = EvidenceSummary(
+    strength="moderate",
+    study_count=2,
+    study_types=["RCT"],
+    key_findings=["Metformin reduces tumor growth"],
+    has_adverse_effects=False,
+    supporting_pmids=["111", "222"],
+    summary="Moderate evidence supports metformin in colorectal cancer based on 2 RCTs.",
+)
 
 
 def _drug_profile() -> DrugProfile:
@@ -38,87 +52,40 @@ def _drug_profile() -> DrugProfile:
     )
 
 
-def _make_llm(turn_responses: list) -> MagicMock:
-    """Build a mock LLM that returns pre-scripted responses in sequence."""
-    mock_llm = MagicMock()
-    bound = AsyncMock()
-    bound.ainvoke = AsyncMock(side_effect=turn_responses)
-    mock_llm.bind_tools = MagicMock(return_value=bound)
-    return mock_llm
-
-
-def _tool_call(name: str, args: dict, call_id: str) -> ToolCall:
-    return ToolCall(name=name, args=args, id=call_id)
-
-
-def _ai_with_tool_calls(tool_calls: list[ToolCall]) -> AIMessage:
-    return AIMessage(content="", tool_calls=tool_calls)
-
-
-def _ai_final(content: str) -> AIMessage:
-    return AIMessage(content=content)
-
-
-def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
-    return ToolMessage(
-        content=json.dumps(data),
-        tool_call_id=tool_call_id,
-        name=name,
-    )
-
-
-async def _run_graph(llm, drug: str, disease: str) -> dict:
+def _make_svc() -> MagicMock:
     svc = MagicMock()
-    db = MagicMock()
-    graph = build_literature_graph(llm, svc=svc, db=db, drug_profile=_drug_profile())
+    svc.expand_search_terms = AsyncMock(return_value=SEARCH_TERMS)
+    svc.fetch_and_cache = AsyncMock(return_value=PMIDS)
+    svc.semantic_search = AsyncMock(return_value=SEMANTIC_RESULTS)
+    svc.synthesize = AsyncMock(return_value=EVIDENCE)
+    return svc
+
+
+async def _run_graph(svc, drug: str = "metformin", disease: str = "colorectal cancer") -> dict:
+    graph = build_literature_graph(
+        svc=svc, db=MagicMock(), drug_profile=_drug_profile()
+    )
     return await graph.ainvoke(
         {
             "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
             "drug_name": drug,
             "disease_name": disease,
-        },
-        config={"recursion_limit": 10},
+        }
     )
 
 
 # ------------------------------------------------------------------
-# tools_node: expand_search_terms parsed into state
+# expand_node
 # ------------------------------------------------------------------
 
 
-async def test_tools_node_parses_search_results_into_state():
-    """tools_node correctly parses expand_search_terms output into state.search_results."""
-    from unittest.mock import patch, AsyncMock as AM
+async def test_expand_node_stores_search_terms():
+    """expand_node calls svc.expand_search_terms and stores results in state."""
+    svc = _make_svc()
+    result = await _run_graph(svc)
 
-    llm = _make_llm(
-        [
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "expand_search_terms",
-                        {"drug_name": "metformin", "disease_name": "colorectal cancer"},
-                        "tc1",
-                    )
-                ]
-            ),
-            _ai_final(SUMMARY_TEXT),
-        ]
-    )
-
-    tool_responses = [
-        {"messages": [_tool_response("tc1", "expand_search_terms", SEARCH_TERMS)]},
-    ]
-    mock_tool_node = AM()
-    mock_tool_node.ainvoke = AM(side_effect=tool_responses)
-
-    with patch(
-        "indication_scout.agents.literature.literature_agent.ToolNode",
-        return_value=mock_tool_node,
-    ):
-        result = await _run_graph(llm, "metformin", "colorectal cancer")
-
+    svc.expand_search_terms.assert_awaited_once_with("metformin", "colorectal cancer", _drug_profile())
     output = result["final_output"]
-    assert output is not None
     assert len(output.search_results) == 3
     assert output.search_results[0] == "metformin colorectal cancer"
     assert output.search_results[1] == "metformin colon neoplasm AMPK"
@@ -126,40 +93,70 @@ async def test_tools_node_parses_search_results_into_state():
 
 
 # ------------------------------------------------------------------
-# assemble_node: summary extracted from final AIMessage
+# fetch_node
 # ------------------------------------------------------------------
 
 
-async def test_assemble_node_extracts_summary_from_final_ai_message():
-    """assemble_node picks up the final AIMessage content as the summary."""
-    from unittest.mock import patch, AsyncMock as AM
+async def test_fetch_node_stores_pmids():
+    """fetch_node calls svc.fetch_and_cache with expanded search terms and stores pmids."""
+    svc = _make_svc()
+    result = await _run_graph(svc)
 
-    llm = _make_llm(
-        [
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "expand_search_terms",
-                        {"drug_name": "metformin", "disease_name": "colorectal cancer"},
-                        "tc1",
-                    )
-                ]
-            ),
-            _ai_final(SUMMARY_TEXT),
-        ]
-    )
-
-    tool_responses = [
-        {"messages": [_tool_response("tc1", "expand_search_terms", SEARCH_TERMS)]},
-    ]
-    mock_tool_node = AM()
-    mock_tool_node.ainvoke = AM(side_effect=tool_responses)
-
-    with patch(
-        "indication_scout.agents.literature.literature_agent.ToolNode",
-        return_value=mock_tool_node,
-    ):
-        result = await _run_graph(llm, "metformin", "colorectal cancer")
+    svc.fetch_and_cache.assert_awaited_once()
+    call_args = svc.fetch_and_cache.call_args
+    assert call_args.args[0] == SEARCH_TERMS
 
     output = result["final_output"]
-    assert output.summary == SUMMARY_TEXT
+    assert len(output.pmids) == 3
+    assert output.pmids[0] == "111"
+    assert output.pmids[1] == "222"
+    assert output.pmids[2] == "333"
+
+
+# ------------------------------------------------------------------
+# search_node
+# ------------------------------------------------------------------
+
+
+async def test_search_node_stores_semantic_results():
+    """search_node calls svc.semantic_search with pmids from state and stores results."""
+    svc = _make_svc()
+    result = await _run_graph(svc)
+
+    svc.semantic_search.assert_awaited_once()
+    call_args = svc.semantic_search.call_args
+    assert call_args.args[2] == PMIDS
+
+    output = result["final_output"]
+    assert len(output.semantic_search_results) == 2
+    assert output.semantic_search_results[0]["pmid"] == "111"
+    assert output.semantic_search_results[0]["title"] == "Metformin and CRC"
+    assert output.semantic_search_results[0]["similarity"] == 0.91
+    assert output.semantic_search_results[1]["pmid"] == "222"
+    assert output.semantic_search_results[1]["title"] == "AMPK pathway"
+    assert output.semantic_search_results[1]["similarity"] == 0.85
+
+
+# ------------------------------------------------------------------
+# synthesize_node
+# ------------------------------------------------------------------
+
+
+async def test_synthesize_node_stores_evidence_summary():
+    """synthesize_node calls svc.synthesize with semantic results and stores EvidenceSummary."""
+    svc = _make_svc()
+    result = await _run_graph(svc)
+
+    svc.synthesize.assert_awaited_once()
+    call_args = svc.synthesize.call_args
+    assert call_args.args[2] == SEMANTIC_RESULTS
+
+    output = result["final_output"]
+    assert isinstance(output.evidence_summary, EvidenceSummary)
+    assert output.evidence_summary.strength == "moderate"
+    assert output.evidence_summary.study_count == 2
+    assert output.evidence_summary.study_types == ["RCT"]
+    assert output.evidence_summary.key_findings == ["Metformin reduces tumor growth"]
+    assert output.evidence_summary.has_adverse_effects is False
+    assert output.evidence_summary.supporting_pmids == ["111", "222"]
+    assert output.summary == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."

@@ -7,7 +7,6 @@ They verify the agent calls expand_search_terms and produces structured output.
 import logging
 from datetime import date
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -15,11 +14,12 @@ from sqlalchemy.orm import sessionmaker
 from indication_scout.agents.literature.literature_agent import build_literature_graph
 from indication_scout.config import get_settings
 from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
 
-RECURSION_LIMIT = 10
+RECURSION_LIMIT = 15
 
 
 async def _run(drug: str, disease: str, date_before: date | None = None) -> object:
@@ -32,9 +32,8 @@ async def _run(drug: str, disease: str, date_before: date | None = None) -> obje
 
     svc = RetrievalService(DEFAULT_CACHE_DIR)
     drug_profile = await svc.build_drug_profile(drug)
-    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
     graph = build_literature_graph(
-        llm=llm, svc=svc, db=db, drug_profile=drug_profile, max_search_results=20, date_before=date_before
+        svc=svc, db=db, drug_profile=drug_profile, max_search_results=20, date_before=date_before
     )
     result = await graph.ainvoke(
         {
@@ -61,3 +60,20 @@ async def test_literature_agent_semaglutide_nash_date_cutoff():
     assert "21479465" in output.pmids
     assert "30510243" not in output.pmids
     assert len(output.summary) > 100
+
+    assert len(output.semantic_search_results) > 0
+    assert any(s["pmid"] == "16953843" for s in output.semantic_search_results)
+    top = output.semantic_search_results[0]
+    assert "pmid" in top
+    assert "title" in top
+    assert "abstract" in top
+    assert "similarity" in top
+
+    assert isinstance(output.evidence_summary, EvidenceSummary)
+    assert output.evidence_summary.strength in {"strong", "moderate", "weak", "none"}
+    assert output.evidence_summary.study_count >= 0
+    assert isinstance(output.evidence_summary.key_findings, list)
+    assert isinstance(output.evidence_summary.supporting_pmids, list)
+
+    assert output.summary == output.evidence_summary.summary
+    assert len(output.summary) > 0
