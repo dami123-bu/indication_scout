@@ -5,9 +5,9 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
-from typing import TypedDict
 
 import wandb
+from pydantic import BaseModel
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class AbstractResult(TypedDict):
+class AbstractResult(BaseModel):
     pmid: str
     title: str
     abstract: str
@@ -399,16 +399,16 @@ class RetrievalService:
         ).fetchall()
 
         results = [
-            {
-                "pmid": row[0],
-                "title": row[1],
-                "abstract": row[2],
-                "similarity": float(row[3]),
-            }
+            AbstractResult(
+                pmid=row[0],
+                title=row[1],
+                abstract=row[2],
+                similarity=float(row[3]),
+            )
             for row in rows
         ]
         avg_similarity = (
-            sum(r["similarity"] for r in results) / len(results) if results else 0.0
+            sum(r.similarity for r in results) / len(results) if results else 0.0
         )
 
         return results
@@ -431,7 +431,7 @@ class RetrievalService:
             EvidenceSummary with all fields populated from the LLM response.
         """
         formatted = "\n\n".join(
-            f"PMID: {r['pmid']}\nTitle: {r['title']}\nAbstract: {r['abstract']}"
+            f"PMID: {r.pmid}\nTitle: {r.title}\nAbstract: {r.abstract}"
             for r in top_abstracts
         )
 
