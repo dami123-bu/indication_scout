@@ -516,6 +516,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
         for r in results
     )
 
+
 async def test_semantic_search_returns_relevant_results(svc, db_session_truncating):
     """Semantic search should return abstracts about empagliflozin + MI."""
     queries = [
@@ -535,6 +536,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
         "empagliflozin" in r["title"].lower() or "sglt2" in r["title"].lower()
         for r in results
     )
+
 
 async def test_semantic_search_sema_nash(svc, db_session_truncating):
     """Semantic search should return relevant abstracts ranked by similarity."""

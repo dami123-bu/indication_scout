@@ -21,7 +21,9 @@ def build_literature_tools(
 ) -> list:
 
     @tool(response_format="content_and_artifact")
-    async def expand_search_terms(drug_name: str, disease_name: str) -> tuple[str, list[str]]:
+    async def expand_search_terms(
+        drug_name: str, disease_name: str
+    ) -> tuple[str, list[str]]:
         """Generate diverse PubMed keyword queries for a drug-disease pair.
 
         Uses the drug profile (synonyms, targets, MOA, ATC codes) to produce
@@ -37,7 +39,9 @@ def build_literature_tools(
         Call this after expand_search_terms, passing the search terms it returned.
         Returns pmids.
         """
-        pmids = await svc.fetch_and_cache(search_terms, db, date_before=date_before, max_results=max_search_results)
+        pmids = await svc.fetch_and_cache(
+            search_terms, db, date_before=date_before, max_results=max_search_results
+        )
         return f"Fetched and cached {len(pmids)} abstracts. PMIDs: {pmids}", pmids
 
     @tool(response_format="content_and_artifact")
@@ -48,11 +52,15 @@ def build_literature_tools(
 
         Restricted to the supplied PMIDs.
         """
-        result = await svc.semantic_search(disease_name, drug_name, pmids, db, num_top_k)
+        result = await svc.semantic_search(
+            disease_name, drug_name, pmids, db, num_top_k
+        )
         return f"Retrieved {len(result)} relevant abstracts: {result}", result
 
     @tool(response_format="content_and_artifact")
-    async def synthesize(drug_name: str, disease_name: str, abstracts: list[dict]) -> tuple[str, EvidenceSummary]:
+    async def synthesize(
+        drug_name: str, disease_name: str, abstracts: list[dict]
+    ) -> tuple[str, EvidenceSummary]:
         """Synthesize retrieved abstracts into a structured EvidenceSummary.
 
         Returns strength (strong/moderate/weak/none), study_count, study_types,
@@ -61,6 +69,9 @@ def build_literature_tools(
         found, call with whatever is available — do not skip.
         """
         result = await svc.synthesize(drug_name, disease_name, abstracts)
-        return f"Synthesis complete: strength={result.strength}, study_count={result.study_count}", result
+        return (
+            f"Synthesis complete: strength={result.strength}, study_count={result.study_count}",
+            result,
+        )
 
     return [expand_search_terms, fetch_and_cache, semantic_search, synthesize]

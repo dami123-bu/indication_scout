@@ -33,7 +33,11 @@ async def _run(drug: str, disease: str, date_before: date | None = None) -> obje
     svc = RetrievalService(DEFAULT_CACHE_DIR)
     drug_profile = await svc.build_drug_profile(drug)
     graph = build_literature_graph(
-        svc=svc, db=db, drug_profile=drug_profile, max_search_results=20, date_before=date_before
+        svc=svc,
+        db=db,
+        drug_profile=drug_profile,
+        max_search_results=20,
+        date_before=date_before,
     )
     result = await graph.ainvoke(
         {

@@ -14,13 +14,18 @@ def build_literature_graph(
     # ====================== NODES ======================
 
     async def expand_node(state: LiteratureState):
-        result = await svc.expand_search_terms(state.drug_name, state.disease_name, drug_profile)
+        result = await svc.expand_search_terms(
+            state.drug_name, state.disease_name, drug_profile
+        )
         logger.debug("expand_node: generated %d search terms", len(result))
         return {"expanded_search_results": result}
 
     async def fetch_node(state: LiteratureState):
         pmids = await svc.fetch_and_cache(
-            state.expanded_search_results, db, date_before=date_before, max_results=max_search_results
+            state.expanded_search_results,
+            db,
+            date_before=date_before,
+            max_results=max_search_results,
         )
         logger.debug("fetch_node: cached %d abstracts", len(pmids))
         return {"pmids": pmids}

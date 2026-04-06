@@ -53,7 +53,12 @@ async def test_expand_search_terms_returns_queries():
 async def test_semantic_search_passes_args_and_returns_results():
     """semantic_search passes correct args to svc and returns abstract dicts as artifact."""
     expected = [
-        {"pmid": "111", "title": "Metformin and CRC", "abstract": "...", "similarity": 0.91},
+        {
+            "pmid": "111",
+            "title": "Metformin and CRC",
+            "abstract": "...",
+            "similarity": 0.91,
+        },
         {"pmid": "222", "title": "AMPK pathway", "abstract": "...", "similarity": 0.85},
     ]
     svc = MagicMock()
@@ -65,7 +70,11 @@ async def test_semantic_search_passes_args_and_returns_results():
     semantic = _get_tool(tools, "semantic_search")
 
     content, artifact = await semantic.ainvoke(
-        {"drug_name": "metformin", "disease_name": "colorectal cancer", "pmids": ["111", "222"]}
+        {
+            "drug_name": "metformin",
+            "disease_name": "colorectal cancer",
+            "pmids": ["111", "222"],
+        }
     )
 
     svc.semantic_search.assert_awaited_once_with(
@@ -100,7 +109,11 @@ async def test_synthesize_returns_evidence_summary_as_artifact():
 
     abstracts = [{"pmid": "111", "title": "T", "abstract": "A", "similarity": 0.9}]
     content, artifact = await synthesize.ainvoke(
-        {"drug_name": "metformin", "disease_name": "colorectal cancer", "abstracts": abstracts}
+        {
+            "drug_name": "metformin",
+            "disease_name": "colorectal cancer",
+            "abstracts": abstracts,
+        }
     )
 
     svc.synthesize.assert_awaited_once_with("metformin", "colorectal cancer", abstracts)

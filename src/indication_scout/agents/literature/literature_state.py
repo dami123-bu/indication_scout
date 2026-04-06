@@ -19,6 +19,7 @@ class LiteratureState(BaseModel):
     @classmethod
     def lowercase_drug_name(cls, v: str) -> str:
         return v.lower()
+
     date_before: Optional[date] = None
 
     expanded_search_results: list[str] = []

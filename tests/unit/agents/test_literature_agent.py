@@ -25,8 +25,18 @@ SEARCH_TERMS = [
 PMIDS = ["111", "222", "333"]
 
 SEMANTIC_RESULTS = [
-    {"pmid": "111", "title": "Metformin and CRC", "abstract": "Study A.", "similarity": 0.91},
-    {"pmid": "222", "title": "AMPK pathway", "abstract": "Study B.", "similarity": 0.85},
+    {
+        "pmid": "111",
+        "title": "Metformin and CRC",
+        "abstract": "Study A.",
+        "similarity": 0.91,
+    },
+    {
+        "pmid": "222",
+        "title": "AMPK pathway",
+        "abstract": "Study B.",
+        "similarity": 0.85,
+    },
 ]
 
 EVIDENCE = EvidenceSummary(
@@ -61,7 +71,9 @@ def _make_svc() -> MagicMock:
     return svc
 
 
-async def _run_graph(svc, drug: str = "metformin", disease: str = "colorectal cancer") -> dict:
+async def _run_graph(
+    svc, drug: str = "metformin", disease: str = "colorectal cancer"
+) -> dict:
     graph = build_literature_graph(
         svc=svc, db=MagicMock(), drug_profile=_drug_profile()
     )
@@ -84,7 +96,9 @@ async def test_expand_node_stores_search_terms():
     svc = _make_svc()
     result = await _run_graph(svc)
 
-    svc.expand_search_terms.assert_awaited_once_with("metformin", "colorectal cancer", _drug_profile())
+    svc.expand_search_terms.assert_awaited_once_with(
+        "metformin", "colorectal cancer", _drug_profile()
+    )
     output = result["final_output"]
     assert len(output.search_results) == 3
     assert output.search_results[0] == "metformin colorectal cancer"
@@ -159,4 +173,7 @@ async def test_synthesize_node_stores_evidence_summary():
     assert output.evidence_summary.key_findings == ["Metformin reduces tumor growth"]
     assert output.evidence_summary.has_adverse_effects is False
     assert output.evidence_summary.supporting_pmids == ["111", "222"]
-    assert output.summary == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."
+    assert (
+        output.summary
+        == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."
+    )
