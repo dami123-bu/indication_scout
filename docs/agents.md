@@ -205,7 +205,7 @@ ClinicalTrialsAgent.run(input_data)
 ## How to Call
 
 ```python
-from indication_scout.agents.clinical_trials.clinical_trials_agent import ClinicalTrialsAgent
+from for_me.clinical_trials.v3_langgraph.clinical_trials_agent import ClinicalTrialsAgent
 from datetime import date
 
 agent = ClinicalTrialsAgent()

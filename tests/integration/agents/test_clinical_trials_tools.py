@@ -5,7 +5,7 @@ These tests hit real ClinicalTrials.gov APIs.
 
 import logging
 
-from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+from for_me.clinical_trials.v3_langgraph.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
 

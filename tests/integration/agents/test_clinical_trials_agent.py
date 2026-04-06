@@ -73,7 +73,7 @@ async def test_agent_active_trials_path():
     search_trials → get_landscape → summary.
     """
     from langchain_anthropic import ChatAnthropic
-    from indication_scout.agents.clinical_trials.clinical_trials_agent import (
+    from for_me.clinical_trials.v3_langgraph.clinical_trials_agent import (
         build_clinical_trials_graph,
     )
 

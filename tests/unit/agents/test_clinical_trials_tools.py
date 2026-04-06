@@ -4,7 +4,7 @@ import logging
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
-from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+from for_me.clinical_trials.v3_langgraph.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
 from indication_scout.models.model_clinical_trials import (
