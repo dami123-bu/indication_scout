@@ -135,6 +135,45 @@ Remaining caveats:
 
 ---
 
+### Stage 6 — `create_react_agent` + Closure Store + Post-Hoc Assembly (current)
+
+Replaced the hand-rolled three-node StateGraph with LangGraph's prebuilt `create_react_agent`.
+Removed all LangGraph state machinery from the literature agent entirely — no `StateGraph`,
+no `LiteratureState`, no `tools_node`, no `assemble_node`, no `InjectedState`.
+
+Key characteristics:
+- `build_literature_agent` calls `create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)`
+  and returns the compiled agent directly. No graph wiring.
+- `build_literature_tools` returns a plain `list` of tools. The closure-scoped `store: dict = {}`
+  is internal — callers never see it. Tools write to and read from the store as a side effect.
+- `run_literature_agent` calls `agent.ainvoke()` and then walks the returned message history:
+  - `ToolMessage.artifact` is read for each of the four field-producing tools via a `field_map` dict
+  - The last `AIMessage` with no `tool_calls` is extracted as the narrative summary
+  - Results are assembled into a `LiteratureOutput` Pydantic model
+- No LangGraph `State`, no typed graph state, no node functions. The only LangGraph surface
+  is `create_react_agent` itself.
+- `build_drug_profile` is intentionally absent from `field_map` — its artifact (`DrugProfile`)
+  is consumed by subsequent tools via the closure store, not surfaced in `LiteratureOutput`.
+
+Why `create_react_agent` over a hand-rolled StateGraph:
+- The literature agent has no branching — no `tools_condition`, no conditional edges.
+  `create_react_agent` handles the agent loop automatically without any graph wiring.
+- Removing `StateGraph` eliminates `LiteratureState`, `tools_node`, `assemble_node`, and all
+  the plumbing that connected them. Less code, fewer failure points.
+- Post-hoc assembly (walking message history after the run) is simpler than accumulating
+  state incrementally via a `tools_node` dispatch table.
+- `create_react_agent` is the right default when the agent loop is standard — only reach for
+  `StateGraph` when you need custom branching or multi-agent coordination.
+
+Trade-offs vs Stage 5:
+- No typed intermediate state — you can't inspect what's been collected mid-run.
+- Post-hoc assembly assumes the LLM calls each tool at most once; if a tool is called
+  twice, the second `ToolMessage.artifact` silently overwrites the first in the assembly loop.
+- The closure store is still a side-channel: not visible to LangGraph, not serializable,
+  not safe for concurrent runs sharing the same tool set.
+
+---
+
 ## Key Lessons
 
 1. **Avoid unnecessary JSON round-trips.** Tools that return Pydantic objects should use
@@ -167,6 +206,29 @@ Remaining caveats:
    orchestrator adds value when there is optional branching, graceful degradation,
    or a final narrative step that benefits from reasoning. The literature agent
    went pipeline → LLM-driven as the agent's responsibilities grew.
+
+---
+
+## Session Summary — 2026-04-06 (continued)
+
+### Literature Agent — Stage 6 rewrite + tests
+
+- Rewrote literature agent as `create_react_agent` + post-hoc assembly (Stage 6 above)
+  - Removed `StateGraph`, `LiteratureState`, `tools_node`, `assemble_node`
+  - `build_literature_agent` returns a compiled `create_react_agent` directly
+  - `run_literature_agent` walks message history, reads `msg.artifact` via `field_map`,
+    extracts last no-tool-call `AIMessage` as narrative summary
+  - `build_literature_tools` returns a plain list; closure store is fully internal
+- Wrote 9 unit tests for `build_literature_tools` (`test_literature_tools.py`)
+  - Each tool tested end-to-end through the closure store (chain populated via prior tool calls)
+  - Covers: artifact contents, store read/write, early-return guards, `date_before` forwarding,
+    fallback `build_drug_profile` call when store is empty
+- Wrote 7 unit tests for `run_literature_agent` (`test_literature_agent.py`)
+  - Agent mocked via `agent.ainvoke` returning fixed message histories
+  - Covers: full happy path, last-AIMessage selection, each of 4 tools missing (parametrized),
+    `build_drug_profile` ToolMessage correctly ignored
+- Wrote 1 integration test (`test_literature_agent.py`) — Semaglutide + NASH, cutoff 2025-01-01
+  - PMIDs, top-5 semantic results, evidence strength, and supporting PMIDs verified by live run
 
 ---
 

@@ -1,130 +1,138 @@
-"""Integration tests for build_clinical_trials_graph.
+"""Integration tests for the clinical trials agent.
 
-These tests hit real ClinicalTrials.gov and Anthropic APIs.
-They verify the agent calls the right tools and produces structured output.
+Hits the real ClinicalTrials.gov API and real Anthropic API.
+
+Expected values verified by a live run on 2026-04-06 with:
+  drug=riluzole, indication=ALS, date_before=2025-01-01, max_search_results=30
 """
 
 import logging
 from datetime import date
 
-from langchain_core.messages import HumanMessage
+import pytest
+from langchain_anthropic import ChatAnthropic
 
-from indication_scout.constants import CLINICAL_TRIALS_RECURSION_LIMIT
+from indication_scout.agents.clinical_trials.clinical_trials_agent import (
+    build_clinical_trials_agent,
+    run_clinical_trials_agent,
+)
+from indication_scout.agents.clinical_trials.clinical_trials_output import (
+    ClinicalTrialsOutput,
+)
 
 logger = logging.getLogger(__name__)
 
+_CUTOFF = date(2025, 1, 1)
 
-async def _run(graph, drug: str, disease: str, date_before: date | None = None):
-    result = await graph.ainvoke(
-        {
-            "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
-            "drug_name": drug,
-            "disease_name": disease,
-            "date_before": date_before,
-        },
-        config={"recursion_limit": CLINICAL_TRIALS_RECURSION_LIMIT},
-    )
-    return result["final_output"]
+# Trials that must appear in search_trials output (stable, pre-cutoff)
+_EXPECTED_NCT_IDS = {
+    "NCT01709149",  # CK-2017357 + riluzole Phase 2, enrollment 711
+    "NCT00868166",  # Olesoxime + riluzole Phase 3 (Roche), enrollment 512
+    "NCT03127267",  # Masitinib + riluzole Phase 3 (AB Science), enrollment 495
+    "NCT00542412",  # CARE study riluzole Phase 4 (Sanofi), enrollment 414
+}
 
-
-# ------------------------------------------------------------------
-# Whitespace path: drug-disease pair with no trials
-# ------------------------------------------------------------------
-
-
-async def test_agent_whitespace_path(clinical_trials_graph):
-    """Agent detects whitespace for tirzepatide + Huntington disease.
-
-    Expected behavior: detect_whitespace → whitespace found →
-    get_terminated → get_landscape → summary.
-    """
-    output = await _run(clinical_trials_graph, "tirzepatide", "Huntington disease")
-
-    # Whitespace detected
-    assert output.whitespace is not None
-    assert output.whitespace.is_whitespace is True
-    assert output.whitespace.exact_match_count == 0
-    assert output.whitespace.drug_only_trials > 100
-    assert output.whitespace.indication_only_trials > 100
-
-    # Agent should have populated indication_drugs
-    assert len(output.whitespace.indication_drugs) > 10
-    drug_names = [d.drug_name for d in output.whitespace.indication_drugs]
-    assert "Memantine" in drug_names
-    assert "Tetrabenazine" in drug_names
-
-    # No exact-match trials for this pair
-    assert output.trials == []
-
-    # Agent should have produced a summary
-    assert len(output.summary) > 50
+# Landscape competitors verified by live run
+_EXPECTED_COMPETITORS = [
+    ("Sanofi", "Riluzole", "Phase 4", 414),
+    ("Knopp Biosciences", "Dexpramipexole", "Phase 3", 1558),
+    ("Amylyx Pharmaceuticals Inc.", "AMX0035", "Phase 3", 1016),
+    ("Cytokinetics", "Reldesemtiv", "Phase 3", 947),
+    ("Cytokinetics", "Tirasemtiv", "Phase 3", 744),
+    ("Orion Corporation, Orion Pharma", "Levosimendan", "Phase 3", 723),
+    ("Avanir Pharmaceuticals", "AVP-923", "Phase 3", 600),
+    ("Massachusetts General Hospital", "ceftriaxone", "Phase 3", 513),
+    ("Hoffmann-La Roche", "Olesoxime", "Phase 3", 512),
+    ("AB Science", "Masitinib (6.0)", "Phase 3", 495),
+]
 
 
-# ------------------------------------------------------------------
-# Active trials path: drug-disease pair with trials
-# ------------------------------------------------------------------
-
-
-async def test_agent_active_trials_path():
-    """Agent finds active trials for tofacitinib + alopecia areata with a date cutoff.
-
-    Cutoff: 2018-1-1. NCT03800979 started after this date and must not appear.
-    Expected behavior: detect_whitespace → not whitespace →
-    search_trials → get_landscape → summary.
-    """
-    from langchain_anthropic import ChatAnthropic
-    from for_me.clinical_trials.v3_langgraph.clinical_trials_agent import (
-        build_clinical_trials_graph,
-    )
-
-    cutoff = date(2018, 1, 1)
+@pytest.fixture
+def clinical_trials_agent():
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
-    graph = build_clinical_trials_graph(llm, max_search_results=30, date_before=cutoff)
-    output = await _run(graph, "tofacitinib", "alopecia areata", date_before=cutoff)
+    return build_clinical_trials_agent(llm, date_before=_CUTOFF, max_search_results=30)
 
-    # Not whitespace
+
+async def test_riluzole_als_clinical_trials_agent(clinical_trials_agent):
+    """End-to-end: clinical trials agent produces correct ClinicalTrialsOutput for riluzole + ALS.
+
+    Verifies:
+    - whitespace shows no whitespace (riluzole is established in ALS)
+    - trials list contains known NCT IDs
+    - landscape competitors match expected entries exactly
+    - summary is non-empty and contains expected content
+    """
+    output = await run_clinical_trials_agent(clinical_trials_agent, "riluzole", "ALS")
+
+    assert isinstance(output, ClinicalTrialsOutput)
+
+    # --- whitespace ---
     assert output.whitespace is not None
     assert output.whitespace.is_whitespace is False
-    assert output.whitespace.exact_match_count >= 2
+    assert output.whitespace.no_data is False
+    assert output.whitespace.exact_match_count == 38
+    assert output.whitespace.drug_only_trials == 88
+    assert output.whitespace.indication_only_trials == 897
+    assert output.whitespace.indication_drugs == []
 
-    # Agent should have fetched trial details
-    assert len(output.trials) >= 2
-    nct_ids = [t.nct_id for t in output.trials]
-    for nct_id in nct_ids:
-        assert nct_id.startswith("NCT")
+    # --- trials ---
+    assert len(output.trials) >= 10
+    found_nct_ids = {t.nct_id for t in output.trials}
+    assert _EXPECTED_NCT_IDS.issubset(found_nct_ids)
 
-    # Trial that started after cutoff must be excluded
-    assert "NCT03800979" not in nct_ids
-    assert "NCT02299297" in nct_ids
-
-    # Agent should have produced a summary
-    assert len(output.summary) > 50
-
-
-# ------------------------------------------------------------------
-# Nonexistent drug: no data at all
-# ------------------------------------------------------------------
-
-
-async def test_agent_no_data(clinical_trials_graph):
-    """Agent handles nonexistent drug gracefully.
-
-    Expected behavior: detect_whitespace → whitespace + no_data →
-    brief summary noting lack of data.
-    """
-    output = await _run(
-        clinical_trials_graph, "xyzzy_fake_drug_99999", "xyzzy_fake_disease_99999"
+    # Spot-check the highest-enrollment trial in detail
+    ck_trial = next(t for t in output.trials if t.nct_id == "NCT01709149")
+    assert (
+        ck_trial.title
+        == "Study of Safety, Tolerability & Efficacy of CK-2017357 in Amyotrophic Lateral Sclerosis (ALS)"
     )
+    assert ck_trial.phase == "Phase 2"
+    assert ck_trial.overall_status == "COMPLETED"
+    assert ck_trial.why_stopped is None
+    assert ck_trial.indications == ["Amyotrophic Lateral Sclerosis"]
+    assert ck_trial.sponsor == "Cytokinetics"
+    assert ck_trial.enrollment == 711
+    assert ck_trial.start_date == "2012-10"
+    assert ck_trial.completion_date == "2014-03"
+    assert len(ck_trial.interventions) == 3
+    drug_interventions = [
+        i for i in ck_trial.interventions if i.intervention_type == "Drug"
+    ]
+    ck_drug = next(i for i in drug_interventions if i.intervention_name == "CK-2017357")
+    assert ck_drug.description == "CK-2017357 125 mg tablets twice daily"
+    assert len(ck_trial.primary_outcomes) == 1
+    assert "ALSFRS-R" in ck_trial.primary_outcomes[0].measure
+    assert ck_trial.references == []
 
-    # Whitespace with no data
-    assert output.whitespace is not None
-    assert output.whitespace.is_whitespace is True
-    assert output.whitespace.exact_match_count == 0
-    assert output.whitespace.drug_only_trials == 0
-    assert output.whitespace.indication_only_trials == 0
+    # --- landscape ---
+    assert output.landscape is not None
+    assert output.landscape.total_trial_count == 897
+    assert output.landscape.phase_distribution == {
+        "Phase 2": 18,
+        "Phase 2/Phase 3": 9,
+        "Phase 3": 22,
+        "Phase 4": 1,
+    }
 
-    # No trials
-    assert output.trials == []
+    assert len(output.landscape.competitors) == 10
+    for i, (sponsor, drug, max_phase, enrollment) in enumerate(_EXPECTED_COMPETITORS):
+        c = output.landscape.competitors[i]
+        assert c.sponsor == sponsor, f"competitors[{i}].sponsor"
+        assert c.drug_name == drug, f"competitors[{i}].drug_name"
+        assert c.max_phase == max_phase, f"competitors[{i}].max_phase"
+        assert c.total_enrollment == enrollment, f"competitors[{i}].total_enrollment"
 
-    # Agent should still produce a summary
-    assert len(output.summary) > 20
+    assert len(output.landscape.recent_starts) == 1
+    rs = output.landscape.recent_starts[0]
+    assert rs.nct_id == "NCT06643481"
+    assert rs.sponsor == "Novartis Pharmaceuticals"
+    assert rs.drug == "VHB937"
+    assert rs.phase == "Phase 2"
+
+    # --- terminated --- (agent skips get_terminated when trials exist)
+    assert output.terminated == []
+
+    # --- summary ---
+    assert len(output.summary) > 100
+    assert "riluzole" in output.summary.lower()
+    assert "als" in output.summary.lower()

@@ -1,194 +1,163 @@
-"""Unit tests for build_clinical_trials_graph nodes."""
+"""Unit tests for run_clinical_trials_agent output assembly.
 
-import json
+The agent itself (create_react_agent) is not invoked — we mock agent.ainvoke
+to return a fixed message history and verify that run_clinical_trials_agent
+correctly extracts artifacts and the narrative summary into a ClinicalTrialsOutput.
+"""
+
 import logging
-from datetime import date
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.messages.tool import ToolCall
 
-from for_me.clinical_trials.v3_langgraph.clinical_trials_agent import (
-    build_clinical_trials_graph,
+from indication_scout.agents.clinical_trials.clinical_trials_agent import (
+    run_clinical_trials_agent,
+)
+from indication_scout.agents.clinical_trials.clinical_trials_output import (
+    ClinicalTrialsOutput,
+)
+from indication_scout.models.model_clinical_trials import (
+    CompetitorEntry,
+    IndicationDrug,
+    IndicationLandscape,
+    Intervention,
+    PrimaryOutcome,
+    RecentStart,
+    TerminatedTrial,
+    Trial,
+    WhitespaceResult,
 )
 
 logger = logging.getLogger(__name__)
 
-
 # ------------------------------------------------------------------
-# Helpers
+# Shared test data
 # ------------------------------------------------------------------
 
-WHITESPACE_DATA = {
-    "is_whitespace": True,
-    "no_data": False,
-    "exact_match_count": 0,
-    "drug_only_trials": 120,
-    "indication_only_trials": 250,
-    "indication_drugs": [
-        {
-            "nct_id": "NCT00652457",
-            "drug_name": "Memantine",
-            "indication": "Huntington's Disease",
-            "phase": "Phase 4",
-            "status": "COMPLETED",
-        }
+WHITESPACE = WhitespaceResult(
+    is_whitespace=True,
+    no_data=False,
+    exact_match_count=0,
+    drug_only_trials=120,
+    indication_only_trials=250,
+    indication_drugs=[
+        IndicationDrug(
+            nct_id="NCT00652457",
+            drug_name="Memantine",
+            indication="Huntington's Disease",
+            phase="Phase 4",
+            status="COMPLETED",
+        )
     ],
-}
+)
 
-TERMINATED_DATA = [
-    {
-        "nct_id": "NCT01234567",
-        "drug_name": "SomeDrug",
-        "indication": "Huntington's Disease",
-        "phase": "Phase 2",
-        "why_stopped": "Lack of efficacy",
-        "stop_category": "efficacy",
-    }
-]
+LANDSCAPE = IndicationLandscape(
+    total_trial_count=30,
+    competitors=[
+        CompetitorEntry(
+            sponsor="Acme Pharma",
+            drug_name="SomeDrug",
+            drug_type="Drug",
+            max_phase="Phase 3",
+            trial_count=2,
+            statuses={"COMPLETED"},
+            total_enrollment=400,
+        )
+    ],
+    phase_distribution={"Phase 2": 10, "Phase 3": 5},
+    recent_starts=[
+        RecentStart(
+            nct_id="NCT09999999",
+            sponsor="NewCo",
+            drug="NewDrug",
+            phase="Phase 2",
+        )
+    ],
+)
 
-LANDSCAPE_DATA = {
-    "total_trial_count": 30,
-    "competitors": [],
-    "phase_distribution": {"Phase 2": 10, "Phase 3": 5},
-    "recent_starts": [],
-}
-
-TRIALS_DATA = [
-    {
-        "nct_id": "NCT02970942",
-        "title": "Riluzole ALS Trial",
-        "brief_summary": "Testing riluzole in ALS",
-        "phase": "Phase 2",
-        "overall_status": "COMPLETED",
-        "why_stopped": None,
-        "indications": ["ALS"],
-        "interventions": [
-            {
-                "intervention_type": "Drug",
-                "intervention_name": "Riluzole",
-                "description": "Daily oral dose",
-            }
+TRIALS = [
+    Trial(
+        nct_id="NCT02970942",
+        title="Riluzole ALS Trial",
+        brief_summary="Testing riluzole in ALS.",
+        phase="Phase 2",
+        overall_status="COMPLETED",
+        why_stopped=None,
+        indications=["ALS"],
+        interventions=[
+            Intervention(
+                intervention_type="Drug",
+                intervention_name="Riluzole",
+                description="Daily oral dose",
+            )
         ],
-        "sponsor": "Sponsor Inc",
-        "enrollment": 100,
-        "start_date": "2015-01-01",
-        "completion_date": "2018-01-01",
-        "primary_outcomes": [{"measure": "Survival", "time_frame": "18 months"}],
-        "references": ["12345678"],
-    }
+        sponsor="Sponsor Inc",
+        enrollment=100,
+        start_date="2015-01-01",
+        completion_date="2018-01-01",
+        primary_outcomes=[PrimaryOutcome(measure="Survival", time_frame="18 months")],
+        references=["12345678"],
+    )
 ]
 
-SUMMARY_TEXT = (
+TERMINATED = [
+    TerminatedTrial(
+        nct_id="NCT01234567",
+        title="Failed Trial",
+        drug_name="SomeDrug",
+        indication="Huntington's Disease",
+        phase="Phase 2",
+        why_stopped="Lack of efficacy",
+        stop_category="efficacy",
+        enrollment=50,
+        sponsor="Sponsor Inc",
+        start_date="2010-01-01",
+        termination_date="2012-06-01",
+    )
+]
+
+NARRATIVE = (
     "No trials exist for this drug-disease pair. One prior efficacy failure found."
 )
 
 
-def _make_llm(turn_responses: list) -> MagicMock:
-    """Build a mock LLM that returns pre-scripted responses in sequence."""
-    mock_llm = MagicMock()
-    bound = AsyncMock()
-    bound.ainvoke = AsyncMock(side_effect=turn_responses)
-    mock_llm.bind_tools = MagicMock(return_value=bound)
-    return mock_llm
+def _make_agent(messages: list) -> MagicMock:
+    agent = MagicMock()
+    agent.ainvoke = AsyncMock(return_value={"messages": messages})
+    return agent
 
 
-def _tool_call(name: str, args: dict, call_id: str) -> ToolCall:
-    return ToolCall(name=name, args=args, id=call_id)
-
-
-def _ai_with_tool_calls(tool_calls: list[ToolCall]) -> AIMessage:
-    return AIMessage(content="", tool_calls=tool_calls)
-
-
-def _ai_final(content: str) -> AIMessage:
-    return AIMessage(content=content)
-
-
-def _tool_response(tool_call_id: str, name: str, data) -> ToolMessage:
+def _tool_msg(name: str, artifact) -> ToolMessage:
     return ToolMessage(
-        content=json.dumps(data),
-        tool_call_id=tool_call_id,
+        content=f"result of {name}",
+        artifact=artifact,
         name=name,
-    )
-
-
-async def _run_graph(llm, drug: str, disease: str, date_before=None) -> dict:
-    graph = build_clinical_trials_graph(
-        llm, max_search_results=50, date_before=date_before
-    )
-    return await graph.ainvoke(
-        {
-            "messages": [HumanMessage(content=f"Analyze {drug} in {disease}")],
-            "drug_name": drug,
-            "disease_name": disease,
-            "date_before": date_before,
-        },
-        config={"recursion_limit": 15},
+        tool_call_id=f"id_{name}",
     )
 
 
 # ------------------------------------------------------------------
-# Whitespace path: detect_whitespace → get_terminated + get_landscape → summary
+# Whitespace path: whitespace + terminated + landscape, no trials
 # ------------------------------------------------------------------
 
 
-async def test_whitespace_path_tools_node_parses_state_correctly():
-    """tools_node correctly parses whitespace, terminated, and landscape into state."""
-    llm = _make_llm(
-        [
-            # Turn 1: call detect_whitespace
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "detect_whitespace",
-                        {"drug": "somedrug", "indication": "huntingtons"},
-                        "tc1",
-                    )
-                ]
-            ),
-            # Turn 2: call get_terminated + get_landscape in one batch
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "get_terminated",
-                        {"drug": "somedrug", "indication": "huntingtons"},
-                        "tc2",
-                    ),
-                    _tool_call("get_landscape", {"indication": "huntingtons"}, "tc3"),
-                ]
-            ),
-            # Turn 3: final summary
-            _ai_final(SUMMARY_TEXT),
-        ]
-    )
-
-    # Patch ToolNode to return pre-scripted ToolMessages without hitting real APIs
-    from unittest.mock import patch, AsyncMock as AM
-
-    tool_responses_by_turn = [
-        # After turn 1 tool calls
-        {"messages": [_tool_response("tc1", "detect_whitespace", WHITESPACE_DATA)]},
-        # After turn 2 tool calls
-        {
-            "messages": [
-                _tool_response("tc2", "get_terminated", TERMINATED_DATA),
-                _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
-            ]
-        },
+async def test_run_clinical_trials_agent_whitespace_path():
+    """Assembles whitespace, terminated, and landscape correctly; trials stays empty."""
+    messages = [
+        HumanMessage(content="Analyze somedrug in huntingtons"),
+        _tool_msg("detect_whitespace", WHITESPACE),
+        _tool_msg("get_terminated", TERMINATED),
+        _tool_msg("get_landscape", LANDSCAPE),
+        AIMessage(content=NARRATIVE),
     ]
-    mock_tool_node_instance = AM()
-    mock_tool_node_instance.ainvoke = AM(side_effect=tool_responses_by_turn)
+    agent = _make_agent(messages)
 
-    with patch(
-        "indication_scout.agents.clinical_trials.clinical_trials_agent.ToolNode",
-        return_value=mock_tool_node_instance,
-    ):
-        result = await _run_graph(llm, "somedrug", "huntingtons")
+    output = await run_clinical_trials_agent(agent, "somedrug", "huntingtons")
 
-    output = result["final_output"]
+    assert isinstance(output, ClinicalTrialsOutput)
 
-    # Whitespace
+    # whitespace
     assert output.whitespace is not None
     assert output.whitespace.is_whitespace is True
     assert output.whitespace.no_data is False
@@ -198,194 +167,152 @@ async def test_whitespace_path_tools_node_parses_state_correctly():
     assert len(output.whitespace.indication_drugs) == 1
     assert output.whitespace.indication_drugs[0].nct_id == "NCT00652457"
     assert output.whitespace.indication_drugs[0].drug_name == "Memantine"
+    assert output.whitespace.indication_drugs[0].indication == "Huntington's Disease"
     assert output.whitespace.indication_drugs[0].phase == "Phase 4"
     assert output.whitespace.indication_drugs[0].status == "COMPLETED"
 
-    # Terminated
+    # terminated
     assert len(output.terminated) == 1
     assert output.terminated[0].nct_id == "NCT01234567"
     assert output.terminated[0].drug_name == "SomeDrug"
+    assert output.terminated[0].indication == "Huntington's Disease"
     assert output.terminated[0].phase == "Phase 2"
     assert output.terminated[0].why_stopped == "Lack of efficacy"
     assert output.terminated[0].stop_category == "efficacy"
+    assert output.terminated[0].enrollment == 50
+    assert output.terminated[0].sponsor == "Sponsor Inc"
 
-    # Landscape
+    # landscape
     assert output.landscape is not None
     assert output.landscape.total_trial_count == 30
-    assert output.landscape.competitors == []
     assert output.landscape.phase_distribution == {"Phase 2": 10, "Phase 3": 5}
-    assert output.landscape.recent_starts == []
+    assert len(output.landscape.competitors) == 1
+    assert output.landscape.competitors[0].drug_name == "SomeDrug"
+    assert output.landscape.competitors[0].max_phase == "Phase 3"
+    assert output.landscape.competitors[0].total_enrollment == 400
+    assert len(output.landscape.recent_starts) == 1
+    assert output.landscape.recent_starts[0].nct_id == "NCT09999999"
 
-    # No trials
+    # trials empty
     assert output.trials == []
 
+    # summary
+    assert output.summary == NARRATIVE
+
 
 # ------------------------------------------------------------------
-# Active trials path: detect_whitespace → search_trials + get_landscape → summary
+# Active trials path: whitespace + trials + landscape, no terminated
 # ------------------------------------------------------------------
 
 
-async def test_active_trials_path_tools_node_parses_state_correctly():
-    """tools_node correctly parses trials and landscape when trials exist."""
-    active_whitespace = {
-        "is_whitespace": False,
-        "no_data": False,
-        "exact_match_count": 5,
-        "drug_only_trials": 200,
-        "indication_only_trials": 1000,
-        "indication_drugs": [],
-    }
-
-    llm = _make_llm(
-        [
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "detect_whitespace",
-                        {"drug": "riluzole", "indication": "als"},
-                        "tc1",
-                    )
-                ]
-            ),
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "search_trials",
-                        {"drug": "riluzole", "indication": "als"},
-                        "tc2",
-                    ),
-                    _tool_call("get_landscape", {"indication": "als"}, "tc3"),
-                ]
-            ),
-            _ai_final("5 trials found. ALS space is moderately active."),
-        ]
+async def test_run_clinical_trials_agent_active_trials_path():
+    """Assembles trials and landscape correctly; terminated stays empty."""
+    active_whitespace = WhitespaceResult(
+        is_whitespace=False,
+        no_data=False,
+        exact_match_count=5,
+        drug_only_trials=200,
+        indication_only_trials=1000,
+        indication_drugs=[],
     )
-
-    tool_responses_by_turn = [
-        {"messages": [_tool_response("tc1", "detect_whitespace", active_whitespace)]},
-        {
-            "messages": [
-                _tool_response("tc2", "search_trials", TRIALS_DATA),
-                _tool_response("tc3", "get_landscape", LANDSCAPE_DATA),
-            ]
-        },
+    messages = [
+        HumanMessage(content="Analyze riluzole in als"),
+        _tool_msg("detect_whitespace", active_whitespace),
+        _tool_msg("search_trials", TRIALS),
+        _tool_msg("get_landscape", LANDSCAPE),
+        AIMessage(content="5 trials found. ALS space is moderately active."),
     ]
-    mock_tool_node_instance = AsyncMock()
-    mock_tool_node_instance.ainvoke = AsyncMock(side_effect=tool_responses_by_turn)
+    agent = _make_agent(messages)
 
-    from unittest.mock import patch
+    output = await run_clinical_trials_agent(agent, "riluzole", "als")
 
-    with patch(
-        "indication_scout.agents.clinical_trials.clinical_trials_agent.ToolNode",
-        return_value=mock_tool_node_instance,
-    ):
-        result = await _run_graph(llm, "riluzole", "als")
-
-    output = result["final_output"]
-
-    # Whitespace
     assert output.whitespace is not None
     assert output.whitespace.is_whitespace is False
     assert output.whitespace.exact_match_count == 5
+    assert output.whitespace.indication_drugs == []
 
-    # Trials
     assert len(output.trials) == 1
     trial = output.trials[0]
     assert trial.nct_id == "NCT02970942"
     assert trial.title == "Riluzole ALS Trial"
+    assert trial.brief_summary == "Testing riluzole in ALS."
     assert trial.phase == "Phase 2"
     assert trial.overall_status == "COMPLETED"
-    assert trial.sponsor == "Sponsor Inc"
-    assert trial.enrollment == 100
+    assert trial.why_stopped is None
     assert trial.indications == ["ALS"]
     assert len(trial.interventions) == 1
+    assert trial.interventions[0].intervention_type == "Drug"
     assert trial.interventions[0].intervention_name == "Riluzole"
+    assert trial.interventions[0].description == "Daily oral dose"
+    assert trial.sponsor == "Sponsor Inc"
+    assert trial.enrollment == 100
+    assert trial.start_date == "2015-01-01"
+    assert trial.completion_date == "2018-01-01"
+    assert len(trial.primary_outcomes) == 1
+    assert trial.primary_outcomes[0].measure == "Survival"
+    assert trial.primary_outcomes[0].time_frame == "18 months"
     assert trial.references == ["12345678"]
 
-    # Landscape
     assert output.landscape is not None
     assert output.landscape.total_trial_count == 30
 
-    # No terminated
     assert output.terminated == []
+    assert output.summary == "5 trials found. ALS space is moderately active."
 
 
 # ------------------------------------------------------------------
-# assemble_node: final_output is populated from state
+# Summary extraction: last AIMessage without tool_calls wins
 # ------------------------------------------------------------------
 
 
-async def test_assemble_node_produces_final_output():
-    """assemble_node assembles ClinicalTrialsOutput from accumulated state, extracting summary from last AIMessage."""
-    llm = _make_llm(
-        [
-            _ai_with_tool_calls(
-                [
-                    _tool_call(
-                        "detect_whitespace",
-                        {"drug": "somedrug", "indication": "huntingtons"},
-                        "tc1",
-                    )
-                ]
-            ),
-            _ai_final(SUMMARY_TEXT),
-        ]
-    )
-
-    tool_responses_by_turn = [
-        {"messages": [_tool_response("tc1", "detect_whitespace", WHITESPACE_DATA)]},
+async def test_run_clinical_trials_agent_picks_last_ai_message_without_tool_calls():
+    """The narrative summary is taken from the last AIMessage that has no tool_calls."""
+    first_narrative = "First summary — should be ignored."
+    final_narrative = "Final summary — this is the one."
+    messages = [
+        HumanMessage(content="Analyze somedrug in huntingtons"),
+        _tool_msg("detect_whitespace", WHITESPACE),
+        AIMessage(content=first_narrative),
+        _tool_msg("get_landscape", LANDSCAPE),
+        AIMessage(content=final_narrative),
     ]
-    mock_tool_node_instance = AsyncMock()
-    mock_tool_node_instance.ainvoke = AsyncMock(side_effect=tool_responses_by_turn)
+    agent = _make_agent(messages)
 
-    from unittest.mock import patch
+    output = await run_clinical_trials_agent(agent, "somedrug", "huntingtons")
 
-    with patch(
-        "indication_scout.agents.clinical_trials.clinical_trials_agent.ToolNode",
-        return_value=mock_tool_node_instance,
-    ):
-        result = await _run_graph(llm, "somedrug", "huntingtons")
-
-    output = result["final_output"]
-    assert output is not None
-    assert output.whitespace is not None
-    assert output.whitespace.is_whitespace is True
-    assert output.trials == []
-    assert output.terminated == []
-    assert output.landscape is None
-    assert output.summary == SUMMARY_TEXT
+    assert output.summary == final_narrative
 
 
 # ------------------------------------------------------------------
-# date_before is threaded through to tools
+# Partial runs — missing tools leave defaults
 # ------------------------------------------------------------------
 
 
-async def test_date_before_passed_to_tools():
-    """date_before from initial state is used when building tools."""
-    cutoff = date(2021, 1, 1)
+@pytest.mark.parametrize(
+    "present_tools,missing_field,expected_default",
+    [
+        (["search_trials", "get_landscape", "get_terminated"], "whitespace", None),
+        (["detect_whitespace", "get_landscape", "get_terminated"], "trials", []),
+        (["detect_whitespace", "search_trials", "get_terminated"], "landscape", None),
+        (["detect_whitespace", "search_trials", "get_landscape"], "terminated", []),
+    ],
+)
+async def test_run_clinical_trials_agent_missing_tool_leaves_default(
+    present_tools, missing_field, expected_default
+):
+    """When a tool's ToolMessage is absent, the corresponding output field stays at its default."""
+    artifact_map = {
+        "detect_whitespace": WHITESPACE,
+        "search_trials": TRIALS,
+        "get_landscape": LANDSCAPE,
+        "get_terminated": TERMINATED,
+    }
+    messages = [HumanMessage(content="Analyze somedrug in huntingtons")]
+    for name in present_tools:
+        messages.append(_tool_msg(name, artifact_map[name]))
+    messages.append(AIMessage(content=NARRATIVE))
 
-    llm = _make_llm([_ai_final("Done.")])
+    agent = _make_agent(messages)
+    output = await run_clinical_trials_agent(agent, "somedrug", "huntingtons")
 
-    captured_date = []
-
-    from unittest.mock import patch
-
-    original_build = __import__(
-        "indication_scout.agents.clinical_trials.clinical_trials_tools",
-        fromlist=["build_clinical_trials_tools"],
-    ).build_clinical_trials_tools
-
-    def capturing_build(date_before=None, max_search_results=50):
-        captured_date.append(date_before)
-        return original_build(
-            date_before=date_before, max_search_results=max_search_results
-        )
-
-    with patch(
-        "indication_scout.agents.clinical_trials.clinical_trials_agent.build_clinical_trials_tools",
-        side_effect=capturing_build,
-    ):
-        await _run_graph(llm, "riluzole", "als", date_before=cutoff)
-
-    assert cutoff in captured_date
+    assert getattr(output, missing_field) == expected_default
