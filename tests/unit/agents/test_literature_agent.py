@@ -1,38 +1,33 @@
-"""Unit tests for literature agent tools."""
+"""Unit tests for run_literature_agent output assembly.
+
+The agent itself (create_react_agent) is not invoked — we mock agent.ainvoke
+to return a fixed message history and verify that run_literature_agent correctly
+extracts artifacts and the narrative summary into a LiteratureOutput.
+"""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import ToolCall
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from indication_scout.agents.literature.literature_tools import build_literature_tools
-from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.agents.literature.literature_agent import run_literature_agent
+from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import AbstractResult
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# Fixtures
+# Shared test data
 # ------------------------------------------------------------------
 
-SEARCH_TERMS = [
-    "metformin colorectal cancer",
-    "metformin colon neoplasm AMPK",
-    "biguanide colorectal carcinoma",
-]
-
+SEARCH_TERMS = ["metformin colorectal cancer", "AMPK colon neoplasm"]
 PMIDS = ["111", "222", "333"]
-
 SEMANTIC_RESULTS = [
-    AbstractResult(
-        pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91
-    ),
-    AbstractResult(
-        pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85
-    ),
+    AbstractResult(pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91),
+    AbstractResult(pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85),
 ]
-
 EVIDENCE = EvidenceSummary(
     strength="moderate",
     study_count=2,
@@ -40,215 +35,150 @@ EVIDENCE = EvidenceSummary(
     key_findings=["Metformin reduces tumor growth"],
     has_adverse_effects=False,
     supporting_pmids=["111", "222"],
-    summary="Moderate evidence supports metformin in colorectal cancer based on 2 RCTs.",
+    summary="Moderate evidence supports metformin in colorectal cancer.",
 )
+NARRATIVE = "Metformin shows moderate evidence for colorectal cancer repurposing based on 2 RCTs."
 
 
-def _drug_profile() -> DrugProfile:
-    return DrugProfile(
-        name="metformin",
-        synonyms=["Glucophage"],
-        target_gene_symbols=["PRKAA1"],
-        mechanisms_of_action=["AMP-activated protein kinase activator"],
-        atc_codes=["A10BA02"],
-        atc_descriptions=["Biguanides"],
-        drug_type="Small molecule",
-    )
+def _make_agent(messages: list) -> MagicMock:
+    agent = MagicMock()
+    agent.ainvoke = AsyncMock(return_value={"messages": messages})
+    return agent
 
 
-def _make_svc() -> MagicMock:
-    svc = MagicMock()
-    svc.build_drug_profile = AsyncMock(return_value=_drug_profile())
-    svc.expand_search_terms = AsyncMock(return_value=SEARCH_TERMS)
-    svc.fetch_and_cache = AsyncMock(return_value=PMIDS)
-    svc.semantic_search = AsyncMock(return_value=SEMANTIC_RESULTS)
-    svc.synthesize = AsyncMock(return_value=EVIDENCE)
-    return svc
-
-
-def _build_tools(svc):
-    tools, store = build_literature_tools(svc=svc, db=MagicMock())
-    tool_map = {t.name: t for t in tools}
-    return tool_map, store
+def _tool_msg(name: str, artifact) -> ToolMessage:
+    return ToolMessage(content=f"result of {name}", artifact=artifact, name=name, tool_call_id=f"id_{name}")
 
 
 # ------------------------------------------------------------------
-# expand_search_terms
+# Full happy path
 # ------------------------------------------------------------------
 
 
-async def test_expand_search_terms_calls_svc_and_returns_queries():
-    """expand_search_terms calls svc.expand_search_terms with the drug profile from store."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    store["drug_profile"] = _drug_profile()
+async def test_run_literature_agent_assembles_all_fields():
+    """run_literature_agent extracts all four tool artifacts and the narrative into LiteratureOutput."""
+    messages = [
+        HumanMessage(content="Analyze metformin in colorectal cancer"),
+        _tool_msg("expand_search_terms", SEARCH_TERMS),
+        _tool_msg("fetch_and_cache", PMIDS),
+        _tool_msg("semantic_search", SEMANTIC_RESULTS),
+        _tool_msg("synthesize", EVIDENCE),
+        AIMessage(content=NARRATIVE),
+    ]
+    agent = _make_agent(messages)
 
-    msg = await tool_map["expand_search_terms"].ainvoke(
-        ToolCall(
-            name="expand_search_terms",
-            args={"drug_name": "metformin", "disease_name": "colorectal cancer"},
-            id="tc1",
-            type="tool_call",
-        )
-    )
+    output = await run_literature_agent(agent, "metformin", "colorectal cancer")
 
-    svc.expand_search_terms.assert_awaited_once_with(
-        "metformin", "colorectal cancer", _drug_profile()
-    )
-    assert msg.artifact == SEARCH_TERMS
-    assert "3 search queries" in msg.content
-
-
-async def test_expand_search_terms_builds_profile_if_missing():
-    """expand_search_terms calls svc.build_drug_profile when store has no drug_profile."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    # store is empty — no drug_profile
-
-    await tool_map["expand_search_terms"].ainvoke(
-        ToolCall(
-            name="expand_search_terms",
-            args={"drug_name": "metformin", "disease_name": "colorectal cancer"},
-            id="tc2",
-            type="tool_call",
-        )
-    )
-
-    svc.build_drug_profile.assert_awaited_once_with("metformin")
+    assert isinstance(output, LiteratureOutput)
+    assert output.search_results == SEARCH_TERMS
+    assert output.pmids == PMIDS
+    assert len(output.semantic_search_results) == 2
+    assert output.semantic_search_results[0].pmid == "111"
+    assert output.semantic_search_results[0].title == "Metformin and CRC"
+    assert output.semantic_search_results[0].abstract == "Study A."
+    assert output.semantic_search_results[0].similarity == 0.91
+    assert output.semantic_search_results[1].pmid == "222"
+    assert output.semantic_search_results[1].title == "AMPK pathway"
+    assert output.semantic_search_results[1].abstract == "Study B."
+    assert output.semantic_search_results[1].similarity == 0.85
+    assert isinstance(output.evidence_summary, EvidenceSummary)
+    assert output.evidence_summary.strength == "moderate"
+    assert output.evidence_summary.study_count == 2
+    assert output.evidence_summary.study_types == ["RCT"]
+    assert output.evidence_summary.key_findings == ["Metformin reduces tumor growth"]
+    assert output.evidence_summary.has_adverse_effects is False
+    assert output.evidence_summary.supporting_pmids == ["111", "222"]
+    assert output.summary == NARRATIVE
 
 
 # ------------------------------------------------------------------
-# fetch_and_cache
+# Summary extraction: last AIMessage without tool_calls wins
 # ------------------------------------------------------------------
 
 
-async def test_fetch_and_cache_calls_svc_with_queries_from_store():
-    """fetch_and_cache reads expanded_search_results from store and passes them to svc."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    store["expanded_search_results"] = SEARCH_TERMS
+async def test_run_literature_agent_picks_last_ai_message_without_tool_calls():
+    """The narrative summary is taken from the last AIMessage that has no tool_calls."""
+    first_narrative = "First summary — should be ignored."
+    final_narrative = "Final summary — this is the one."
+    messages = [
+        HumanMessage(content="Analyze metformin in colorectal cancer"),
+        _tool_msg("expand_search_terms", SEARCH_TERMS),
+        AIMessage(content=first_narrative),
+        _tool_msg("fetch_and_cache", PMIDS),
+        AIMessage(content=final_narrative),
+    ]
+    agent = _make_agent(messages)
 
-    msg = await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(
-            name="fetch_and_cache",
-            args={"drug_name": "metformin"},
-            id="tc3",
-            type="tool_call",
-        )
-    )
+    output = await run_literature_agent(agent, "metformin", "colorectal cancer")
 
-    svc.fetch_and_cache.assert_awaited_once()
-    assert svc.fetch_and_cache.call_args.args[0] == SEARCH_TERMS
-    assert msg.artifact == PMIDS
-    assert "3 PMIDs" in msg.content
-
-
-async def test_fetch_and_cache_returns_empty_when_no_queries():
-    """fetch_and_cache returns early with empty list when store has no queries."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    # store is empty
-
-    msg = await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(
-            name="fetch_and_cache",
-            args={"drug_name": "metformin"},
-            id="tc4",
-            type="tool_call",
-        )
-    )
-
-    svc.fetch_and_cache.assert_not_awaited()
-    assert msg.artifact == []
-    assert "expand_search_terms" in msg.content
+    assert output.summary == final_narrative
 
 
 # ------------------------------------------------------------------
-# semantic_search
+# Partial runs — missing tools leave defaults
 # ------------------------------------------------------------------
 
 
-async def test_semantic_search_calls_svc_with_pmids_from_store():
-    """semantic_search reads pmids from store and passes them to svc."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    store["pmids"] = PMIDS
+@pytest.mark.parametrize(
+    "present_tools,missing_field",
+    [
+        (["fetch_and_cache", "semantic_search", "synthesize"], "search_results"),
+        (["expand_search_terms", "semantic_search", "synthesize"], "pmids"),
+        (["expand_search_terms", "fetch_and_cache", "synthesize"], "semantic_search_results"),
+        (["expand_search_terms", "fetch_and_cache", "semantic_search"], "evidence_summary"),
+    ],
+)
+async def test_run_literature_agent_missing_tool_leaves_default(present_tools, missing_field):
+    """When a tool's ToolMessage is absent, the corresponding output field stays at its default."""
+    artifact_map = {
+        "expand_search_terms": SEARCH_TERMS,
+        "fetch_and_cache": PMIDS,
+        "semantic_search": SEMANTIC_RESULTS,
+        "synthesize": EVIDENCE,
+    }
+    messages = [HumanMessage(content="Analyze metformin in colorectal cancer")]
+    for name in present_tools:
+        messages.append(_tool_msg(name, artifact_map[name]))
+    messages.append(AIMessage(content=NARRATIVE))
 
-    msg = await tool_map["semantic_search"].ainvoke(
-        ToolCall(
-            name="semantic_search",
-            args={"drug_name": "metformin", "disease_name": "colorectal cancer"},
-            id="tc5",
-            type="tool_call",
-        )
-    )
+    agent = _make_agent(messages)
+    output = await run_literature_agent(agent, "metformin", "colorectal cancer")
 
-    svc.semantic_search.assert_awaited_once()
-    assert svc.semantic_search.call_args.args[2] == PMIDS
-    assert len(msg.artifact) == 2
-    assert msg.artifact[0].pmid == "111"
-    assert msg.artifact[0].title == "Metformin and CRC"
-    assert msg.artifact[0].abstract == "Study A."
-    assert msg.artifact[0].similarity == 0.91
-    assert msg.artifact[1].pmid == "222"
-    assert msg.artifact[1].title == "AMPK pathway"
-    assert msg.artifact[1].abstract == "Study B."
-    assert msg.artifact[1].similarity == 0.85
-    assert "0.91" in msg.content
-
-
-async def test_semantic_search_returns_empty_when_no_pmids():
-    """semantic_search returns early with empty list when store has no pmids."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    # store is empty
-
-    msg = await tool_map["semantic_search"].ainvoke(
-        ToolCall(
-            name="semantic_search",
-            args={"drug_name": "metformin", "disease_name": "colorectal cancer"},
-            id="tc6",
-            type="tool_call",
-        )
-    )
-
-    svc.semantic_search.assert_not_awaited()
-    assert msg.artifact == []
-    assert "fetch_and_cache" in msg.content
+    default_map = {
+        "search_results": [],
+        "pmids": [],
+        "semantic_search_results": [],
+        "evidence_summary": None,
+    }
+    assert getattr(output, missing_field) == default_map[missing_field]
 
 
 # ------------------------------------------------------------------
-# synthesize
+# build_drug_profile ToolMessage is ignored (no field_map entry)
 # ------------------------------------------------------------------
 
 
-async def test_synthesize_calls_svc_with_abstracts_from_store():
-    """synthesize reads semantic_search_results from store and passes them to svc."""
-    svc = _make_svc()
-    tool_map, store = _build_tools(svc)
-    store["semantic_search_results"] = SEMANTIC_RESULTS
+async def test_run_literature_agent_ignores_build_drug_profile_message():
+    """build_drug_profile ToolMessages are correctly ignored — no field on LiteratureOutput."""
+    from indication_scout.models.model_drug_profile import DrugProfile
 
-    msg = await tool_map["synthesize"].ainvoke(
-        ToolCall(
-            name="synthesize",
-            args={"drug_name": "metformin", "disease_name": "colorectal cancer"},
-            id="tc7",
-            type="tool_call",
-        )
-    )
+    profile = DrugProfile(name="metformin", synonyms=[], target_gene_symbols=[], mechanisms_of_action=[], atc_codes=[], atc_descriptions=[], drug_type="Small molecule")
+    messages = [
+        HumanMessage(content="Analyze metformin in colorectal cancer"),
+        _tool_msg("build_drug_profile", profile),
+        _tool_msg("expand_search_terms", SEARCH_TERMS),
+        _tool_msg("fetch_and_cache", PMIDS),
+        _tool_msg("semantic_search", SEMANTIC_RESULTS),
+        _tool_msg("synthesize", EVIDENCE),
+        AIMessage(content=NARRATIVE),
+    ]
+    agent = _make_agent(messages)
 
-    svc.synthesize.assert_awaited_once_with(
-        "metformin", "colorectal cancer", SEMANTIC_RESULTS
-    )
-    assert isinstance(msg.artifact, EvidenceSummary)
-    assert msg.artifact.strength == "moderate"
-    assert msg.artifact.study_count == 2
-    assert msg.artifact.study_types == ["RCT"]
-    assert msg.artifact.key_findings == ["Metformin reduces tumor growth"]
-    assert msg.artifact.has_adverse_effects is False
-    assert msg.artifact.supporting_pmids == ["111", "222"]
-    assert (
-        msg.artifact.summary
-        == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."
-    )
-    assert "moderate" in msg.content
+    output = await run_literature_agent(agent, "metformin", "colorectal cancer")
+
+    # All other fields still populated correctly
+    assert output.search_results == SEARCH_TERMS
+    assert output.pmids == PMIDS
+    assert len(output.semantic_search_results) == 2
+    assert isinstance(output.evidence_summary, EvidenceSummary)
+    assert output.summary == NARRATIVE

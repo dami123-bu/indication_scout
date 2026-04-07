@@ -90,6 +90,51 @@ a pipeline is simpler, more reliable, and cheaper.
 
 ---
 
+### Stage 5 — LLM-Driven Agentic with Closure Store (current literature agent)
+
+Reverted from the deterministic pipeline back to an LLM-orchestrated agent, but kept
+all the artifact and closure improvements. The key insight: the LLM adds value in
+deciding *when* to call `build_drug_profile` vs skip it, handling edge cases (no results,
+weak evidence), and producing a coherent final narrative summary.
+
+Key characteristics:
+- Three-node graph: `agent_node → tools_node → assemble_node` (loop via `tools_condition`)
+- Five tools: `build_drug_profile`, `expand_search_terms`, `fetch_and_cache`,
+  `semantic_search`, `synthesize`
+- **Closure-based store** (`store: dict = {}`) shared across all tools via closure.
+  `tools_node` writes `msg.artifact` to both state fields and the store after each round.
+  Downstream tools read prior results from the store — no `InjectedState`, no magic.
+- All tools use `response_format="content_and_artifact"`: `ToolMessage.content` is a
+  human-readable string for the LLM; `ToolMessage.artifact` is the typed Python object
+  for the code. No JSON round-trip.
+- `build_drug_profile` is an explicit tool the LLM can call; `expand_search_terms`
+  also auto-fetches the profile if missing — graceful degradation.
+- `assemble_node` extracts the final `AIMessage` text after the last `ToolMessage`
+  as the plain-text summary.
+- System prompt instructs the LLM to batch independent tool calls and to write
+  only 3-4 plain text sentences as its final message.
+
+Why LLM orchestration again (vs Stage 4 pipeline):
+- The LLM can skip `build_drug_profile` if not needed, saving an API call.
+- The LLM can handle "no results" gracefully and still call `synthesize` on weak evidence.
+- The final narrative summary benefits from LLM judgment rather than being read
+  directly from `EvidenceSummary.summary`.
+- The tool dependency graph (profile → queries → pmids → abstracts → synthesis)
+  is implicit — the LLM infers it from tool descriptions, which is more flexible
+  than hardcoding the sequence.
+
+Remaining caveats:
+- The closure store is a side-channel outside LangGraph's formal state. It works
+  cleanly because tool execution is sequential within one agent instance, but is
+  not safe for concurrent agent runs sharing the same store.
+- `synthesize` does not guard against an empty `semantic_search_results` list —
+  unlike `fetch_and_cache` and `semantic_search` which return early. If the LLM
+  calls synthesize before semantic_search, `svc.synthesize` receives `[]`.
+- `assemble_node` summary extraction is index-based (`i > last_tool_idx`) and could
+  miss the summary if the LLM emits a tool call after its narrative message.
+
+---
+
 ## Key Lessons
 
 1. **Avoid unnecessary JSON round-trips.** Tools that return Pydantic objects should use
@@ -110,6 +155,18 @@ a pipeline is simpler, more reliable, and cheaper.
 5. **The LLM's view vs the code's view.** `ToolMessage.content` is what the LLM sees
    (needs to be human-readable and informative). `ToolMessage.artifact` is what the
    code uses (the raw Python object). Keep these concerns separate.
+
+6. **Closure-based store beats `InjectedState` for inter-tool dependencies.** When tools
+   need to read results from earlier tools (e.g. semantic_search needs PMIDs from
+   fetch_and_cache), a shared mutable dict closed over by all tools is simpler to write,
+   simpler to test (just set `store["key"] = value` before invoking), and avoids
+   LangGraph's `InjectedState` boilerplate entirely.
+
+7. **LLM orchestration vs pipeline is a judgment call, not a rule.** A deterministic
+   pipeline is right when the sequence is fixed and all inputs are known. An LLM
+   orchestrator adds value when there is optional branching, graceful degradation,
+   or a final narrative step that benefits from reasoning. The literature agent
+   went pipeline → LLM-driven as the agent's responsibilities grew.
 
 ---
 
