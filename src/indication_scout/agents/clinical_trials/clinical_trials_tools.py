@@ -20,17 +20,32 @@ def build_clinical_trials_tools(
     ) -> tuple[str, list[TerminatedTrial]]:
         """Get terminated trials for a drug and indication.
 
-        Runs two queries: (1) safety/efficacy terminations for this drug across
-        all indications — only stop_category 'safety' or 'efficacy' are returned,
-        noise is dropped; (2) all terminations in this indication space.
-        Each result includes a stop_category. Use to check for prior failures.
+        Runs two queries and returns their union:
+        (1) Drug-wide safety/efficacy terminations — trials for this drug across
+            ALL indications where stop_category is 'safety' or 'efficacy'. This
+            count is the same regardless of which indication you pass. It reflects
+            the drug's overall safety/efficacy failure history, not failures
+            specific to this indication.
+        (2) Indication-specific terminations — all terminated trials in this
+            indication space, any drug.
+
+        Each result includes a stop_category. When reporting counts, make clear
+        that drug-wide safety/efficacy failures apply across all indications, not
+        just this one.
         """
         async with ClinicalTrialsClient() as client:
             terminated = await client.get_terminated(
                 drug, indication, date_before=date_before, sort="EnrollmentCount:desc"
             )
 
-        return f"Fetched {len(terminated)} terminated trials", terminated
+        drug_wide = [t for t in terminated if t.stop_category in {"safety", "efficacy"}]
+        indication_specific = [t for t in terminated if t.stop_category not in {"safety", "efficacy"}]
+        content = (
+            f"Terminated trials for {drug} × {indication}: "
+            f"{len(drug_wide)} drug-wide safety/efficacy failures (across all indications), "
+            f"{len(indication_specific)} indication-specific terminations"
+        )
+        return content, terminated
 
     @tool(response_format="content_and_artifact")
     async def search_trials(drug: str, indication: str) -> tuple[str, list[Trial]]:

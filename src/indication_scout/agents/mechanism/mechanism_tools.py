@@ -63,7 +63,8 @@ def build_mechanism_tools() -> list:
 
         top = sorted(associations, key=lambda a: a.overall_score or 0, reverse=True)[:20]
         return (
-            f"{len(top)} associations for {target_symbol} (top: {top[0].disease_name if top else 'none'})",
+            f"Top {len(top)} associations for {target_symbol} by score (of {len(associations)} total); "
+            f"highest: {top[0].disease_name if top else 'none'}",
             top,
         )
 

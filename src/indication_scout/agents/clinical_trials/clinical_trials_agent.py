@@ -24,7 +24,10 @@ You have four tools:
 - detect_whitespace — checks if any trials exist for this drug-indication pair
 - search_trials — fetches details on trials matching the drug and indication
 - get_landscape — competitive landscape: total trials, top sponsors, phase distribution
-- get_terminated — terminated/withdrawn/suspended trials (safety or efficacy red flags)
+- get_terminated — terminated trials split into two groups: drug-wide safety/efficacy
+  failures (same count for every indication — reflects the drug's overall failure
+  history) and indication-specific terminations (trials that failed in this disease
+  space specifically). Report these separately — do not sum them into a single count.
 
 Decide which tools to call based on what you learn. Typically start with
 detect_whitespace. If trials exist, get the details and landscape. If not,
