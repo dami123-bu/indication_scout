@@ -43,7 +43,7 @@ def build_literature_agent(
     db,
     date_before=None,
     max_search_results=None,
-    num_top_k=5,
+    num_top_k=15,
 ):
     """Return a compiled ReAct agent. No graph wiring required."""
     tools = build_literature_tools(

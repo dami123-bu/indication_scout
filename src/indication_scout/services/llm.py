@@ -31,7 +31,7 @@ def parse_llm_response(response: str) -> list[str]:
 async def query_llm(prompt: str, system: str = "") -> str:
     response = await client.messages.create(
         model=_model,
-        max_tokens=1024,
+        max_tokens=4096,
         temperature=0,
         system=system or NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],

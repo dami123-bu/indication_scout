@@ -134,16 +134,16 @@ class RetrievalService:
         sorted_data = dict(
             sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
-        top_10 = dict(list(sorted_data.items())[:10])
+        top_15 = dict(list(sorted_data.items())[:15])
 
         cache_set(
             "drug_competitors",
             cache_params,
-            {disease: list(drugs) for disease, drugs in top_10.items()},
+            {disease: list(drugs) for disease, drugs in top_15.items()},
             self.cache_dir,
             ttl=CACHE_TTL,
         )
-        return top_10
+        return top_15
 
     async def build_drug_profile(self, drug_name: str) -> DrugProfile:
         """Fetch drug + target data from Open Targets, enrich with ATC descriptions from ChEMBL,
