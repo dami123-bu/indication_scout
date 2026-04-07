@@ -26,7 +26,15 @@ You have five tools:
 Tools that need prior results read them automatically — you do not pass
 PMIDs or abstracts as arguments. Batch independent calls when possible.
 
-End with 3-4 plain sentences summarizing the findings. No markdown."""
+IMPORTANT: When done, your final message must be ONLY 3-4 plain text
+sentences summarizing the findings. No markdown.
+
+GROUNDING RULE: Your summary must reference ONLY information that
+appeared in the tool results from this run. Do NOT introduce trial
+names, drug histories, or facts from your training that were not
+returned by the tools. If you don't have evidence from the retrieved
+abstracts for a claim, do not make it.
+"""
 
 
 def build_literature_agent(
