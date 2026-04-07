@@ -25,8 +25,12 @@ logger = logging.getLogger(__name__)
 SEARCH_TERMS = ["metformin colorectal cancer", "AMPK colon neoplasm"]
 PMIDS = ["111", "222", "333"]
 SEMANTIC_RESULTS = [
-    AbstractResult(pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91),
-    AbstractResult(pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85),
+    AbstractResult(
+        pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91
+    ),
+    AbstractResult(
+        pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85
+    ),
 ]
 EVIDENCE = EvidenceSummary(
     strength="moderate",
@@ -47,7 +51,12 @@ def _make_agent(messages: list) -> MagicMock:
 
 
 def _tool_msg(name: str, artifact) -> ToolMessage:
-    return ToolMessage(content=f"result of {name}", artifact=artifact, name=name, tool_call_id=f"id_{name}")
+    return ToolMessage(
+        content=f"result of {name}",
+        artifact=artifact,
+        name=name,
+        tool_call_id=f"id_{name}",
+    )
 
 
 # ------------------------------------------------------------------
@@ -124,11 +133,19 @@ async def test_run_literature_agent_picks_last_ai_message_without_tool_calls():
     [
         (["fetch_and_cache", "semantic_search", "synthesize"], "search_results"),
         (["expand_search_terms", "semantic_search", "synthesize"], "pmids"),
-        (["expand_search_terms", "fetch_and_cache", "synthesize"], "semantic_search_results"),
-        (["expand_search_terms", "fetch_and_cache", "semantic_search"], "evidence_summary"),
+        (
+            ["expand_search_terms", "fetch_and_cache", "synthesize"],
+            "semantic_search_results",
+        ),
+        (
+            ["expand_search_terms", "fetch_and_cache", "semantic_search"],
+            "evidence_summary",
+        ),
     ],
 )
-async def test_run_literature_agent_missing_tool_leaves_default(present_tools, missing_field):
+async def test_run_literature_agent_missing_tool_leaves_default(
+    present_tools, missing_field
+):
     """When a tool's ToolMessage is absent, the corresponding output field stays at its default."""
     artifact_map = {
         "expand_search_terms": SEARCH_TERMS,
@@ -162,7 +179,15 @@ async def test_run_literature_agent_ignores_build_drug_profile_message():
     """build_drug_profile ToolMessages are correctly ignored — no field on LiteratureOutput."""
     from indication_scout.models.model_drug_profile import DrugProfile
 
-    profile = DrugProfile(name="metformin", synonyms=[], target_gene_symbols=[], mechanisms_of_action=[], atc_codes=[], atc_descriptions=[], drug_type="Small molecule")
+    profile = DrugProfile(
+        name="metformin",
+        synonyms=[],
+        target_gene_symbols=[],
+        mechanisms_of_action=[],
+        atc_codes=[],
+        atc_descriptions=[],
+        drug_type="Small molecule",
+    )
     messages = [
         HumanMessage(content="Analyze metformin in colorectal cancer"),
         _tool_msg("build_drug_profile", profile),

@@ -82,7 +82,10 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
     assert len(output.search_results) >= 5
     queries_lower = [q.lower() for q in output.search_results]
     assert any("semaglutide" in q or "glp-1" in q or "glp1" in q for q in queries_lower)
-    assert any("nash" in q or "fatty liver" in q or "steatohepatitis" in q for q in queries_lower)
+    assert any(
+        "nash" in q or "fatty liver" in q or "steatohepatitis" in q
+        for q in queries_lower
+    )
 
     # --- pmids ---
     assert len(output.pmids) >= 20
@@ -92,11 +95,15 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
     assert len(output.semantic_search_results) == 5
     result_pmids = [r.pmid for r in output.semantic_search_results]
     for expected_pmid, expected_title_fragment in _EXPECTED_TOP5:
-        assert expected_pmid in result_pmids, f"Expected PMID {expected_pmid} not in top-5"
-        match = next(r for r in output.semantic_search_results if r.pmid == expected_pmid)
-        assert expected_title_fragment in match.title, (
-            f"PMID {expected_pmid}: expected title fragment '{expected_title_fragment}', got '{match.title}'"
+        assert (
+            expected_pmid in result_pmids
+        ), f"Expected PMID {expected_pmid} not in top-5"
+        match = next(
+            r for r in output.semantic_search_results if r.pmid == expected_pmid
         )
+        assert (
+            expected_title_fragment in match.title
+        ), f"PMID {expected_pmid}: expected title fragment '{expected_title_fragment}', got '{match.title}'"
         assert isinstance(match.abstract, str) and len(match.abstract) > 0
         assert 0.0 < match.similarity <= 1.0
 
@@ -108,7 +115,9 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
     assert output.evidence_summary.strength == "moderate"
     assert output.evidence_summary.study_count >= 2
     assert not output.evidence_summary.has_adverse_effects
-    assert _EXPECTED_SUPPORTING_PMIDS.issubset(set(output.evidence_summary.supporting_pmids))
+    assert _EXPECTED_SUPPORTING_PMIDS.issubset(
+        set(output.evidence_summary.supporting_pmids)
+    )
     assert len(output.evidence_summary.key_findings) >= 2
 
     # --- summary ---

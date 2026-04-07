@@ -1,7 +1,6 @@
-"""Literature agent — middle-ground version.
+"""Literature agent
 
-Uses LangGraph's prebuilt create_react_agent for the agent loop. No
-custom StateGraph, no LiteratureState class, no InjectedState. After
+Uses LangGraph's prebuilt create_react_agent for the agent loop. After
 the run, walks the message history to pull typed artifacts off the
 ToolMessages and assembles them into a LiteratureOutput.
 """
@@ -54,11 +53,7 @@ async def run_literature_agent(
 ) -> LiteratureOutput:
     """Invoke the agent and assemble a LiteratureOutput from the run."""
     result = await agent.ainvoke(
-        {
-            "messages": [
-                HumanMessage(content=f"Analyze {drug_name} in {disease_name}")
-            ]
-        }
+        {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
     )
 
     # Walk the message history and pull each tool's typed artifact off msg.artifact
@@ -84,9 +79,7 @@ async def run_literature_agent(
     summary = ""
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and not msg.tool_calls:
-            summary = (
-                msg.content if isinstance(msg.content, str) else str(msg.content)
-            )
+            summary = msg.content if isinstance(msg.content, str) else str(msg.content)
             break
 
     return LiteratureOutput(

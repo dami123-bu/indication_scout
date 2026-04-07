@@ -35,8 +35,12 @@ SEARCH_TERMS = [
 PMIDS = ["111", "222", "333"]
 
 SEMANTIC_RESULTS = [
-    AbstractResult(pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91),
-    AbstractResult(pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85),
+    AbstractResult(
+        pmid="111", title="Metformin and CRC", abstract="Study A.", similarity=0.91
+    ),
+    AbstractResult(
+        pmid="222", title="AMPK pathway", abstract="Study B.", similarity=0.85
+    ),
 ]
 
 EVIDENCE = EvidenceSummary(
@@ -76,7 +80,12 @@ async def test_build_drug_profile_calls_svc_and_returns_artifact():
     tool_map = _build(svc)
 
     msg = await tool_map["build_drug_profile"].ainvoke(
-        ToolCall(name="build_drug_profile", args={"drug_name": "metformin"}, id="tc0", type="tool_call")
+        ToolCall(
+            name="build_drug_profile",
+            args={"drug_name": "metformin"},
+            id="tc0",
+            type="tool_call",
+        )
     )
 
     svc.build_drug_profile.assert_awaited_once_with("metformin")
@@ -100,7 +109,12 @@ async def test_expand_search_terms_uses_profile_from_store():
     # Inject profile into the shared store via build_drug_profile side-effect
     # by calling build_drug_profile first so the store is populated
     await tool_map["build_drug_profile"].ainvoke(
-        ToolCall(name="build_drug_profile", args={"drug_name": "metformin"}, id="tc_pre", type="tool_call")
+        ToolCall(
+            name="build_drug_profile",
+            args={"drug_name": "metformin"},
+            id="tc_pre",
+            type="tool_call",
+        )
     )
     svc.build_drug_profile.reset_mock()
 
@@ -114,7 +128,9 @@ async def test_expand_search_terms_uses_profile_from_store():
     )
 
     svc.build_drug_profile.assert_not_awaited()
-    svc.expand_search_terms.assert_awaited_once_with("metformin", "colorectal cancer", DRUG_PROFILE)
+    svc.expand_search_terms.assert_awaited_once_with(
+        "metformin", "colorectal cancer", DRUG_PROFILE
+    )
     assert msg.artifact == SEARCH_TERMS
     assert "Generated 3 queries" in msg.content
 
@@ -157,7 +173,12 @@ async def test_fetch_and_cache_reads_queries_from_store_and_returns_pmids():
     )
 
     msg = await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(name="fetch_and_cache", args={"drug_name": "metformin"}, id="tc3", type="tool_call")
+        ToolCall(
+            name="fetch_and_cache",
+            args={"drug_name": "metformin"},
+            id="tc3",
+            type="tool_call",
+        )
     )
 
     svc.fetch_and_cache.assert_awaited_once()
@@ -172,7 +193,12 @@ async def test_fetch_and_cache_returns_empty_when_no_queries():
     tool_map = _build(svc)
 
     msg = await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(name="fetch_and_cache", args={"drug_name": "metformin"}, id="tc4", type="tool_call")
+        ToolCall(
+            name="fetch_and_cache",
+            args={"drug_name": "metformin"},
+            id="tc4",
+            type="tool_call",
+        )
     )
 
     svc.fetch_and_cache.assert_not_awaited()
@@ -198,7 +224,12 @@ async def test_fetch_and_cache_passes_date_before():
     )
 
     await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(name="fetch_and_cache", args={"drug_name": "metformin"}, id="tc5", type="tool_call")
+        ToolCall(
+            name="fetch_and_cache",
+            args={"drug_name": "metformin"},
+            id="tc5",
+            type="tool_call",
+        )
     )
 
     assert svc.fetch_and_cache.call_args.kwargs["date_before"] == cutoff
@@ -224,7 +255,12 @@ async def test_semantic_search_reads_pmids_from_store_and_returns_results():
         )
     )
     await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(name="fetch_and_cache", args={"drug_name": "metformin"}, id="tc_pre2", type="tool_call")
+        ToolCall(
+            name="fetch_and_cache",
+            args={"drug_name": "metformin"},
+            id="tc_pre2",
+            type="tool_call",
+        )
     )
 
     msg = await tool_map["semantic_search"].ainvoke(
@@ -292,7 +328,12 @@ async def test_synthesize_reads_abstracts_from_store_and_returns_evidence():
         )
     )
     await tool_map["fetch_and_cache"].ainvoke(
-        ToolCall(name="fetch_and_cache", args={"drug_name": "metformin"}, id="tc_pre2", type="tool_call")
+        ToolCall(
+            name="fetch_and_cache",
+            args={"drug_name": "metformin"},
+            id="tc_pre2",
+            type="tool_call",
+        )
     )
     await tool_map["semantic_search"].ainvoke(
         ToolCall(
@@ -312,7 +353,9 @@ async def test_synthesize_reads_abstracts_from_store_and_returns_evidence():
         )
     )
 
-    svc.synthesize.assert_awaited_once_with("metformin", "colorectal cancer", SEMANTIC_RESULTS)
+    svc.synthesize.assert_awaited_once_with(
+        "metformin", "colorectal cancer", SEMANTIC_RESULTS
+    )
     assert isinstance(msg.artifact, EvidenceSummary)
     assert msg.artifact.strength == "moderate"
     assert msg.artifact.study_count == 2
@@ -320,5 +363,8 @@ async def test_synthesize_reads_abstracts_from_store_and_returns_evidence():
     assert msg.artifact.key_findings == ["Metformin reduces tumor growth"]
     assert msg.artifact.has_adverse_effects is False
     assert msg.artifact.supporting_pmids == ["111", "222"]
-    assert msg.artifact.summary == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."
+    assert (
+        msg.artifact.summary
+        == "Moderate evidence supports metformin in colorectal cancer based on 2 RCTs."
+    )
     assert "moderate" in msg.content
