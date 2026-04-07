@@ -42,8 +42,7 @@ def build_supervisor_tools(
     reused across calls — no need to rebuild them per invocation.
     """
 
-    # Build sub-agents once at supervisor construction
-    lit_agent = build_literature_agent(llm=llm, svc=svc, db=db)
+    # Build sub-agents once at supervisor construction (except literature — see below)
     ct_agent = build_clinical_trials_agent(llm=llm)
     mech_agent = build_mechanism_agent(llm=llm)
 
@@ -69,6 +68,9 @@ def build_supervisor_tools(
         abstracts, and produces a structured evidence summary with strength
         rating (none / weak / moderate / strong).
         """
+        # Build a fresh agent per call so the closure-scoped store dict in
+        # literature_tools is not shared across disease invocations.
+        lit_agent = build_literature_agent(llm=llm, svc=svc, db=db)
         output = await run_literature_agent(lit_agent, drug_name, disease_name)
         strength = (
             output.evidence_summary.strength
