@@ -13,6 +13,7 @@ The LLM decides:
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.agents.supervisor.supervisor_output import (
     CandidateFindings,
     SupervisorOutput,
@@ -23,35 +24,36 @@ SYSTEM_PROMPT = """\
 You are a drug repurposing analyst. Given a drug, your job is to find
 the most promising new indications and assess them.
 
-You have three tools:
+You have four tools:
 
 - find_candidates — surfaces candidate diseases for the drug from Open Targets
+- analyze_mechanism — fetches the drug's molecular targets, their disease
+  associations, and Reactome pathways; drug-level, call once per drug
 - analyze_literature — runs a full literature analysis for a drug-disease pair
 - analyze_clinical_trials — runs a full clinical trials analysis for a pair
 
 Strategy:
-1. Start by surfacing candidates with find_candidates.
-2. Pick the most promising candidates to investigate. You don't need to
-   analyze every candidate — focus on the ones most likely to yield strong
-   repurposing signals based on the disease names and your knowledge of
-   the drug's mechanism.
-3. For each candidate you investigate, you can run literature analysis,
-   clinical trials analysis, or both. Use your judgment:
+1. Call find_candidates and analyze_mechanism in parallel as your first step.
+2. Use find_candidates to see which diseases competitor drugs are active in.
+   Use analyze_mechanism as background context — the target-disease associations
+   and pathways tell you about the biology, not about what to investigate next.
+3. Pick 3-5 candidates to investigate in depth with literature and/or trials.
+   Use your judgment:
    - Literature first when you want to assess biological/clinical evidence
    - Clinical trials first when you want to know if the space is already crowded
    - Both for candidates that look genuinely promising
 4. You can investigate multiple candidates in parallel by batching tool calls.
-5. Stop when you have enough evidence to identify the top candidates, or
-   after investigating 3-5 candidates in depth.
+5. Stop when you have enough evidence to identify the top candidates.
 
 GROUNDING RULE: Your final summary must reference ONLY findings
 returned by the sub-agent tools in this run. You may use your domain
 knowledge to decide which candidates to investigate, but the summary
 itself must not introduce trial names, mechanisms, or facts that did
-not come back from analyze_literature or analyze_clinical_trials.
+not come back from the tools.
 
-End with 4-6 plain sentences summarizing the most promising candidates
-and your overall recommendation. No markdown."""
+End with 4-6 plain sentences summarizing the most promising candidates,
+referencing relevant mechanistic context from analyze_mechanism where it
+supports or contextualises the findings. No markdown."""
 
 
 def build_supervisor_agent(llm, svc, db):
@@ -71,6 +73,7 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     )
 
     candidates: list[str] = []
+    mechanism: MechanismOutput | None = None
     # Map disease → CandidateFindings (build incrementally as tool results come in)
     findings_by_disease: dict[str, CandidateFindings] = {}
 
@@ -88,6 +91,9 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
 
         if msg.name == "find_candidates":
             candidates = msg.artifact
+
+        elif msg.name == "analyze_mechanism":
+            mechanism = msg.artifact
 
         elif msg.name == "analyze_literature":
             args = tool_call_args.get(msg.tool_call_id, {})
@@ -119,6 +125,7 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     return SupervisorOutput(
         drug_name=drug_name,
         candidates=candidates,
+        mechanism=mechanism,
         findings=list(findings_by_disease.values()),
         summary=summary,
     )

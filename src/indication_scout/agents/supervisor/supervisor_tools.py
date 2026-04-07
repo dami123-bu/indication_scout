@@ -23,6 +23,11 @@ from indication_scout.agents.literature.literature_agent import (
     run_literature_agent,
 )
 from indication_scout.agents.literature.literature_output import LiteratureOutput
+from indication_scout.agents.mechanism.mechanism_agent import (
+    build_mechanism_agent,
+    run_mechanism_agent,
+)
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.services.retrieval import RetrievalService
 
 
@@ -40,6 +45,7 @@ def build_supervisor_tools(
     # Build sub-agents once at supervisor construction
     lit_agent = build_literature_agent(llm=llm, svc=svc, db=db)
     ct_agent = build_clinical_trials_agent(llm=llm)
+    mech_agent = build_mechanism_agent(llm=llm)
 
     @tool(response_format="content_and_artifact")
     async def find_candidates(drug_name: str) -> tuple[str, list[str]]:
@@ -93,4 +99,21 @@ def build_supervisor_tools(
         )
         return summary, output
 
-    return [find_candidates, analyze_literature, analyze_clinical_trials]
+    @tool(response_format="content_and_artifact")
+    async def analyze_mechanism(drug_name: str) -> tuple[str, MechanismOutput]:
+        """Analyse the molecular targets of a drug to provide mechanistic context.
+
+        Fetches the drug's targets, their top disease associations (with evidence
+        scores by type), and their Reactome pathways. Drug-level — call once per
+        drug, not once per candidate disease.
+        """
+        output = await run_mechanism_agent(mech_agent, drug_name)
+        n_targets = len(output.drug_targets)
+        n_diseases = sum(len(a) for a in output.associations.values())
+        summary = (
+            f"Mechanism analysis for {drug_name}: {n_targets} targets, "
+            f"{n_diseases} disease associations across targets"
+        )
+        return summary, output
+
+    return [find_candidates, analyze_mechanism, analyze_literature, analyze_clinical_trials]

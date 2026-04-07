@@ -13,45 +13,44 @@ from indication_scout.agents.mechanism.mechanism_tools import build_mechanism_to
 
 
 SYSTEM_PROMPT = """\
-You are a drug researcher surfacing repurposing opportunities for a drug.
+You are a drug researcher analysing the molecular targets of a drug to identify
+mechanistic repurposing opportunities.
 
 You have three tools:
 
-- get_drug_competitors — finds candidate diseases based on competitor drugs
-  that share the same molecular targets
-- build_drug_profile — pharmacological profile (synonyms, gene targets, mechanisms)
-- expand_search_terms — generates PubMed search queries for a drug-disease pair
+- get_drug_targets — fetches the molecular targets (gene symbol → Ensembl ID) for the drug
+- get_target_associations — fetches the top disease associations for a target, with evidence scores
+- get_target_pathways — fetches the Reactome pathways a target participates in
 
-Strategy: start by getting the drug profile and the candidate diseases.
-Then generate search terms for candidates that look most promising as
-repurposing opportunities. You don't need to generate terms for every
-candidate — focus on the ones where the drug's mechanism plausibly
-connects to the disease.
+Strategy:
+1. Call get_drug_targets first to discover the drug's targets.
+2. For each target, call get_target_associations and get_target_pathways.
+3. Use the association scores and pathway membership to reason about which
+   diseases are mechanistically plausible repurposing candidates.
 
 GROUNDING RULE: Your summary must reference ONLY information returned
 by the tools in this run. Do not introduce facts from your training.
 
-End with 3-4 plain sentences summarizing what you found. No markdown."""
+End with 3-4 plain sentences summarising the most promising mechanistic
+repurposing signals. No markdown."""
 
 
-def build_mechanism_agent(llm, svc, date_before=None):
-    """Return a compiled ReAct agent. No graph wiring required."""
-    tools = build_mechanism_tools(svc)
+def build_mechanism_agent(llm) -> object:
+    """Return a compiled ReAct agent."""
+    tools = build_mechanism_tools()
     return create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
 
 
 async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     """Invoke the agent and assemble a MechanismOutput from the run."""
     result = await agent.ainvoke(
-        {"messages": [HumanMessage(content=f"Analyze {drug_name}")]}
+        {"messages": [HumanMessage(content=f"Analyse the targets of {drug_name}")]}
     )
 
-    competitors_raw = None
-    drug_profile = None
-    search_queries: dict[str, list[str]] = {}
+    drug_targets: dict[str, str] = {}
+    associations: dict[str, list] = {}
+    pathways: dict[str, list] = {}
 
-    # Build a map from tool_call_id → tool_call args so we can recover
-    # the disease argument that was passed to each expand_search_terms call
     tool_call_args: dict[str, dict] = {}
     for msg in result["messages"]:
         if isinstance(msg, AIMessage):
@@ -61,17 +60,22 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     for msg in result["messages"]:
         if not isinstance(msg, ToolMessage):
             continue
-        if msg.name == "get_drug_competitors":
-            competitors_raw = msg.artifact
-        elif msg.name == "build_drug_profile":
-            drug_profile = msg.artifact
-        elif msg.name == "expand_search_terms":
-            args = tool_call_args.get(msg.tool_call_id, {})
-            disease = args.get("disease", "")
-            if disease:
-                search_queries[disease] = msg.artifact
 
-    # The final AIMessage with no tool calls is the narrative summary
+        if msg.name == "get_drug_targets":
+            drug_targets = msg.artifact or {}
+
+        elif msg.name == "get_target_associations":
+            args = tool_call_args.get(msg.tool_call_id, {})
+            symbol = args.get("target_symbol", "")
+            if symbol:
+                associations[symbol] = msg.artifact or []
+
+        elif msg.name == "get_target_pathways":
+            args = tool_call_args.get(msg.tool_call_id, {})
+            symbol = args.get("target_symbol", "")
+            if symbol:
+                pathways[symbol] = msg.artifact or []
+
     summary = ""
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and not msg.tool_calls:
@@ -81,14 +85,8 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
             break
 
     return MechanismOutput(
-        competitors={
-            d: list(drugs)
-            for d, drugs in (
-                competitors_raw["diseases"] if competitors_raw else {}
-            ).items()
-        },
-        drug_indications=competitors_raw["drug_indications"] if competitors_raw else [],
-        drug_profile=drug_profile,
-        search_queries=search_queries,
+        drug_targets=drug_targets,
+        associations=associations,
+        pathways=pathways,
         summary=summary,
     )

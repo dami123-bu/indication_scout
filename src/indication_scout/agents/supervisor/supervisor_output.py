@@ -6,6 +6,7 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
     ClinicalTrialsOutput,
 )
 from indication_scout.agents.literature.literature_output import LiteratureOutput
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
 
 class CandidateFindings(BaseModel):
@@ -23,6 +24,10 @@ class SupervisorOutput(BaseModel):
     candidates: list[str] = Field(
         default_factory=list,
         description="Candidate diseases surfaced for the drug.",
+    )
+    mechanism: MechanismOutput | None = Field(
+        default=None,
+        description="Molecular target analysis from the mechanism agent.",
     )
     findings: list[CandidateFindings] = Field(
         default_factory=list,
