@@ -116,3 +116,18 @@ STOP_KEYWORDS: dict[str, str] = {
 }
 
 NEGATION_PREFIXES: list[str] = ["no ", "not ", "unrelated to ", "without ", "non-"]
+
+# -- Vaccine name keywords (for landscape competitor filtering) -------------
+# Biologicals whose names match any of these substrings are classified as
+# vaccines and excluded from the competitive landscape — they are not
+# mechanism competitors for small-molecule or biologic drugs.
+VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "vaccine",
+        "vax",
+        "immuniz",
+        "immunis",
+        "toxoid",
+        "vacuna",
+    }
+)
