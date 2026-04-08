@@ -9,7 +9,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from indication_scout.agents.literature.literature_agent import run_literature_agent
 from indication_scout.agents.literature.literature_output import LiteratureOutput
@@ -65,14 +65,14 @@ def _tool_msg(name: str, artifact) -> ToolMessage:
 
 
 async def test_run_literature_agent_assembles_all_fields():
-    """run_literature_agent extracts all four tool artifacts and the narrative into LiteratureOutput."""
+    """run_literature_agent extracts all tool artifacts and the narrative into LiteratureOutput."""
     messages = [
         HumanMessage(content="Analyze metformin in colorectal cancer"),
         _tool_msg("expand_search_terms", SEARCH_TERMS),
         _tool_msg("fetch_and_cache", PMIDS),
         _tool_msg("semantic_search", SEMANTIC_RESULTS),
         _tool_msg("synthesize", EVIDENCE),
-        AIMessage(content=NARRATIVE),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
@@ -101,20 +101,18 @@ async def test_run_literature_agent_assembles_all_fields():
 
 
 # ------------------------------------------------------------------
-# Summary extraction: last AIMessage without tool_calls wins
+# Summary extraction: comes from finalize_analysis artifact
 # ------------------------------------------------------------------
 
 
-async def test_run_literature_agent_picks_last_ai_message_without_tool_calls():
-    """The narrative summary is taken from the last AIMessage that has no tool_calls."""
-    first_narrative = "First summary — should be ignored."
-    final_narrative = "Final summary — this is the one."
+async def test_run_literature_agent_summary_from_finalize_analysis():
+    """The narrative summary is taken from the finalize_analysis ToolMessage artifact."""
+    final_narrative = "Final summary from finalize_analysis."
     messages = [
         HumanMessage(content="Analyze metformin in colorectal cancer"),
         _tool_msg("expand_search_terms", SEARCH_TERMS),
-        AIMessage(content=first_narrative),
         _tool_msg("fetch_and_cache", PMIDS),
-        AIMessage(content=final_narrative),
+        _tool_msg("finalize_analysis", final_narrative),
     ]
     agent = _make_agent(messages)
 
@@ -156,7 +154,7 @@ async def test_run_literature_agent_missing_tool_leaves_default(
     messages = [HumanMessage(content="Analyze metformin in colorectal cancer")]
     for name in present_tools:
         messages.append(_tool_msg(name, artifact_map[name]))
-    messages.append(AIMessage(content=NARRATIVE))
+    messages.append(_tool_msg("finalize_analysis", NARRATIVE))
 
     agent = _make_agent(messages)
     output = await run_literature_agent(agent, "metformin", "colorectal cancer")
@@ -195,13 +193,12 @@ async def test_run_literature_agent_ignores_build_drug_profile_message():
         _tool_msg("fetch_and_cache", PMIDS),
         _tool_msg("semantic_search", SEMANTIC_RESULTS),
         _tool_msg("synthesize", EVIDENCE),
-        AIMessage(content=NARRATIVE),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
     output = await run_literature_agent(agent, "metformin", "colorectal cancer")
 
-    # All other fields still populated correctly
     assert output.search_results == SEARCH_TERMS
     assert output.pmids == PMIDS
     assert len(output.semantic_search_results) == 2

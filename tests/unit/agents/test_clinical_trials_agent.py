@@ -9,7 +9,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from indication_scout.agents.clinical_trials.clinical_trials_agent import (
     run_clinical_trials_agent,
@@ -149,7 +149,7 @@ async def test_run_clinical_trials_agent_whitespace_path():
         _tool_msg("detect_whitespace", WHITESPACE),
         _tool_msg("get_terminated", TERMINATED),
         _tool_msg("get_landscape", LANDSCAPE),
-        AIMessage(content=NARRATIVE),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
@@ -220,7 +220,7 @@ async def test_run_clinical_trials_agent_active_trials_path():
         _tool_msg("detect_whitespace", active_whitespace),
         _tool_msg("search_trials", TRIALS),
         _tool_msg("get_landscape", LANDSCAPE),
-        AIMessage(content="5 trials found. ALS space is moderately active."),
+        _tool_msg("finalize_analysis", "5 trials found. ALS space is moderately active."),
     ]
     agent = _make_agent(messages)
 
@@ -261,20 +261,18 @@ async def test_run_clinical_trials_agent_active_trials_path():
 
 
 # ------------------------------------------------------------------
-# Summary extraction: last AIMessage without tool_calls wins
+# Summary extraction: comes from finalize_analysis artifact
 # ------------------------------------------------------------------
 
 
-async def test_run_clinical_trials_agent_picks_last_ai_message_without_tool_calls():
-    """The narrative summary is taken from the last AIMessage that has no tool_calls."""
-    first_narrative = "First summary — should be ignored."
-    final_narrative = "Final summary — this is the one."
+async def test_run_clinical_trials_agent_summary_from_finalize_analysis():
+    """The narrative summary is taken from the finalize_analysis ToolMessage artifact."""
+    final_narrative = "Final summary from finalize_analysis."
     messages = [
         HumanMessage(content="Analyze somedrug in huntingtons"),
         _tool_msg("detect_whitespace", WHITESPACE),
-        AIMessage(content=first_narrative),
         _tool_msg("get_landscape", LANDSCAPE),
-        AIMessage(content=final_narrative),
+        _tool_msg("finalize_analysis", final_narrative),
     ]
     agent = _make_agent(messages)
 
@@ -310,7 +308,7 @@ async def test_run_clinical_trials_agent_missing_tool_leaves_default(
     messages = [HumanMessage(content="Analyze somedrug in huntingtons")]
     for name in present_tools:
         messages.append(_tool_msg(name, artifact_map[name]))
-    messages.append(AIMessage(content=NARRATIVE))
+    messages.append(_tool_msg("finalize_analysis", NARRATIVE))
 
     agent = _make_agent(messages)
     output = await run_clinical_trials_agent(agent, "somedrug", "huntingtons")
