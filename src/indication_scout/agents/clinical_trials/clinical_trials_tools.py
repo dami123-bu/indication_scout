@@ -108,4 +108,13 @@ def build_clinical_trials_tools(
             landscape,
         )
 
-    return [detect_whitespace, search_trials, get_landscape, get_terminated]
+    @tool(response_format="content_and_artifact")
+    async def finalize_analysis(summary: str) -> tuple[str, str]:
+        """Signal that the analysis is complete.
+
+        Call this as the very last step, passing your 2-3 sentence plain-text
+        summary of the findings. This terminates the agent loop.
+        """
+        return "Analysis complete.", summary
+
+    return [detect_whitespace, search_trials, get_landscape, get_terminated, finalize_analysis]

@@ -426,7 +426,7 @@ async def test_get_terminated_returns_terminated_trial_artifact():
     assert t.sponsor == "Novo Nordisk"
     assert t.start_date == "2019-01-01"
     assert t.termination_date == "2020-06-01"
-    assert "1 terminated trials" in msg.content
+    assert "1 indication-specific terminations" in msg.content
 
 
 async def test_get_terminated_passes_date_before():
@@ -451,3 +451,26 @@ async def test_get_terminated_passes_date_before():
     mock_client.get_terminated.assert_awaited_once_with(
         "drug_x", "indication_y", date_before=cutoff, sort="EnrollmentCount:desc"
     )
+
+
+# ------------------------------------------------------------------
+# finalize_analysis
+# ------------------------------------------------------------------
+
+
+async def test_finalize_analysis_returns_summary_as_artifact():
+    """finalize_analysis returns the summary string as artifact and confirms completion in content."""
+    tools = build_clinical_trials_tools(date_before=None)
+
+    text = "No trials found for tirzepatide in Huntington disease. The landscape shows 5 competitors."
+    msg = await _get_tool(tools, "finalize_analysis").ainvoke(
+        LCToolCall(
+            name="finalize_analysis",
+            args={"summary": text},
+            id="tc_fin",
+            type="tool_call",
+        )
+    )
+
+    assert msg.artifact == text
+    assert "Analysis complete" in msg.content
