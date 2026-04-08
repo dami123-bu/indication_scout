@@ -46,17 +46,18 @@ def build_mechanism_tools() -> list:
     @tool(response_format="content_and_artifact")
     async def get_target_associations(
         target_symbol: str,
-    ) -> tuple[str, list[Association]]:
+    ) -> tuple[str, dict[str, list[Association]]]:
         """Fetch disease associations for a target, ranked by overall score.
 
-        Returns the top 20 disease associations with per-datatype evidence
-        scores (genetic_association, literature, etc.). Call get_drug_targets
-        first so the target ID is available.
+        Returns a dict keyed by target symbol mapping to the top 20 disease
+        associations with per-datatype evidence scores (genetic_association,
+        literature, etc.). Call get_drug_targets first so the target ID is
+        available.
         """
         target_ids: dict[str, str] = store.get("target_ids", {})
         target_id = target_ids.get(target_symbol)
         if not target_id:
-            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", []
+            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", {}
 
         async with OpenTargetsClient() as client:
             associations = await client.get_target_data_associations(target_id)
@@ -65,23 +66,24 @@ def build_mechanism_tools() -> list:
         return (
             f"Top {len(top)} associations for {target_symbol} by score (of {len(associations)} total); "
             f"highest: {top[0].disease_name if top else 'none'}",
-            top,
+            {target_symbol: top},
         )
 
     @tool(response_format="content_and_artifact")
     async def get_target_pathways(
         target_symbol: str,
-    ) -> tuple[str, list[Pathway]]:
+    ) -> tuple[str, dict[str, list[Pathway]]]:
         """Fetch Reactome pathways for a target.
 
-        Returns the pathways this target participates in, grouped by top-level
-        pathway term. Useful for mechanistic reasoning about disease relevance.
-        Call get_drug_targets first so the target ID is available.
+        Returns a dict keyed by target symbol mapping to the pathways this
+        target participates in, grouped by top-level pathway term. Useful for
+        mechanistic reasoning about disease relevance. Call get_drug_targets
+        first so the target ID is available.
         """
         target_ids: dict[str, str] = store.get("target_ids", {})
         target_id = target_ids.get(target_symbol)
         if not target_id:
-            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", []
+            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", {}
 
         async with OpenTargetsClient() as client:
             pathways = await client.get_target_data_pathways(target_id)
@@ -89,7 +91,16 @@ def build_mechanism_tools() -> list:
         top_level = {p.top_level_pathway for p in pathways if p.top_level_pathway}
         return (
             f"{len(pathways)} pathways for {target_symbol} across {len(top_level)} top-level terms",
-            pathways,
+            {target_symbol: pathways},
         )
 
-    return [get_drug_targets, get_target_associations, get_target_pathways]
+    @tool(response_format="content_and_artifact")
+    async def finalize_analysis(summary: str) -> tuple[str, str]:
+        """Signal that the analysis is complete.
+
+        Call this as the very last step, passing your 3-4 sentence plain-text
+        summary of the mechanistic findings. This terminates the agent loop.
+        """
+        return "Analysis complete.", summary
+
+    return [get_drug_targets, get_target_associations, get_target_pathways, finalize_analysis]

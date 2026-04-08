@@ -1,7 +1,7 @@
 """Integration tests for the mechanism agent.
 
-Hits real Anthropic, Open Targets, and ChEMBL APIs.
-Expected values verified by a live run on 2026-04-06.
+Hits real Anthropic and Open Targets APIs.
+Expected values verified by a live run on 2026-04-07.
 """
 
 import logging
@@ -13,96 +13,70 @@ from indication_scout.agents.mechanism.mechanism_agent import (
     run_mechanism_agent,
 )
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
-from indication_scout.models.model_drug_profile import DrugProfile
-from indication_scout.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# Metformin + colorectal cancer
+# Metformin
 #
-# Expected values verified by a live run on 2026-04-06.
+# Expected values verified by a live run on 2026-04-07.
 # ------------------------------------------------------------------
 
-# Diseases that must appear in the competitor map (stable approved indications)
-_EXPECTED_COMPETITOR_DISEASES = {
-    "type 2 diabetes mellitus",
-    "obesity",
-    "polycystic ovary syndrome",
-    "non-alcoholic fatty liver disease",
-    "cardiovascular disease",
-    "colorectal cancer",
+# Targets that must appear in drug_targets (stable complex I / GPD2 targets)
+_EXPECTED_TARGET_SYMBOLS = {"NDUFS2", "NDUFS1", "NDUFV1", "MT-ND1", "GPD2"}
+
+# Symbols for which associations must be fetched
+_EXPECTED_ASSOCIATION_SYMBOLS = {"NDUFS2", "NDUFS1", "NDUFV1", "MT-ND1", "GPD2"}
+
+# Top diseases expected per key target
+_EXPECTED_TOP_DISEASES = {
+    "GPD2": "type 2 diabetes mellitus",
+    "MT-ND1": "Leber hereditary optic neuropathy",
 }
 
-_EXPECTED_DRUG_INDICATIONS = {"diabetes mellitus", "type 2 diabetes mellitus"}
-
-# Drug profile fields verified by live run
-_EXPECTED_SYNONYMS_SUBSET = {"Metformin", "Metformina"}
-_EXPECTED_TARGET_GENES_SUBSET = {"MT-ND1", "NDUFV1", "NDUFS2", "GPD2"}
-_EXPECTED_MECHANISMS = {
-    "Mitochondrial complex I (NADH dehydrogenase) inhibitor",
-    "Mitochondrial glycerol-3-phosphate dehydrogenase inhibitor",
-}
-_EXPECTED_ATC_CODES = ["A10BA02"]
-_EXPECTED_ATC_DESCRIPTIONS_SUBSET = {"Biguanides"}
-
-# Diseases for which search queries must be generated
-_EXPECTED_QUERY_DISEASES = {
-    "cancer",
-    "obesity",
-    "non-alcoholic fatty liver disease",
-    "cardiovascular disease",
-}
+# Top-level pathway terms that must appear across all targets
+_EXPECTED_TOP_LEVEL_PATHWAYS = {"Metabolism"}
 
 
-async def test_metformin_mechanism_agent(test_cache_dir):
-    """End-to-end: mechanism agent produces correct MechanismOutput for Metformin.
+async def test_metformin_mechanism_agent():
+    """End-to-end: mechanism agent produces correct MechanismOutput for metformin.
 
     Verifies:
-    - known diseases appear in competitor map
-    - drug_indications contains approved indications
-    - drug_profile has correct name, synonyms, targets, mechanisms, ATC info
-    - search_queries generated for key repurposing candidate diseases
-    - narrative summary is non-empty
+    - known complex I and GPD2 targets are in drug_targets
+    - associations are fetched per target (dict keyed by symbol)
+    - top disease associations match expected values for key targets
+    - pathways are fetched per target (dict keyed by symbol)
+    - Metabolism appears as a top-level pathway term across targets
+    - narrative summary is non-empty and mentions relevant biology
     """
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
-    svc = RetrievalService(test_cache_dir)
-    agent = build_mechanism_agent(llm, svc, date_before=None)
+    agent = build_mechanism_agent(llm)
 
-    output = await run_mechanism_agent(agent, "metformin", "colorectal cancer")
+    output = await run_mechanism_agent(agent, "metformin")
 
     assert isinstance(output, MechanismOutput)
 
-    # --- competitors ---
-    assert len(output.competitors) >= 10
-    assert _EXPECTED_COMPETITOR_DISEASES.issubset(set(output.competitors.keys()))
-    for disease, drugs in output.competitors.items():
-        assert isinstance(drugs, list)
-        assert len(drugs) >= 1
+    # --- drug_targets ---
+    assert len(output.drug_targets) >= 10
+    assert _EXPECTED_TARGET_SYMBOLS.issubset(set(output.drug_targets.keys()))
+    for symbol, ensembl_id in output.drug_targets.items():
+        assert ensembl_id.startswith("ENSG"), f"Expected Ensembl ID for {symbol}, got {ensembl_id!r}"
 
-    # --- drug_indications ---
-    assert _EXPECTED_DRUG_INDICATIONS.issubset(set(output.drug_indications))
+    # --- associations ---
+    assert len(output.associations) >= 5
+    assert _EXPECTED_ASSOCIATION_SYMBOLS.issubset(set(output.associations.keys()))
+    for symbol, assocs in output.associations.items():
+        assert len(assocs) >= 1, f"Expected associations for {symbol}"
+    for symbol, expected_disease in _EXPECTED_TOP_DISEASES.items():
+        top = output.associations[symbol][0].disease_name
+        assert top == expected_disease, f"Expected top disease for {symbol} to be {expected_disease!r}, got {top!r}"
 
-    # --- drug_profile ---
-    assert isinstance(output.drug_profile, DrugProfile)
-    assert output.drug_profile.name == "METFORMIN"
-    assert _EXPECTED_SYNONYMS_SUBSET.issubset(set(output.drug_profile.synonyms))
-    assert len(output.drug_profile.synonyms) >= 3
-    assert _EXPECTED_TARGET_GENES_SUBSET.issubset(set(output.drug_profile.target_gene_symbols))
-    assert len(output.drug_profile.target_gene_symbols) >= 20
-    assert _EXPECTED_MECHANISMS == set(output.drug_profile.mechanisms_of_action)
-    assert output.drug_profile.atc_codes == _EXPECTED_ATC_CODES
-    assert _EXPECTED_ATC_DESCRIPTIONS_SUBSET.issubset(set(output.drug_profile.atc_descriptions))
-    assert output.drug_profile.drug_type == "Small molecule"
-
-    # --- search_queries ---
-    assert _EXPECTED_QUERY_DISEASES.issubset(set(output.search_queries.keys()))
-    for disease, queries in output.search_queries.items():
-        assert len(queries) >= 5, f"Expected >=5 queries for {disease!r}, got {len(queries)}"
-        queries_lower = [q.lower() for q in queries]
-        assert any("metformin" in q or "biguanide" in q for q in queries_lower), (
-            f"No metformin/biguanide term in queries for {disease!r}"
-        )
+    # --- pathways ---
+    assert len(output.pathways) >= 5
+    all_top_level = {p.top_level_pathway for paths in output.pathways.values() for p in paths}
+    assert _EXPECTED_TOP_LEVEL_PATHWAYS.issubset(all_top_level)
 
     # --- summary ---
     assert len(output.summary) > 200
+    summary_lower = output.summary.lower()
+    assert any(kw in summary_lower for kw in ("complex i", "mitochondrial", "ampk", "gdp2", "gpd2"))

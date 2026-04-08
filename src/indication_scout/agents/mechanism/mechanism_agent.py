@@ -5,7 +5,7 @@ the run, walks the message history to pull typed artifacts off the
 ToolMessages and assembles them into a MechanismOutput.
 """
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
@@ -16,11 +16,12 @@ SYSTEM_PROMPT = """\
 You are a drug researcher analysing the molecular targets of a drug to identify
 mechanistic repurposing opportunities.
 
-You have three tools:
+You have four tools:
 
 - get_drug_targets — fetches the molecular targets (gene symbol → Ensembl ID) for the drug
 - get_target_associations — fetches the top disease associations for a target, with evidence scores
 - get_target_pathways — fetches the Reactome pathways a target participates in
+- finalize_analysis — signals completion; you MUST call this last
 
 Strategy:
 1. Call get_drug_targets first to discover the drug's targets.
@@ -28,11 +29,12 @@ Strategy:
 3. Use the association scores and pathway membership to reason about which
    diseases are mechanistically plausible repurposing candidates.
 
-GROUNDING RULE: Your summary must reference ONLY information returned
-by the tools in this run. Do not introduce facts from your training.
+IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your
+3-4 sentence plain-text summary of the mechanistic findings (no markdown).
+Do NOT emit a plain text message after calling finalize_analysis.
 
-End with 3-4 plain sentences summarising the most promising mechanistic
-repurposing signals. No markdown."""
+GROUNDING RULE: Your summary must reference ONLY information returned
+by the tools in this run. Do not introduce facts from your training."""
 
 
 def build_mechanism_agent(llm) -> object:
@@ -50,12 +52,7 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     drug_targets: dict[str, str] = {}
     associations: dict[str, list] = {}
     pathways: dict[str, list] = {}
-
-    tool_call_args: dict[str, dict] = {}
-    for msg in result["messages"]:
-        if isinstance(msg, AIMessage):
-            for tc in msg.tool_calls:
-                tool_call_args[tc["id"]] = tc["args"]
+    summary: str = ""
 
     for msg in result["messages"]:
         if not isinstance(msg, ToolMessage):
@@ -65,24 +62,13 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
             drug_targets = msg.artifact or {}
 
         elif msg.name == "get_target_associations":
-            args = tool_call_args.get(msg.tool_call_id, {})
-            symbol = args.get("target_symbol", "")
-            if symbol:
-                associations[symbol] = msg.artifact or []
+            associations.update(msg.artifact or {})
 
         elif msg.name == "get_target_pathways":
-            args = tool_call_args.get(msg.tool_call_id, {})
-            symbol = args.get("target_symbol", "")
-            if symbol:
-                pathways[symbol] = msg.artifact or []
+            pathways.update(msg.artifact or {})
 
-    summary = ""
-    for msg in reversed(result["messages"]):
-        if isinstance(msg, AIMessage) and not msg.tool_calls:
-            summary = (
-                msg.content if isinstance(msg.content, str) else str(msg.content)
-            )
-            break
+        elif msg.name == "finalize_analysis":
+            summary = msg.artifact or ""
 
     return MechanismOutput(
         drug_targets=drug_targets,

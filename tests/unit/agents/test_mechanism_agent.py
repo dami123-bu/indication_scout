@@ -2,7 +2,7 @@
 
 The agent itself (create_react_agent) is not invoked — we mock agent.ainvoke
 to return a fixed message history and verify that run_mechanism_agent correctly
-extracts artifacts and the narrative summary into a MechanismOutput.
+extracts artifacts into a MechanismOutput.
 """
 
 import logging
@@ -13,7 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from indication_scout.agents.mechanism.mechanism_agent import run_mechanism_agent
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
-from indication_scout.models.model_drug_profile import DrugProfile
+from indication_scout.models.model_open_targets import Association, Pathway
 
 logger = logging.getLogger(__name__)
 
@@ -21,32 +21,27 @@ logger = logging.getLogger(__name__)
 # Shared test data
 # ------------------------------------------------------------------
 
-COMPETITORS_RAW = {
-    "diseases": {
-        "type 2 diabetes": ["glipizide", "glyburide"],
-        "obesity": ["orlistat"],
-    },
-    "drug_indications": ["type 2 diabetes mellitus"],
-}
+TARGET_MAP = {"PRKAA1": "ENSG00000132356", "PRKAA2": "ENSG00000162409"}
 
-DRUG_PROFILE = DrugProfile(
-    name="metformin",
-    synonyms=["Glucophage", "dimethylbiguanide"],
-    target_gene_symbols=["PRKAA1", "PRKAA2"],
-    mechanisms_of_action=["AMP-activated protein kinase activator"],
-    atc_codes=["A10BA02"],
-    atc_descriptions=["Biguanides", "Metformin"],
-    drug_type="Small molecule",
-)
+ASSOCIATIONS_PRKAA1 = [
+    Association(
+        disease_id="EFO_0000400",
+        disease_name="type 2 diabetes mellitus",
+        overall_score=0.85,
+        datatype_scores={"genetic_association": 0.9, "literature": 0.7},
+        therapeutic_areas=["metabolism"],
+    )
+]
 
-SEARCH_QUERIES = {
-    "colorectal cancer": [
-        "metformin colorectal cancer AMPK",
-        "metformin colon neoplasm randomized",
-    ],
-}
+PATHWAYS_PRKAA1 = [
+    Pathway(
+        pathway_id="R-HSA-9612973",
+        pathway_name="AMPK inhibits chREBP transcriptional activation activity",
+        top_level_pathway="Metabolism",
+    )
+]
 
-NARRATIVE = "Metformin shares targets with competitors in diabetes and obesity. AMPK activation may be relevant to colorectal cancer repurposing."
+NARRATIVE = "PRKAA1 shows strong genetic association with type 2 diabetes. AMPK pathway membership supports metabolic repurposing candidates."
 
 
 def _make_agent(messages: list) -> MagicMock:
@@ -64,84 +59,76 @@ def _tool_msg(name: str, artifact, tool_call_id: str | None = None) -> ToolMessa
     )
 
 
-def _ai_msg_with_tool_call(tool_call_id: str, tool_name: str, args: dict) -> AIMessage:
-    msg = AIMessage(content="")
-    msg.tool_calls = [{"id": tool_call_id, "name": tool_name, "args": args}]
-    return msg
-
-
 # ------------------------------------------------------------------
 # Full happy path
 # ------------------------------------------------------------------
 
 
 async def test_run_mechanism_agent_assembles_all_fields():
-    """run_mechanism_agent extracts all tool artifacts and narrative into MechanismOutput."""
-    expand_call_id = "id_expand_colorectal"
+    """run_mechanism_agent extracts all tool artifacts into MechanismOutput."""
     messages = [
-        HumanMessage(content="Analyze metformin"),
-        _tool_msg("get_drug_competitors", COMPETITORS_RAW),
-        _tool_msg("build_drug_profile", DRUG_PROFILE),
-        _ai_msg_with_tool_call(
-            expand_call_id,
-            "expand_search_terms",
-            {"drug_name": "metformin", "disease": "colorectal cancer"},
-        ),
-        _tool_msg(
-            "expand_search_terms",
-            SEARCH_QUERIES["colorectal cancer"],
-            tool_call_id=expand_call_id,
-        ),
-        AIMessage(content=NARRATIVE),
+        HumanMessage(content="Analyse the targets of metformin"),
+        _tool_msg("get_drug_targets", TARGET_MAP),
+        _tool_msg("get_target_associations", {"PRKAA1": ASSOCIATIONS_PRKAA1}),
+        _tool_msg("get_target_pathways", {"PRKAA1": PATHWAYS_PRKAA1}),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
     output = await run_mechanism_agent(agent, "metformin")
 
     assert isinstance(output, MechanismOutput)
-    assert output.competitors == {
-        "type 2 diabetes": ["glipizide", "glyburide"],
-        "obesity": ["orlistat"],
-    }
-    assert output.drug_indications == ["type 2 diabetes mellitus"]
-    assert isinstance(output.drug_profile, DrugProfile)
-    assert output.drug_profile.name == "metformin"
-    assert output.drug_profile.synonyms == ["Glucophage", "dimethylbiguanide"]
-    assert output.drug_profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
-    assert output.drug_profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
-    assert output.drug_profile.atc_codes == ["A10BA02"]
-    assert output.drug_profile.atc_descriptions == ["Biguanides", "Metformin"]
-    assert output.drug_profile.drug_type == "Small molecule"
-    assert output.search_queries == {
-        "colorectal cancer": [
-            "metformin colorectal cancer AMPK",
-            "metformin colon neoplasm randomized",
-        ]
-    }
+    assert output.drug_targets == TARGET_MAP
+    assert output.associations == {"PRKAA1": ASSOCIATIONS_PRKAA1}
+    assert output.pathways == {"PRKAA1": PATHWAYS_PRKAA1}
     assert output.summary == NARRATIVE
 
 
 # ------------------------------------------------------------------
-# Summary extraction: last AIMessage without tool_calls wins
+# Multiple targets accumulate correctly
 # ------------------------------------------------------------------
 
 
-async def test_run_mechanism_agent_picks_last_ai_message_without_tool_calls():
-    """The narrative summary is taken from the last AIMessage that has no tool_calls."""
-    first_narrative = "First draft summary — should be ignored."
-    final_narrative = "Final summary — this is the one."
+async def test_run_mechanism_agent_multiple_targets_accumulate():
+    """associations and pathways from multiple per-target calls are merged."""
+    associations_prkaa2 = [
+        Association(
+            disease_id="EFO_0000270",
+            disease_name="asthma",
+            overall_score=0.4,
+            datatype_scores={"literature": 0.4},
+            therapeutic_areas=["respiratory"],
+        )
+    ]
+    pathways_prkaa2 = [
+        Pathway(
+            pathway_id="R-HSA-380972",
+            pathway_name="Energy dependent regulation of mTOR",
+            top_level_pathway="Signal Transduction",
+        )
+    ]
+
     messages = [
-        HumanMessage(content="Analyze metformin"),
-        _tool_msg("get_drug_competitors", COMPETITORS_RAW),
-        AIMessage(content=first_narrative),
-        _tool_msg("build_drug_profile", DRUG_PROFILE),
-        AIMessage(content=final_narrative),
+        HumanMessage(content="Analyse the targets of metformin"),
+        _tool_msg("get_drug_targets", TARGET_MAP),
+        _tool_msg("get_target_associations", {"PRKAA1": ASSOCIATIONS_PRKAA1}),
+        _tool_msg("get_target_associations", {"PRKAA2": associations_prkaa2}),
+        _tool_msg("get_target_pathways", {"PRKAA1": PATHWAYS_PRKAA1}),
+        _tool_msg("get_target_pathways", {"PRKAA2": pathways_prkaa2}),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
     output = await run_mechanism_agent(agent, "metformin")
 
-    assert output.summary == final_narrative
+    assert output.associations == {
+        "PRKAA1": ASSOCIATIONS_PRKAA1,
+        "PRKAA2": associations_prkaa2,
+    }
+    assert output.pathways == {
+        "PRKAA1": PATHWAYS_PRKAA1,
+        "PRKAA2": pathways_prkaa2,
+    }
 
 
 # ------------------------------------------------------------------
@@ -150,84 +137,50 @@ async def test_run_mechanism_agent_picks_last_ai_message_without_tool_calls():
 
 
 @pytest.mark.parametrize(
-    "omit_tool,missing_field,default_value",
+    "omit_tool,field,default",
     [
-        ("get_drug_competitors", "competitors", {}),
-        ("get_drug_competitors", "drug_indications", []),
-        ("build_drug_profile", "drug_profile", None),
-        ("expand_search_terms", "search_queries", {}),
+        ("get_drug_targets", "drug_targets", {}),
+        ("get_target_associations", "associations", {}),
+        ("get_target_pathways", "pathways", {}),
+        ("finalize_analysis", "summary", ""),
     ],
 )
-async def test_run_mechanism_agent_missing_tool_leaves_default(
-    omit_tool, missing_field, default_value
-):
+async def test_run_mechanism_agent_missing_tool_leaves_default(omit_tool, field, default):
     """When a tool's ToolMessage is absent, the corresponding output field stays at its default."""
-    expand_call_id = "id_expand_colorectal"
     all_messages = [
-        HumanMessage(content="Analyze metformin"),
-        _tool_msg("get_drug_competitors", COMPETITORS_RAW),
-        _tool_msg("build_drug_profile", DRUG_PROFILE),
-        _ai_msg_with_tool_call(
-            expand_call_id,
-            "expand_search_terms",
-            {"drug_name": "metformin", "disease": "colorectal cancer"},
-        ),
-        _tool_msg(
-            "expand_search_terms",
-            SEARCH_QUERIES["colorectal cancer"],
-            tool_call_id=expand_call_id,
-        ),
-        AIMessage(content=NARRATIVE),
+        HumanMessage(content="Analyse the targets of metformin"),
+        _tool_msg("get_drug_targets", TARGET_MAP),
+        _tool_msg("get_target_associations", {"PRKAA1": ASSOCIATIONS_PRKAA1}),
+        _tool_msg("get_target_pathways", {"PRKAA1": PATHWAYS_PRKAA1}),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     messages = [m for m in all_messages if not (isinstance(m, ToolMessage) and m.name == omit_tool)]
-    # Also remove the AIMessage with tool_calls for expand_search_terms when omitting it
-    if omit_tool == "expand_search_terms":
-        messages = [
-            m for m in messages
-            if not (isinstance(m, AIMessage) and getattr(m, "tool_calls", []))
-        ]
-
     agent = _make_agent(messages)
+
     output = await run_mechanism_agent(agent, "metformin")
 
-    assert getattr(output, missing_field) == default_value
+    assert getattr(output, field) == default
 
 
 # ------------------------------------------------------------------
-# Multiple expand_search_terms calls (one per disease)
+# Non-ToolMessages are ignored
 # ------------------------------------------------------------------
 
 
-async def test_run_mechanism_agent_multiple_expand_calls():
-    """search_queries accumulates results from multiple expand_search_terms calls."""
-    id_diabetes = "id_expand_diabetes"
-    id_obesity = "id_expand_obesity"
-    queries_diabetes = ["metformin type 2 diabetes AMPK", "biguanide insulin resistance"]
-    queries_obesity = ["metformin obesity adipose AMPK", "metformin weight loss RCT"]
-
+async def test_run_mechanism_agent_ignores_non_tool_messages():
+    """AIMessages and HumanMessages in the history do not affect output assembly."""
     messages = [
-        HumanMessage(content="Analyze metformin"),
-        _tool_msg("get_drug_competitors", COMPETITORS_RAW),
-        _tool_msg("build_drug_profile", DRUG_PROFILE),
-        _ai_msg_with_tool_call(
-            id_diabetes,
-            "expand_search_terms",
-            {"drug_name": "metformin", "disease": "type 2 diabetes"},
-        ),
-        _tool_msg("expand_search_terms", queries_diabetes, tool_call_id=id_diabetes),
-        _ai_msg_with_tool_call(
-            id_obesity,
-            "expand_search_terms",
-            {"drug_name": "metformin", "disease": "obesity"},
-        ),
-        _tool_msg("expand_search_terms", queries_obesity, tool_call_id=id_obesity),
-        AIMessage(content=NARRATIVE),
+        HumanMessage(content="Analyse the targets of metformin"),
+        AIMessage(content="I will start by fetching the targets."),
+        _tool_msg("get_drug_targets", TARGET_MAP),
+        AIMessage(content="Now fetching associations."),
+        _tool_msg("get_target_associations", {"PRKAA1": ASSOCIATIONS_PRKAA1}),
+        _tool_msg("get_target_pathways", {"PRKAA1": PATHWAYS_PRKAA1}),
+        _tool_msg("finalize_analysis", NARRATIVE),
     ]
     agent = _make_agent(messages)
 
     output = await run_mechanism_agent(agent, "metformin")
 
-    assert output.search_queries == {
-        "type 2 diabetes": queries_diabetes,
-        "obesity": queries_obesity,
-    }
+    assert output.drug_targets == TARGET_MAP
+    assert output.summary == NARRATIVE
