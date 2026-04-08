@@ -309,6 +309,30 @@ async def test_semantic_search_returns_empty_when_no_pmids():
 
 
 # ------------------------------------------------------------------
+# finalize_analysis
+# ------------------------------------------------------------------
+
+
+async def test_finalize_analysis_stores_summary_and_returns_artifact():
+    """finalize_analysis returns the summary string as artifact and echoes it in content."""
+    svc = _make_svc()
+    tool_map = _build(svc)
+
+    text = "Metformin shows moderate evidence in colorectal cancer based on 2 RCTs."
+    msg = await tool_map["finalize_analysis"].ainvoke(
+        ToolCall(
+            name="finalize_analysis",
+            args={"summary": text},
+            id="tc_fin",
+            type="tool_call",
+        )
+    )
+
+    assert msg.artifact == text
+    assert "Analysis complete" in msg.content
+
+
+# ------------------------------------------------------------------
 # synthesize
 # ------------------------------------------------------------------
 

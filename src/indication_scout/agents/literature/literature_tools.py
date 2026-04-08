@@ -85,10 +85,21 @@ def build_literature_tools(
         evidence = await svc.synthesize(drug_name, disease_name, abstracts)
         return f"Evidence strength: {evidence.strength}", evidence
 
+    @tool(response_format="content_and_artifact")
+    async def finalize_analysis(summary: str) -> tuple[str, str]:
+        """Signal that the analysis is complete.
+
+        Call this as the very last step, passing your 3-4 sentence plain-text
+        summary of the findings. This terminates the agent loop.
+        """
+        store["final_summary"] = summary
+        return "Analysis complete.", summary
+
     return [
         build_drug_profile,
         expand_search_terms,
         fetch_and_cache,
         semantic_search,
         synthesize,
+        finalize_analysis,
     ]

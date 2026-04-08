@@ -5,7 +5,7 @@ the run, walks the message history to pull typed artifacts off the
 ToolMessages and assembles them into a LiteratureOutput.
 """
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from indication_scout.agents.literature.literature_output import LiteratureOutput
@@ -15,19 +15,21 @@ SYSTEM_PROMPT = """\
 You are a biomedical literature researcher investigating whether a drug
 could be repurposed for a new indication.
 
-You have five tools:
+You have six tools:
 
 - build_drug_profile — pharmacological data (synonyms, gene targets, mechanisms)
 - expand_search_terms — generates diverse PubMed keyword queries
 - fetch_and_cache — runs queries, caches abstracts in the vector store
 - semantic_search — re-ranks cached abstracts by relevance
 - synthesize — produces a structured evidence summary
+- finalize_analysis — signals completion; you MUST call this last
+
+IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your
+3-4 sentence plain-text summary of the findings (no markdown). Do NOT
+emit a plain text message after calling finalize_analysis.
 
 Tools that need prior results read them automatically — you do not pass
 PMIDs or abstracts as arguments. Batch independent calls when possible.
-
-IMPORTANT: When done, your final message must be ONLY 3-4 plain text
-sentences summarizing the findings. No markdown.
 
 GROUNDING RULE: Your summary must reference ONLY information that
 appeared in the tool results from this run. Do NOT introduce trial
@@ -70,6 +72,7 @@ async def run_literature_agent(
         "pmids": [],
         "abstracts": [],
         "evidence": None,
+        "summary": None,
     }
     # maps tool names → keys in the local artifacts dict , used for mapping to LiteratureOutput
     field_map = {
@@ -77,18 +80,14 @@ async def run_literature_agent(
         "fetch_and_cache": "pmids",
         "semantic_search": "abstracts",
         "synthesize": "evidence",
+        "finalize_analysis": "summary",
     }
 
     for msg in result["messages"]:
         if isinstance(msg, ToolMessage) and msg.name in field_map:
             artifacts[field_map[msg.name]] = msg.artifact
 
-    # The final AIMessage with no tool calls is the narrative summary
-    summary = ""
-    for msg in reversed(result["messages"]):
-        if isinstance(msg, AIMessage) and not msg.tool_calls:
-            summary = msg.content if isinstance(msg.content, str) else str(msg.content)
-            break
+    summary = artifacts.get("summary") or ""
 
     return LiteratureOutput(
         search_results=artifacts["queries"],
