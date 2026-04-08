@@ -1,6 +1,6 @@
 """Supervisor agent.
 
-Top-level agent that orchestrates the literature and clinical trials
+Top-level agent that orchestrates the literature, clinical trials, and mechanism
 sub-agents. Given a drug, it surfaces candidate diseases, decides which
 to investigate, and delegates to the right sub-agent for each candidate.
 

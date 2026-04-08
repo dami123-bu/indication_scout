@@ -111,10 +111,10 @@ def build_supervisor_tools(
         """
         output = await run_mechanism_agent(mech_agent, drug_name)
         n_targets = len(output.drug_targets)
-        n_diseases = sum(len(a) for a in output.associations.values())
+        n_top = sum(len(a) for a in output.associations.values())
         summary = (
             f"Mechanism analysis for {drug_name}: {n_targets} targets, "
-            f"{n_diseases} disease associations across targets"
+            f"top {n_top} disease associations shown (capped per target)"
         )
         return summary, output
 
