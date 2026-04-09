@@ -319,10 +319,9 @@ async def test_get_terminated(clinical_trials_client):
 
     assert len(trials) >= 1
 
-    # NCT02499705 — safety termination from overweight indication query
-    # "2 out of 3 participants had clinically elevated fasting insulin"
-    [safety_trial] = [t for t in trials if t.nct_id == "NCT02499705"]
-    assert safety_trial.stop_category == "safety"
+
+    [business_trial] = [t for t in trials if t.nct_id == "NCT00394212"]
+    assert business_trial.stop_category == "business"
 
 
 async def test_detect_whitespace(clinical_trials_client):
