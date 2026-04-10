@@ -25,7 +25,7 @@ You have six tools:
 - finalize_analysis — signals completion; you MUST call this last
 
 IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your
-3-4 sentence plain-text summary of the findings (no markdown). Do NOT
+3-4 sentence plain-text summary of the findings. Do NOT
 emit a plain text message after calling finalize_analysis.
 
 Tools that need prior results read them automatically — you do not pass

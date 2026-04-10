@@ -38,8 +38,19 @@ reveal safety or efficacy failures, that's enough — you can skip landscape.
 Batch independent tool calls into a single response when possible.
 
 IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your
-2-3 sentence plain-text summary of the findings (no markdown). Do NOT
+2-3 sentence plain-text summary of the findings. Do NOT
 emit a plain text message after calling finalize_analysis.
+
+COMPETITIVE INTENSITY RULES — apply these when summarising the landscape:
+- Any Phase 3 trial with >500 enrolled participants from a named pharma/biotech
+  sponsor signals a HIGH-INVESTMENT, CROWDED space — do not describe it as early
+  or uncrowded regardless of total trial count.
+- A completed Phase 3 trial means the space has reached late-stage validation;
+  flag this explicitly.
+- "Few trials" (e.g. 6) does not mean "uncrowded" if those trials are large Phase 3
+  programmes. Distinguish trial count from investment scale.
+- When reporting competitive intensity, cite the highest-phase trials, their
+  enrollment, and their status — not just the total count.
 
 GROUNDING RULE: Your summary must reference ONLY information returned
 by the tools in this run. Do not introduce trial names, drug histories,

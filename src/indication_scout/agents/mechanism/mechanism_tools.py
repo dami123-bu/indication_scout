@@ -7,40 +7,45 @@ No InjectedState, no LangGraph state machinery.
 
 from langchain_core.tools import tool
 
+from indication_scout.constants import MECHANISM_ASSOCIATIONS_CAP, MECHANISM_SIGNAL_KEYS, MECHANISM_SIGNAL_THRESHOLD
 from indication_scout.data_sources.open_targets import OpenTargetsClient
-from indication_scout.models.model_open_targets import Association, Pathway
+from indication_scout.models.model_open_targets import Association, MechanismOfAction
 
 
 def build_mechanism_tools() -> list:
     """Build tools that share data via a closure-scoped store dict.
 
-    get_drug_targets must be called first — it populates the store with the
-    symbol→target_id map that get_target_associations and get_target_pathways
-    use to resolve target symbols.
+    get_drug must be called first — it populates the store with the
+    symbol→target_id map that get_target_associations uses to resolve
+    target symbols.
     """
 
     store: dict = {}
 
     @tool(response_format="content_and_artifact")
-    async def get_drug_targets(drug_name: str) -> tuple[str, dict[str, str]]:
-        """Fetch the molecular targets for a drug.
+    async def get_drug(drug_name: str) -> tuple[str, list[MechanismOfAction]]:
+        """Fetch drug data including mechanisms of action.
 
-        Returns a mapping of gene symbol to Ensembl target ID
-        (e.g. {"GLP1R": "ENSG00000112164"}). Call this first — subsequent
-        tools resolve target symbols using this result.
+        Returns the list of MechanismOfAction entries for the drug — each entry
+        has an action_type (e.g. INHIBITOR, AGONIST), a mechanism string, and
+        the targets it applies to. Also populates the internal target map so
+        subsequent tools can resolve target symbols. Call this first.
         """
         async with OpenTargetsClient() as client:
             drug = await client.get_drug(drug_name)
 
-        target_map = {
+        store["target_ids"] = {
             t.target_symbol: t.target_id
             for t in drug.targets
             if t.target_symbol and t.target_id
         }
-        store["target_ids"] = target_map
+        moas = drug.mechanisms_of_action
+        summary = ", ".join(
+            f"{m.action_type} ({m.mechanism_of_action})" for m in moas
+        ) or "none"
         return (
-            f"Found {len(target_map)} targets for {drug_name}: {', '.join(target_map)}",
-            target_map,
+            f"Found {len(moas)} mechanism(s) for {drug_name}: {summary}",
+            moas,
         )
 
     @tool(response_format="content_and_artifact")
@@ -49,49 +54,41 @@ def build_mechanism_tools() -> list:
     ) -> tuple[str, dict[str, list[Association]]]:
         """Fetch disease associations for a target, ranked by overall score.
 
-        Returns a dict keyed by target symbol mapping to the top 20 disease
-        associations with per-datatype evidence scores (genetic_association,
-        literature, etc.). Call get_drug_targets first so the target ID is
-        available.
+        Returns a dict keyed by target symbol mapping to the top disease
+        associations (capped, signal-filtered) with per-datatype evidence
+        scores (genetic_association, literature, etc.).
+        Call get_drug first so the target ID is available.
         """
         target_ids: dict[str, str] = store.get("target_ids", {})
         target_id = target_ids.get(target_symbol)
         if not target_id:
-            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", {}
+            return f"Target '{target_symbol}' not found in store — call get_drug first", {}
 
         async with OpenTargetsClient() as client:
             associations = await client.get_target_data_associations(target_id)
 
-        top = sorted(associations, key=lambda a: a.overall_score or 0, reverse=True)[:20]
-        return (
-            f"Top {len(top)} associations for {target_symbol} by score (of {len(associations)} total); "
-            f"highest: {top[0].disease_name if top else 'none'}",
-            {target_symbol: top},
+        filtered = [
+            a for a in associations
+            if any(
+                a.datatype_scores.get(k, 0) >= MECHANISM_SIGNAL_THRESHOLD
+                for k in MECHANISM_SIGNAL_KEYS
+            )
+        ]
+        top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[:MECHANISM_ASSOCIATIONS_CAP]
+
+        # Index by disease_id so record_shaped_associations can validate references
+        fetched = store.setdefault("fetched_associations", {})
+        for a in top:
+            fetched[a.disease_id] = a
+
+        rows = "\n".join(
+            f"  {a.disease_id} | {a.disease_name} | overall={a.overall_score:.3f} | {a.datatype_scores}"
+            for a in top
         )
-
-    @tool(response_format="content_and_artifact")
-    async def get_target_pathways(
-        target_symbol: str,
-    ) -> tuple[str, dict[str, list[Pathway]]]:
-        """Fetch Reactome pathways for a target.
-
-        Returns a dict keyed by target symbol mapping to the pathways this
-        target participates in, grouped by top-level pathway term. Useful for
-        mechanistic reasoning about disease relevance. Call get_drug_targets
-        first so the target ID is available.
-        """
-        target_ids: dict[str, str] = store.get("target_ids", {})
-        target_id = target_ids.get(target_symbol)
-        if not target_id:
-            return f"Target '{target_symbol}' not found in store — call get_drug_targets first", {}
-
-        async with OpenTargetsClient() as client:
-            pathways = await client.get_target_data_pathways(target_id)
-
-        top_level = {p.top_level_pathway for p in pathways if p.top_level_pathway}
         return (
-            f"{len(pathways)} pathways for {target_symbol} across {len(top_level)} top-level terms",
-            {target_symbol: pathways},
+            f"{len(top)} signal-filtered associations for {target_symbol} "
+            f"(of {len(associations)} total):\n{rows}",
+            {target_symbol: top},
         )
 
     @tool(response_format="content_and_artifact")
@@ -103,4 +100,4 @@ def build_mechanism_tools() -> list:
         """
         return "Analysis complete.", summary
 
-    return [get_drug_targets, get_target_associations, get_target_pathways, finalize_analysis]
+    return [get_drug, get_target_associations, finalize_analysis]

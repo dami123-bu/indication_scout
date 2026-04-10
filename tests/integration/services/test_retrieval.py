@@ -473,7 +473,7 @@ async def test_empareg_in_results(svc, db_session_truncating):
     top_15 = await svc.semantic_search(
         "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=15
     )
-    result_pmids = [r["pmid"] for r in top_15]
+    result_pmids = [r.pmid for r in top_15]
     assert "38587237" in result_pmids  # EMPACT-MI
 
 
@@ -492,7 +492,7 @@ async def test_recovery_in_results(svc, db_session_truncating):
         db_session_truncating,
         top_k=5,
     )
-    result_pmids = [r["pmid"] for r in top_5]
+    result_pmids = [r.pmid for r in top_5]
     assert "37865101" in result_pmids  # RECOVERY trial
 
 
@@ -509,10 +509,10 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
 
     assert len(results) == 5
     # All results should have reasonable similarity
-    assert all(r["similarity"] > 0.5 for r in results)
+    assert all(r.similarity > 0.5 for r in results)
     # At least one title should mention empagliflozin or SGLT2
     assert any(
-        "empagliflozin" in r["title"].lower() or "sglt2" in r["title"].lower()
+        "empagliflozin" in r.title.lower() or "sglt2" in r.title.lower()
         for r in results
     )
 
@@ -530,10 +530,10 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
 
     assert len(results) == 5
     # All results should have reasonable similarity
-    assert all(r["similarity"] > 0.5 for r in results)
+    assert all(r.similarity > 0.5 for r in results)
     # At least one title should mention empagliflozin or SGLT2
     assert any(
-        "empagliflozin" in r["title"].lower() or "sglt2" in r["title"].lower()
+        "empagliflozin" in r.title.lower() or "sglt2" in r.title.lower()
         for r in results
     )
 
@@ -548,10 +548,10 @@ async def test_semantic_search_sema_nash(svc, db_session_truncating):
     )
 
     assert len(results) == 5
-    assert all("pmid" in r for r in results)
-    assert all("similarity" in r for r in results)
+    assert all(hasattr(r, "pmid") for r in results)
+    assert all(hasattr(r, "similarity") for r in results)
     # Sorted descending by similarity
-    similarities = [r["similarity"] for r in results]
+    similarities = [r.similarity for r in results]
     assert similarities == sorted(similarities, reverse=True)
 
 

@@ -24,13 +24,14 @@ SYSTEM_PROMPT = """\
 You are a drug repurposing analyst. Given a drug, your job is to find
 the most promising new indications and assess them.
 
-You have four tools:
+You have five tools:
 
 - find_candidates — surfaces candidate diseases for the drug from Open Targets
 - analyze_mechanism — fetches the drug's molecular targets, their disease
   associations, and Reactome pathways; drug-level, call once per drug
 - analyze_literature — runs a full literature analysis for a drug-disease pair
 - analyze_clinical_trials — runs a full clinical trials analysis for a pair
+- finalize_supervisor — signals completion; you MUST call this last
 
 Strategy:
 1. Call find_candidates and analyze_mechanism in parallel as your first step.
@@ -51,9 +52,11 @@ knowledge to decide which candidates to investigate, but the summary
 itself must not introduce trial names, mechanisms, or facts that did
 not come back from the tools.
 
-End with 4-6 plain sentences summarizing the most promising candidates,
+IMPORTANT: finalize_supervisor MUST be the final tool call. Pass it your
+4-6 sentence plain-text summary of the most promising candidates,
 referencing relevant mechanistic context from analyze_mechanism where it
-supports or contextualises the findings. No markdown."""
+supports or contextualises the findings. Do NOT emit a plain
+text message after calling finalize_supervisor."""
 
 
 def build_supervisor_agent(llm, svc, db):
@@ -74,6 +77,7 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
 
     candidates: list[str] = []
     mechanism: MechanismOutput | None = None
+    summary: str = ""
     # Map disease → CandidateFindings (build incrementally as tool results come in)
     findings_by_disease: dict[str, CandidateFindings] = {}
 
@@ -113,14 +117,8 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
                 )
                 findings.clinical_trials = msg.artifact
 
-    # Final AIMessage with no tool calls is the supervisor's narrative summary
-    summary = ""
-    for msg in reversed(result["messages"]):
-        if isinstance(msg, AIMessage) and not msg.tool_calls:
-            summary = (
-                msg.content if isinstance(msg.content, str) else str(msg.content)
-            )
-            break
+        elif msg.name == "finalize_supervisor":
+            summary = msg.artifact or ""
 
     return SupervisorOutput(
         drug_name=drug_name,

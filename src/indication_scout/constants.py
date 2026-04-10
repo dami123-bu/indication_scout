@@ -131,3 +131,7 @@ VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
         "vacuna",
     }
 )
+
+MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset({"genetic_association", "literature", "affected_pathway"})
+MECHANISM_SIGNAL_THRESHOLD: float = 0.4
+MECHANISM_ASSOCIATIONS_CAP: int = 10

@@ -14,7 +14,6 @@ from indication_scout.agents.mechanism.mechanism_agent import (
 )
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
-logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
 # Metformin
@@ -52,7 +51,7 @@ async def test_metformin_mechanism_agent():
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
     agent = build_mechanism_agent(llm)
 
-    output = await run_mechanism_agent(agent, "metformin")
+    output = await run_mechanism_agent(agent, "imatinib")
 
     assert isinstance(output, MechanismOutput)
 
