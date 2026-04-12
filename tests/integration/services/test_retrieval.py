@@ -471,7 +471,7 @@ async def test_empareg_in_results(svc, db_session_truncating):
         ["empagliflozin AND myocardial infarction"], db_session_truncating
     )
     top_15 = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=15
+        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
     )
     result_pmids = [r.pmid for r in top_15]
     assert "38587237" in result_pmids  # EMPACT-MI
@@ -490,7 +490,6 @@ async def test_recovery_in_results(svc, db_session_truncating):
         "empagliflozin",
         pmids,
         db_session_truncating,
-        top_k=5,
     )
     result_pmids = [r.pmid for r in top_5]
     assert "37865101" in result_pmids  # RECOVERY trial
@@ -504,7 +503,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
     ]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     results = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=5
+        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
     )
 
     assert len(results) == 5
@@ -525,7 +524,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
     ]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     results = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating, top_k=5
+        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
     )
 
     assert len(results) == 5
@@ -544,7 +543,7 @@ async def test_semantic_search_sema_nash(svc, db_session_truncating):
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
 
     results = await svc.semantic_search(
-        "NASH", "semaglutide", pmids, db_session_truncating, top_k=5
+        "NASH", "semaglutide", pmids, db_session_truncating
     )
 
     assert len(results) == 5

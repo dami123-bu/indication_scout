@@ -11,7 +11,7 @@ from indication_scout.models.model_clinical_trials import (
 
 
 def build_clinical_trials_tools(
-    date_before: date | None = None, max_search_results: int = 50
+    date_before: date | None = None,
 ) -> list:
 
     @tool(response_format="content_and_artifact")
@@ -63,7 +63,6 @@ def build_clinical_trials_tools(
                 drug,
                 indication,
                 date_before=date_before,
-                max_results=max_search_results,
                 sort="EnrollmentCount:desc",
             )
 

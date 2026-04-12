@@ -7,9 +7,12 @@ No InjectedState, no LangGraph state machinery.
 
 from langchain_core.tools import tool
 
-from indication_scout.constants import MECHANISM_ASSOCIATIONS_CAP, MECHANISM_SIGNAL_KEYS, MECHANISM_SIGNAL_THRESHOLD
+from indication_scout.config import get_settings
+from indication_scout.constants import MECHANISM_SIGNAL_KEYS
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import Association, MechanismOfAction
+
+_settings = get_settings()
 
 
 def build_mechanism_tools() -> list:
@@ -70,11 +73,11 @@ def build_mechanism_tools() -> list:
         filtered = [
             a for a in associations
             if any(
-                a.datatype_scores.get(k, 0) >= MECHANISM_SIGNAL_THRESHOLD
+                a.datatype_scores.get(k, 0) >= _settings.mechanism_signal_threshold
                 for k in MECHANISM_SIGNAL_KEYS
             )
         ]
-        top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[:MECHANISM_ASSOCIATIONS_CAP]
+        top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[:_settings.mechanism_associations_cap]
 
         # Index by disease_id so record_shaped_associations can validate references
         fetched = store.setdefault("fetched_associations", {})

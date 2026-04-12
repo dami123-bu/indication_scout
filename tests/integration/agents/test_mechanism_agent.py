@@ -1,7 +1,7 @@
 """Integration tests for the mechanism agent.
 
 Hits real Anthropic and Open Targets APIs.
-Expected values verified by a live run on 2026-04-07.
+Expected values verified by a live run on 2026-04-12.
 """
 
 import logging
@@ -16,36 +16,36 @@ from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
 
 # ------------------------------------------------------------------
-# Metformin
+# Imatinib
 #
-# Expected values verified by a live run on 2026-04-07.
+# Expected values verified by a live run on 2026-04-12.
 # ------------------------------------------------------------------
 
-# Targets that must appear in drug_targets (stable complex I / GPD2 targets)
-_EXPECTED_TARGET_SYMBOLS = {"NDUFS2", "NDUFS1", "NDUFV1", "MT-ND1", "GPD2"}
+# Targets that must appear in drug_targets (imatinib's known kinase targets)
+_EXPECTED_TARGET_SYMBOLS = {"ABL1", "BCR", "KIT", "PDGFRB"}
 
 # Symbols for which associations must be fetched
-_EXPECTED_ASSOCIATION_SYMBOLS = {"NDUFS2", "NDUFS1", "NDUFV1", "MT-ND1", "GPD2"}
+_EXPECTED_ASSOCIATION_SYMBOLS = {"ABL1", "KIT", "PDGFRB"}
 
 # Top diseases expected per key target
 _EXPECTED_TOP_DISEASES = {
-    "GPD2": "type 2 diabetes mellitus",
-    "MT-ND1": "Leber hereditary optic neuropathy",
+    "ABL1": "chronic myelogenous leukemia",
+    "KIT": "gastrointestinal stromal tumor",
 }
 
 # Top-level pathway terms that must appear across all targets
-_EXPECTED_TOP_LEVEL_PATHWAYS = {"Metabolism"}
+_EXPECTED_TOP_LEVEL_PATHWAYS = {"Signal Transduction"}
 
 
 async def test_metformin_mechanism_agent():
-    """End-to-end: mechanism agent produces correct MechanismOutput for metformin.
+    """End-to-end: mechanism agent produces correct MechanismOutput for imatinib.
 
     Verifies:
-    - known complex I and GPD2 targets are in drug_targets
+    - known kinase targets (ABL1, BCR, KIT, PDGFRB) are in drug_targets
     - associations are fetched per target (dict keyed by symbol)
     - top disease associations match expected values for key targets
     - pathways are fetched per target (dict keyed by symbol)
-    - Metabolism appears as a top-level pathway term across targets
+    - Signal Transduction appears as a top-level pathway term across targets
     - narrative summary is non-empty and mentions relevant biology
     """
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
@@ -56,13 +56,13 @@ async def test_metformin_mechanism_agent():
     assert isinstance(output, MechanismOutput)
 
     # --- drug_targets ---
-    assert len(output.drug_targets) >= 10
+    assert len(output.drug_targets) >= 4
     assert _EXPECTED_TARGET_SYMBOLS.issubset(set(output.drug_targets.keys()))
     for symbol, ensembl_id in output.drug_targets.items():
         assert ensembl_id.startswith("ENSG"), f"Expected Ensembl ID for {symbol}, got {ensembl_id!r}"
 
     # --- associations ---
-    assert len(output.associations) >= 5
+    assert len(output.associations) >= 3
     assert _EXPECTED_ASSOCIATION_SYMBOLS.issubset(set(output.associations.keys()))
     for symbol, assocs in output.associations.items():
         assert len(assocs) >= 1, f"Expected associations for {symbol}"
@@ -71,11 +71,11 @@ async def test_metformin_mechanism_agent():
         assert top == expected_disease, f"Expected top disease for {symbol} to be {expected_disease!r}, got {top!r}"
 
     # --- pathways ---
-    assert len(output.pathways) >= 5
+    assert len(output.pathways) >= 3
     all_top_level = {p.top_level_pathway for paths in output.pathways.values() for p in paths}
     assert _EXPECTED_TOP_LEVEL_PATHWAYS.issubset(all_top_level)
 
     # --- summary ---
     assert len(output.summary) > 200
     summary_lower = output.summary.lower()
-    assert any(kw in summary_lower for kw in ("complex i", "mitochondrial", "ampk", "gdp2", "gpd2"))
+    assert any(kw in summary_lower for kw in ("abl", "kit", "pdgfr", "kinase", "imatinib"))

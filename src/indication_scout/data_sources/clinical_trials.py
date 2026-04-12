@@ -15,20 +15,18 @@ import asyncio
 from datetime import date
 from typing import Any
 
+from indication_scout.config import get_settings
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
-    CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS,
     CLINICAL_TRIALS_RECENT_START_YEAR,
-    CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE,
-    CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
-    CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX,
     CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
-    CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS,
     NEGATION_PREFIXES,
     STOP_KEYWORDS,
     VACCINE_NAME_KEYWORDS,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+
+_settings = get_settings()
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
     IndicationDrug,
@@ -102,7 +100,6 @@ class ClinicalTrialsClient(BaseClient):
         indication: str | None = None,
         date_before: date | None = None,
         phase_filter: str | None = None,
-        max_results: int = 200,
         sort: str | None = None,
     ) -> list[Trial]:
         """Search for trials matching drug and optional indication."""
@@ -111,7 +108,7 @@ class ClinicalTrialsClient(BaseClient):
             indication=indication,
             date_before=date_before,
             phase_filter=phase_filter,
-            max_results=max_results,
+            max_results=_settings.clinical_trials_search_max,
             sort=sort,
         )
 
@@ -143,11 +140,11 @@ class ClinicalTrialsClient(BaseClient):
         when the queried drug has no trials there.
         """
         # All three are independent — run concurrently
-        exact_task = self.search_trials(
+        exact_task = self._paginated_search(
             drug=drug,
             indication=indication,
             date_before=date_before,
-            max_results=CLINICAL_TRIALS_WHITESPACE_EXACT_MAX,
+            max_results=_settings.clinical_trials_whitespace_exact_max,
         )
         drug_count_task = self._count_trials(
             drug=drug, indication=None, date_before=date_before
@@ -167,7 +164,7 @@ class ClinicalTrialsClient(BaseClient):
             indication_trials = await self._fetch_all_indication_trials(
                 indication,
                 date_before=date_before,
-                max_results=CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX,
+                max_results=_settings.clinical_trials_whitespace_indication_max,
                 phase_filter=CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
             )
 
@@ -200,7 +197,7 @@ class ClinicalTrialsClient(BaseClient):
                     seen_drugs.add(cd.drug_name)
                     unique_candidates.append(cd)
 
-            indication_drugs = unique_candidates[:CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS]
+            indication_drugs = unique_candidates[:_settings.clinical_trials_whitespace_top_drugs]
 
         return WhitespaceResult(
             is_whitespace=len(exact_trials) == 0,
@@ -233,7 +230,7 @@ class ClinicalTrialsClient(BaseClient):
                 indication,
                 date_before=date_before,
                 phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
-                max_results=CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS,
+                max_results=_settings.clinical_trials_landscape_max_trials,
                 sort="StartDate:desc",
             ),
             self._count_trials(
@@ -252,7 +249,6 @@ class ClinicalTrialsClient(BaseClient):
         drug: str,
         indication: str,
         date_before: date | None = None,
-        max_results: int = 20,
         sort: str | None = None,
     ) -> list[TerminatedTrial]:
         """Terminated trials for a drug and indication.
@@ -262,7 +258,7 @@ class ClinicalTrialsClient(BaseClient):
             Filtered to stop_category in {safety, efficacy} only — enrollment,
             business, and unknown terminations are dropped as noise.
           - Indication query: what has failed in this indication space (any drug),
-            up to max_results.
+            capped at clinical_trials_terminated_indication_max.
         Returns the union, deduped by nct_id.
         """
         drug_params = self._build_search_params(
@@ -271,7 +267,7 @@ class ClinicalTrialsClient(BaseClient):
             status_filter="TERMINATED",
             sort=sort,
         )
-        drug_params["pageSize"] = CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE
+        drug_params["pageSize"] = _settings.clinical_trials_terminated_drug_page_size
         indication_params = self._build_search_params(
             indication=indication,
             date_before=date_before,
@@ -291,10 +287,10 @@ class ClinicalTrialsClient(BaseClient):
             t for t in drug_results if t.stop_category in {"safety", "efficacy"}
         ]
 
-        # Indication query: all terminations up to max_results
+        # Indication query: all terminations up to configured cap
         indication_results = [
             self._parse_terminated_trial(s) for s in indication_data.get("studies", [])
-        ][:max_results]
+        ][:_settings.clinical_trials_terminated_indication_max]
 
         seen: set[str] = set()
         results: list[TerminatedTrial] = []

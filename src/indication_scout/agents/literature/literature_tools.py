@@ -10,7 +10,10 @@ from datetime import date
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
+from indication_scout.config import get_settings
 from indication_scout.models.model_drug_profile import DrugProfile
+
+_settings = get_settings()
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import AbstractResult, RetrievalService
 
@@ -19,8 +22,6 @@ def build_literature_tools(
     svc: RetrievalService,
     db: Session,
     date_before: date | None = None,
-    max_search_results: int | None = None,
-    num_top_k: int = 5,
 ) -> list:
     """Build tools that share data via a closure-scoped store dict.
 
@@ -56,7 +57,7 @@ def build_literature_tools(
         if not queries:
             return "No queries — call expand_search_terms first.", []
         pmids = await svc.fetch_and_cache(
-            queries, db, date_before=date_before, max_results=max_search_results
+            queries, db, date_before=date_before
         )
         store["pmids"] = pmids
         return f"Fetched {len(pmids)} PMIDs", pmids
@@ -70,7 +71,7 @@ def build_literature_tools(
         if not pmids:
             return "No PMIDs — call fetch_and_cache first.", []
         results = await svc.semantic_search(
-            disease_name, drug_name, pmids, db, top_k=num_top_k
+            disease_name, drug_name, pmids, db
         )
         store["abstracts"] = results
         top = results[0].similarity if results else 0.0

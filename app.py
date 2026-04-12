@@ -14,6 +14,12 @@ from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
+
+# load_dotenv MUST run before any indication_scout imports, because
+# module-level code in base_client.py calls get_settings() at import time.
+load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / ".env.constants")
+
 from langchain_anthropic import ChatAnthropic
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -26,8 +32,6 @@ from indication_scout.config import get_settings
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.report.format_report import format_report
 from indication_scout.services.retrieval import RetrievalService
-
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

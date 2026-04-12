@@ -243,7 +243,7 @@ async def test_fetch_and_cache_passes_date_before():
 async def test_semantic_search_reads_pmids_from_store_and_returns_results():
     """semantic_search reads PMIDs written by fetch_and_cache and returns ranked AbstractResults."""
     svc = _make_svc()
-    tools = build_literature_tools(svc=svc, db=MagicMock(), num_top_k=5)
+    tools = build_literature_tools(svc=svc, db=MagicMock())
     tool_map = {t.name: t for t in tools}
     # Populate store
     await tool_map["expand_search_terms"].ainvoke(
@@ -275,7 +275,6 @@ async def test_semantic_search_reads_pmids_from_store_and_returns_results():
     svc.semantic_search.assert_awaited_once()
     call = svc.semantic_search.call_args
     assert call.args[2] == PMIDS
-    assert call.kwargs["top_k"] == 5
 
     assert len(msg.artifact) == 2
     assert msg.artifact[0].pmid == "111"

@@ -314,7 +314,7 @@ async def test_get_terminated(clinical_trials_client):
     Returns union deduped by nct_id.
     """
     trials = await clinical_trials_client.get_terminated(
-        "semaglutide", "overweight", max_results=30
+        "semaglutide", "overweight"
     )
 
     assert len(trials) >= 1
@@ -458,7 +458,6 @@ async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_cl
     trials = await clinical_trials_client.get_terminated(
         "xyzzy_not_a_real_term_12345",
         "xyzzy_not_a_real_indication_12345",
-        max_results=10,
     )
 
     assert trials == []
@@ -474,7 +473,7 @@ async def test_get_terminated_business_trial_excluded_from_drug_query(
     and the indication query ("type 2 diabetes") never includes an overweight trial.
     """
     trials = await clinical_trials_client.get_terminated(
-        "semaglutide", "type 2 diabetes", max_results=30
+        "semaglutide", "type 2 diabetes"
     )
 
     nct_ids = {t.nct_id for t in trials}
@@ -520,11 +519,11 @@ async def test_get_landscape_total_count_exceeds_fetch_cap(clinical_trials_clien
     CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS caps the fetch at 50 trials, but the API
     reports the true total. For type 2 diabetes, thousands of trials exist.
     """
-    from indication_scout.constants import CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS
+    from indication_scout.config import get_settings
 
     landscape = await clinical_trials_client.get_landscape("type 2 diabetes", top_n=5)
 
-    assert landscape.total_trial_count > CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS
+    assert landscape.total_trial_count > get_settings().clinical_trials_landscape_max_trials
 
 
 async def test_detect_whitespace_nonexistent_drug_is_whitespace(clinical_trials_client):

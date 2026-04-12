@@ -8,7 +8,7 @@ import pytest
 async def test_get_target_associations(open_targets_client):
     """Test get_target_associations returns filtered associations with all fields."""
     associations = await open_targets_client.get_target_data_associations(
-        "ENSG00000112164", min_score=0.1
+        "ENSG00000112164"
     )
 
     assert len(associations) > 10

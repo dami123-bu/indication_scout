@@ -223,7 +223,7 @@ async def test_search_trials_returns_trial_artifact():
         "trastuzumab",
         "breast cancer",
         date_before=None,
-        max_results=50,
+
         sort="EnrollmentCount:desc",
     )
     assert len(msg.artifact) == 1
@@ -246,11 +246,11 @@ async def test_search_trials_returns_trial_artifact():
     assert "1 trials" in msg.content
 
 
-async def test_search_trials_passes_date_before_and_max_results():
-    """search_trials forwards date_before and max_search_results from closure."""
+async def test_search_trials_passes_date_before():
+    """search_trials forwards date_before from closure and reads max from settings."""
     cutoff = date(2018, 1, 1)
     mock_client = _mock_client(search_trials=[])
-    tools = build_clinical_trials_tools(date_before=cutoff, max_search_results=30)
+    tools = build_clinical_trials_tools(date_before=cutoff)
 
     with patch(
         "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -269,7 +269,7 @@ async def test_search_trials_passes_date_before_and_max_results():
         "tofacitinib",
         "alopecia areata",
         date_before=cutoff,
-        max_results=30,
+
         sort="EnrollmentCount:desc",
     )
 

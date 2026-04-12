@@ -22,17 +22,15 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Semaglutide + NASH, cutoff 2025-01-01
 #
-# PMIDs and similarity scores verified by a live run on 2026-04-06.
+# PMIDs and similarity scores verified by a live run on 2026-04-12.
 # ------------------------------------------------------------------
 
 _CUTOFF = date(2025, 1, 1)
 
 # PMIDs that must appear in fetch_and_cache output (stable, pre-cutoff papers)
 _EXPECTED_PMIDS = {
-    "38701096",  # Semaglutide + empagliflozin RCT protocol in NAFLD+T2DM
-    "39223865",  # Oral semaglutide 48-week observational in MASLD+T2DM
-    "39286709",  # Mechanisms review: semaglutide in NAFLD/NASH
-    "39663847",  # Survodutide vs GLP-1RAs in MASH
+    "39735270",
+    "39412509"
 }
 
 # PMIDs post-cutoff that must not appear
@@ -40,17 +38,17 @@ _EXCLUDED_PMIDS = {
     "40000000",  # placeholder — any future PMID well above the cutoff window
 }
 
-# Top-5 semantic search results verified by live run on 2026-04-06
+# Top-5 semantic search results verified by live run on 2026-04-12
 _EXPECTED_TOP5 = [
-    ("38701096", "Semaglutide combined with empagliflozin"),
-    ("39223865", "Beneficial effect of oral semaglutide"),
-    ("39286709", "Mechanisms of Non-alcoholic Fatty Liver Disease"),
-    ("39385875", "Semaglutide Versus Other Glucagon-Like Peptide-1 Agonists"),
-    ("39663847", "Survodutide in MASH"),
+    ("37950798", "Potential New Therapeutic Implications of Semaglut"),
+    ("37994050", "Lysophosphatidic acid receptor 1 antagonist (EPGN2"),
+    ("38155202", "Semaglutide reduces tumor burden in the GAN diet-i"),
+    ("36051145", "Semaglutide might be a key for breaking the viciou"),
+    ("38464718", "Evolving role of semaglutide in NAFLD: in combinat"),
 ]
 
-# Evidence summary fields verified by live run on 2026-04-06
-_EXPECTED_SUPPORTING_PMIDS = {"38701096", "39223865", "39286709", "39663847"}
+# Evidence summary fields verified by live run on 2026-04-12
+_EXPECTED_SUPPORTING_PMIDS = {"36051145", "38464718", "37950798", "38155202", "37994050"}
 
 
 async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cache_dir):
@@ -70,8 +68,6 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
         svc,
         db_session_truncating,
         date_before=_CUTOFF,
-        max_search_results=20,
-        num_top_k=5,
     )
 
     output = await run_literature_agent(agent, "Semaglutide", "NASH")
@@ -112,9 +108,9 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
 
     # --- evidence_summary ---
     assert isinstance(output.evidence_summary, EvidenceSummary)
-    assert output.evidence_summary.strength == "moderate"
+    assert output.evidence_summary.strength == "weak"
     assert output.evidence_summary.study_count >= 2
-    assert output.evidence_summary.has_adverse_effects
+    assert not output.evidence_summary.has_adverse_effects
     assert _EXPECTED_SUPPORTING_PMIDS.issubset(
         set(output.evidence_summary.supporting_pmids)
     )

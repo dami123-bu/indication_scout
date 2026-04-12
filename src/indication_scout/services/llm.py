@@ -14,8 +14,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_model = get_settings().llm_model
-_small_model = get_settings().small_llm_model
+_settings = get_settings()
+_model = _settings.llm_model
+_small_model = _settings.small_llm_model
 client = AsyncAnthropic()
 
 
@@ -31,7 +32,7 @@ def parse_llm_response(response: str) -> list[str]:
 async def query_llm(prompt: str, system: str = "") -> str:
     response = await client.messages.create(
         model=_model,
-        max_tokens=4096,
+        max_tokens=_settings.llm_max_tokens,
         temperature=0,
         system=system or NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],
@@ -46,7 +47,7 @@ async def query_llm(prompt: str, system: str = "") -> str:
 async def query_small_llm(prompt: str, system: str = "") -> str:
     response = await client.messages.create(
         model=_small_model,
-        max_tokens=1024,
+        max_tokens=_settings.small_llm_max_tokens,
         temperature=0,
         system=system or NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],

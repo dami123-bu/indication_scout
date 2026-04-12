@@ -11,9 +11,11 @@ from typing import Any
 
 import aiohttp
 
-from indication_scout.constants import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT
+from indication_scout.config import get_settings
 
 logger = logging.getLogger("indication_scout.data_sources")
+
+_settings = get_settings()
 
 
 class DataSourceError(Exception):
@@ -32,13 +34,9 @@ class BaseClient(ABC):
     Subclasses set `_source_name` and use `_rest_get()` or `_graphql()`.
     """
 
-    def __init__(
-        self,
-        timeout: float = DEFAULT_TIMEOUT,
-        max_retries: int = DEFAULT_MAX_RETRIES,
-    ):
-        self.timeout = timeout
-        self.max_retries = max_retries
+    def __init__(self):
+        self.timeout = _settings.default_timeout
+        self.max_retries = _settings.default_max_retries
         self._session: aiohttp.ClientSession | None = None
 
     @property

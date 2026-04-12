@@ -56,11 +56,10 @@ GROUNDING RULE: Your summary must reference ONLY information returned
 by the tools in this run. Do not introduce trial names, drug histories,
 or facts from your training that were not returned by the tools."""
 
-def build_clinical_trials_agent(llm, date_before=None, max_search_results=None):
+def build_clinical_trials_agent(llm, date_before=None):
     """Return a compiled ReAct agent. No graph wiring required."""
     tools = build_clinical_trials_tools(
         date_before=date_before,
-        max_search_results=max_search_results,
     )
     return create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
 

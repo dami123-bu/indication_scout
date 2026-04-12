@@ -44,16 +44,12 @@ def build_literature_agent(
     svc,
     db,
     date_before=None,
-    max_search_results=None,
-    num_top_k=15,
 ):
     """Return a compiled ReAct agent. No graph wiring required."""
     tools = build_literature_tools(
         svc,
         db,
         date_before=date_before,
-        max_search_results=max_search_results,
-        num_top_k=num_top_k,
     )
     return create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
 

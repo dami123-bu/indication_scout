@@ -124,7 +124,7 @@ async def test_get_terminated_deduplicates_by_nct_id(tmp_path):
 
 
 async def test_get_terminated_max_results_caps_indication_not_drug(tmp_path):
-    """max_results caps indication results; drug safety/efficacy results are not capped."""
+    """Settings cap limits indication results; drug safety/efficacy results are not capped."""
     drug_studies = [
         _make_study(f"NCT9000{i:04d}", "Serious adverse events observed")
         for i in range(5)
@@ -135,26 +135,31 @@ async def test_get_terminated_max_results_caps_indication_not_drug(tmp_path):
     ]
 
     client = ClinicalTrialsClient()
-    with patch.object(
-        client,
-        "_rest_get",
-        new=AsyncMock(
-            side_effect=[
-                {"studies": drug_studies},
-                {"studies": indication_studies},
-            ]
+    with (
+        patch.object(
+            client,
+            "_rest_get",
+            new=AsyncMock(
+                side_effect=[
+                    {"studies": drug_studies},
+                    {"studies": indication_studies},
+                ]
+            ),
         ),
+        patch(
+            "indication_scout.data_sources.clinical_trials._settings"
+        ) as mock_settings,
     ):
-        results = await client.get_terminated(
-            "testdrug", "testindication", max_results=3
-        )
+        mock_settings.clinical_trials_terminated_drug_page_size = 50
+        mock_settings.clinical_trials_terminated_indication_max = 3
+        results = await client.get_terminated("testdrug", "testindication")
 
     drug_ids = {t.nct_id for t in results if t.nct_id.startswith("NCT9")}
     indication_ids = {t.nct_id for t in results if t.nct_id.startswith("NCT8")}
 
     # All 5 drug safety results included
     assert len(drug_ids) == 5
-    # Indication results capped at max_results=3
+    # Indication results capped at settings value (3)
     assert len(indication_ids) == 3
 
 

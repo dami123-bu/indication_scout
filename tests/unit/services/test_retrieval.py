@@ -761,16 +761,17 @@ async def test_fetch_and_cache_calls_search_per_query(svc):
         await svc.fetch_and_cache(["q1", "q2", "q3"], mock_db)
 
     assert mock_client.search.call_count == 3
-    from indication_scout.constants import PUBMED_MAX_RESULTS
+    from indication_scout.config import get_settings
 
+    _expected_max = get_settings().pubmed_max_results
     mock_client.search.assert_any_call(
-        "q1", max_results=PUBMED_MAX_RESULTS, date_before=None
+        "q1", max_results=_expected_max, date_before=None
     )
     mock_client.search.assert_any_call(
-        "q2", max_results=PUBMED_MAX_RESULTS, date_before=None
+        "q2", max_results=_expected_max, date_before=None
     )
     mock_client.search.assert_any_call(
-        "q3", max_results=PUBMED_MAX_RESULTS, date_before=None
+        "q3", max_results=_expected_max, date_before=None
     )
 
 
@@ -867,19 +868,21 @@ async def test_semantic_search_passes_pmids_to_query(svc):
     assert params["pmids"] == pmids
 
 
-async def test_semantic_search_respects_top_k(svc):
-    """top_k is passed as a bind parameter to the SQL LIMIT clause."""
+async def test_semantic_search_uses_top_k_from_settings(svc):
+    """top_k is read from settings and passed as a bind parameter to the SQL LIMIT clause."""
+    from indication_scout.config import get_settings
+
     mock_db = _make_db_with_rows([])
     mock_vector = [0.1] * 768
 
     with patch(
         "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
     ):
-        await svc.semantic_search("diabetes", "metformin", ["111"], mock_db, top_k=5)
+        await svc.semantic_search("diabetes", "metformin", ["111"], mock_db)
 
     call_kwargs = mock_db.execute.call_args
     params = call_kwargs[0][1]
-    assert params["top_k"] == 5
+    assert params["top_k"] == get_settings().semantic_search_top_k
 
 
 async def test_semantic_search_similarity_is_float(svc):

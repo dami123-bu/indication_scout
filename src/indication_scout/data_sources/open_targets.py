@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any, TypedDict
 
+from indication_scout.config import get_settings
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     CACHE_TTL,
@@ -20,7 +21,6 @@ from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     INTERACTION_TYPE_MAP,
     OPEN_TARGETS_BASE_URL,
-    OPEN_TARGETS_PAGE_SIZE,
 )
 from indication_scout.markers import no_review
 from indication_scout.utils.cache import cache_get, cache_set
@@ -56,6 +56,8 @@ from indication_scout.models.model_open_targets import (
 
 logger = logging.getLogger(__name__)
 
+_settings = get_settings()
+
 
 class CompetitorRawData(TypedDict):
     diseases: dict[str, set[str]]
@@ -64,7 +66,7 @@ class CompetitorRawData(TypedDict):
 
 class OpenTargetsClient(BaseClient):
     BASE_URL = OPEN_TARGETS_BASE_URL
-    PAGE_SIZE = OPEN_TARGETS_PAGE_SIZE
+    PAGE_SIZE = _settings.open_targets_page_size
 
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
         super().__init__()
@@ -204,7 +206,7 @@ class OpenTargetsClient(BaseClient):
         )
 
         drug_indications = list(approved_indications)
-        top_40 = dict(list(sorted_siblings.items())[:40])
+        top_40 = dict(list(sorted_siblings.items())[:_settings.open_targets_competitor_prefetch_max])
 
         result = CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
 
@@ -263,10 +265,10 @@ class OpenTargetsClient(BaseClient):
     # ------------------------------------------------------------------
 
     async def get_target_data_associations(
-        self, target_id: str, min_score: float = 0.1
+        self, target_id: str
     ) -> list[Association]:
         target = await self.get_target_data(target_id)
-        return [a for a in target.associations if a.overall_score >= min_score]
+        return [a for a in target.associations if a.overall_score >= _settings.open_targets_association_min_score]
 
     async def get_target_data_pathways(self, target_id: str) -> list[Pathway]:
         target = await self.get_target_data(target_id)

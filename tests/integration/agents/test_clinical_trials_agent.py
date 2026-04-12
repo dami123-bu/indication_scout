@@ -3,7 +3,7 @@
 Hits the real ClinicalTrials.gov API and real Anthropic API.
 
 Expected values verified by a live run on 2026-04-08 with:
-  drug=riluzole, indication=ALS, date_before=2025-01-01, max_search_results=30
+  drug=riluzole, indication=ALS, date_before=2025-01-01
 """
 
 import logging
@@ -50,7 +50,7 @@ _EXPECTED_COMPETITORS = [
 @pytest.fixture
 def clinical_trials_agent():
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
-    return build_clinical_trials_agent(llm, date_before=_CUTOFF, max_search_results=30)
+    return build_clinical_trials_agent(llm, date_before=_CUTOFF)
 
 
 async def test_riluzole_als_clinical_trials_agent(clinical_trials_agent):

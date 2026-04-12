@@ -13,7 +13,8 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from indication_scout.constants import CACHE_TTL, PUBMED_MAX_RESULTS
+from indication_scout.config import get_settings
+from indication_scout.constants import CACHE_TTL
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.open_targets import (
     CompetitorRawData,
@@ -33,6 +34,8 @@ from indication_scout.services.llm import parse_llm_response, query_llm, query_s
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -134,7 +137,7 @@ class RetrievalService:
         sorted_data = dict(
             sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
-        top_15 = dict(list(sorted_data.items())[:15])
+        top_15 = dict(list(sorted_data.items())[:_settings.literature_top_k])
 
         cache_set(
             "drug_competitors",
@@ -287,7 +290,6 @@ class RetrievalService:
         queries: list[str],
         db: Session,
         date_before: date | None = None,
-        max_results: int | None = None,
     ) -> list[str]:
         """Hit PubMed for all queries concurrently, fetch new abstracts, embed in one batch, cache in pgvector.
 
@@ -305,7 +307,6 @@ class RetrievalService:
             db: Active SQLAlchemy session.
             date_before: Optional temporal holdout cutoff; only articles published
                 before this date are returned by PubMed search.
-            max_results: Maximum number of PubMed results to fetch per query. Defaults to PUBMED_MAX_RESULTS.
 
         Returns:
             Deduplicated list of all PMIDs returned by PubMed search across all queries.
@@ -314,16 +315,13 @@ class RetrievalService:
             that pass this list to semantic_search will see those PMIDs silently skipped
             by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
         """
-        effective_max_results = (
-            max_results if max_results is not None else PUBMED_MAX_RESULTS
-        )
         async with PubMedClient(cache_dir=self.cache_dir) as client:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
                 *[
                     client.search(
                         query,
-                        max_results=effective_max_results,
+                        max_results=_settings.pubmed_max_results,
                         date_before=date_before,
                     )
                     for query in queries
@@ -354,7 +352,7 @@ class RetrievalService:
         return all_pmids
 
     async def semantic_search(
-        self, disease: str, drug: str, pmids: list[str], db: Session, top_k: int = 5
+        self, disease: str, drug: str, pmids: list[str], db: Session
     ) -> list[AbstractResult]:
         """For a given drug, disease, and list of PMIDs, return top-k most similar abstracts from pgvector
 
@@ -366,7 +364,6 @@ class RetrievalService:
             disease: e.g. "colorectal cancer"
             drug: e.g. "metformin"
             pmids: e.g. ["29734553", "31245678", "30198432"]
-            top_k: Maximum number of results to return (default 5).
 
         Returns:
             List of dicts ranked by descending similarity, e.g.:
@@ -394,7 +391,7 @@ class RetrievalService:
             {
                 "query_vec": "[" + ",".join(str(x) for x in query_vector) + "]",
                 "pmids": pmids,
-                "top_k": top_k,
+                "top_k": _settings.semantic_search_top_k,
             },
         ).fetchall()
 

@@ -12,12 +12,10 @@ from sqlalchemy.orm import Session
 
 from indication_scout.models.model_drug_profile import DrugProfile
 
-from indication_scout.constants import (
-    DEFAULT_CACHE_DIR,
-    RAG_DISEASE_CONCURRENCY,
-    RAG_LLM_CONCURRENCY,
-    RAG_PUBMED_CONCURRENCY,
-)
+from indication_scout.config import get_settings
+from indication_scout.constants import DEFAULT_CACHE_DIR
+
+_settings = get_settings()
 from indication_scout.db.session import get_db
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import RetrievalService
@@ -132,9 +130,9 @@ async def run_rag(
         len(drug_profile.target_gene_symbols),
     )
 
-    sem_disease = asyncio.Semaphore(RAG_DISEASE_CONCURRENCY)
-    sem_llm = asyncio.Semaphore(RAG_LLM_CONCURRENCY)
-    sem_pubmed = asyncio.Semaphore(RAG_PUBMED_CONCURRENCY)
+    sem_disease = asyncio.Semaphore(_settings.rag_disease_concurrency)
+    sem_llm = asyncio.Semaphore(_settings.rag_llm_concurrency)
+    sem_pubmed = asyncio.Semaphore(_settings.rag_pubmed_concurrency)
 
     async def _bounded(disease: str) -> tuple[str, EvidenceSummary]:
         async with sem_disease:

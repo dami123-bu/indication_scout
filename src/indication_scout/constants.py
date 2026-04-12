@@ -1,10 +1,14 @@
-"""Project-wide constants."""
+"""Project-wide constants.
+
+Tunable numeric limits (timeouts, retries, top-k, max results, concurrency,
+etc.) live in config.py Settings and are overridable via environment variables
+or alternate .env files (ENV_FILE=.env.test).
+
+This file holds values that are structurally fixed: URLs, lookup maps,
+keyword lists, and directory paths.
+"""
 
 from pathlib import Path
-
-# -- Base client defaults ---------------------------------------------------
-DEFAULT_TIMEOUT: float = 30.0
-DEFAULT_MAX_RETRIES: int = 3
 
 # -- LLM defaults -----------------------------------------------------------
 DEFAULT_LLM_MODEL: str = "claude-sonnet-4-6"
@@ -20,33 +24,20 @@ CACHE_TTL: int = 5 * 86400  # 5 days in seconds
 
 # -- Open Targets -----------------------------------------------------------
 OPEN_TARGETS_BASE_URL: str = "https://api.platform.opentargets.org/api/v4/graphql"
-OPEN_TARGETS_PAGE_SIZE: int = 500
 
 # -- ChEMBL -----------------------------------------------------------------
 CHEMBL_BASE_URL: str = "https://www.ebi.ac.uk/chembl/api/data"
 
 # -- ClinicalTrials.gov -----------------------------------------------------
 CLINICAL_TRIALS_BASE_URL: str = "https://clinicaltrials.gov/api/v2/studies"
-CLINICAL_TRIALS_WHITESPACE_EXACT_MAX: int = 50
-CLINICAL_TRIALS_WHITESPACE_INDICATION_MAX: int = 200
 CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER: str = "(PHASE2 OR PHASE3 OR PHASE4)"
-CLINICAL_TRIALS_WHITESPACE_TOP_DRUGS: int = 50
 CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
-CLINICAL_TRIALS_LANDSCAPE_MAX_TRIALS: int = 50
-CLINICAL_TRIALS_TERMINATED_DRUG_PAGE_SIZE: int = 50
-CLINICAL_TRIALS_RECURSION_LIMIT: int = 15
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
 PUBMED_SUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
-PUBMED_MAX_RESULTS: int = 200
-
-# -- RAG pipeline concurrency -----------------------------------------------
-RAG_LLM_CONCURRENCY: int = 4
-RAG_PUBMED_CONCURRENCY: int = 3
-RAG_DISEASE_CONCURRENCY: int = 4
 
 # -- Clinical stage ranking (Open Targets) ----------------------------------
 # Maps maximumClinicalStage / maxClinicalStage string values to numeric ranks
@@ -133,5 +124,3 @@ VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
 )
 
 MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset({"genetic_association", "literature", "affected_pathway"})
-MECHANISM_SIGNAL_THRESHOLD: float = 0.4
-MECHANISM_ASSOCIATIONS_CAP: int = 10

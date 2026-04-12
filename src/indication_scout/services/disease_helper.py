@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import TypedDict
 
+from indication_scout.config import get_settings
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     DEFAULT_CACHE_DIR,
@@ -24,7 +25,8 @@ from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
-MIN_RESULTS = 3  # Minimum PubMed hits to consider a term useful
+_settings = get_settings()
+MIN_RESULTS = _settings.disease_pubmed_min_results
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
