@@ -193,6 +193,14 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
 
     shaped_associations = _compute_shaped_associations(mechanisms_of_action, associations)
 
+    all_mech_diseases = {
+        a.disease_name
+        for assoc_list in associations.values()
+        for a in assoc_list
+    }
+    logger.warning("[MECH] surfaced %d diseases: %s",
+                   len(all_mech_diseases), sorted(all_mech_diseases))
+
     return MechanismOutput(
         drug_targets=drug_targets,
         mechanisms_of_action=mechanisms_of_action,

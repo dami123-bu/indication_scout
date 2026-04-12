@@ -97,15 +97,24 @@ class RetrievalService:
         cache_params = {"drug_name": drug_name}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
         if cached is not None and len(cached) > 0:
+            logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
+                           drug_name, len(cached), list(cached.keys()))
             return {disease: set(drugs) for disease, drugs in cached.items()}
 
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
             raw: CompetitorRawData = await client.get_drug_competitors(drug_name)
+            logger.warning("[COMP] raw from OT: %d diseases: %s",
+                           len(raw["diseases"]), list(raw["diseases"].keys()))
 
         top_40 = await self._normalize_disease_groups(raw["diseases"])
+        logger.warning("[COMP] after normalize: %d diseases: %s",
+                       len(top_40), list(top_40.keys()))
+
         drug_indications = raw["drug_indications"]
         disease_names = list(top_40.keys())
         merge_result = await merge_duplicate_diseases(disease_names, drug_indications)
+        logger.warning("[COMP] merge_result: merge=%s remove=%s",
+                       merge_result["merge"], merge_result["remove"])
 
         for disease in merge_result["remove"]:
             if disease.lower() in top_40:
@@ -138,6 +147,7 @@ class RetrievalService:
             sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
         top_15 = dict(list(sorted_data.items())[:_settings.literature_top_k])
+        logger.warning("[COMP] final top_15: %s", list(top_15.keys()))
 
         cache_set(
             "drug_competitors",

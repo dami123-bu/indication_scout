@@ -62,6 +62,7 @@ def build_supervisor_tools(
         """
         competitors = await svc.get_drug_competitors(drug_name)
         diseases = list(competitors.keys())
+        logger.warning("[TOOL] find_candidates(%r) -> %s", drug_name, diseases)
         return f"Found {len(diseases)} candidate diseases for {drug_name}", diseases
 
     @tool(response_format="content_and_artifact")
@@ -78,6 +79,8 @@ def build_supervisor_tools(
         # literature_tools is not shared across disease invocations.
         lit_agent = build_literature_agent(llm=llm, svc=svc, db=db)
         t0 = time.perf_counter()
+        logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
+
         output = await run_literature_agent(lit_agent, drug_name, disease_name)
         logger.info("analyze_literature took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
         strength = (
@@ -100,6 +103,7 @@ def build_supervisor_tools(
         Checks ClinicalTrials.gov for existing trials, competitive landscape,
         and terminated trials (safety/efficacy red flags).
         """
+        logger.warning("[TOOL] analyze_clinical_trials(drug=%r, disease=%r)", drug_name, disease_name)
         t0 = time.perf_counter()
         output = await run_clinical_trials_agent(ct_agent, drug_name, disease_name)
         logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
@@ -121,6 +125,7 @@ def build_supervisor_tools(
         """
         t0 = time.perf_counter()
         output = await run_mechanism_agent(mech_agent, drug_name)
+        logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
         logger.info("analyze_mechanism took %.2fs for %s", time.perf_counter() - t0, drug_name)
         n_targets = len(output.drug_targets)
         n_top = sum(len(a) for a in output.associations.values())

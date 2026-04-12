@@ -9,6 +9,7 @@ The LLM decides:
 - Whether to run literature, clinical trials, or both for each
 - When enough evidence has been gathered to stop
 """
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
@@ -58,6 +59,7 @@ referencing relevant mechanistic context from analyze_mechanism where it
 supports or contextualises the findings. Do NOT emit a plain
 text message after calling finalize_supervisor."""
 
+logger = logging.getLogger(__name__)
 
 def build_supervisor_agent(llm, svc, db):
     """Return a compiled supervisor agent."""
@@ -88,8 +90,15 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
         if isinstance(msg, AIMessage):
             for tc in msg.tool_calls:
                 tool_call_args[tc["id"]] = tc["args"]
+                logger.warning("[ARGS] captured id=%s name=%s args=%s",
+                               tc["id"], tc["name"], tc["args"])
 
     for msg in result["messages"]:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tc in msg.tool_calls:
+                logger.warning("[LLM->TOOL] %s(%s)", tc["name"], tc["args"])
+        elif isinstance(msg, ToolMessage):
+            logger.warning("[TOOL->LLM] %s content=%r", msg.name, str(msg.content)[:200])
         if not isinstance(msg, ToolMessage):
             continue
 
@@ -102,6 +111,8 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
         elif msg.name == "analyze_literature":
             args = tool_call_args.get(msg.tool_call_id, {})
             disease = args.get("disease_name", "")
+            logger.warning("[FINDINGS] literature tool_call_id=%s recovered disease=%r",
+                           msg.tool_call_id, disease)
             if disease:
                 findings = findings_by_disease.setdefault(
                     disease, CandidateFindings(disease=disease)

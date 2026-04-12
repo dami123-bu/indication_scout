@@ -136,7 +136,7 @@ async def test_search_trials(clinical_trials_client):
     trials = await clinical_trials_client.search_trials(
         drug="trastuzumab",
         indication="breast cancer",
-        max_results=50,
+
         phase_filter="PHASE4",
     )
 
@@ -184,7 +184,7 @@ async def test_search_trials_drug_only(clinical_trials_client):
     """Test search_trials returns trials for a drug without specifying indication."""
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
-        max_results=300,
+
     )
 
     # Semaglutide has many trials across diabetes, obesity, NASH, etc.
@@ -202,7 +202,7 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
         indication="nonalcoholic steatohepatitis",
-        max_results=100,
+
     )
 
     [nash_trial] = [t for t in trials if t.nct_id == "NCT04971785"]
@@ -242,7 +242,7 @@ async def test_search_trials_indication_only(clinical_trials_client):
     trials = await clinical_trials_client.search_trials(
         drug="",
         indication="gastroparesis",
-        max_results=50,
+
         phase_filter="PHASE4",
     )
 
@@ -295,7 +295,7 @@ async def test_search_trials_phase_filter(clinical_trials_client):
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
         indication="diabetes",
-        max_results=20,
+
         phase_filter="PHASE3",
     )
 
@@ -320,7 +320,7 @@ async def test_get_terminated(clinical_trials_client):
     assert len(trials) >= 1
 
 
-    [business_trial] = [t for t in trials if t.nct_id == "NCT00394212"]
+    [business_trial] = [t for t in trials if t.nct_id == "NCT05735600"]
     assert business_trial.stop_category == "business"
 
 
@@ -408,7 +408,7 @@ async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_clie
     trials = await clinical_trials_client.search_trials(
         drug="xyzzy_not_a_real_drug_12345",
         indication="diabetes",
-        max_results=10,
+
     )
 
     assert trials == []
@@ -421,7 +421,7 @@ async def test_search_trials_nonexistent_indication_returns_empty(
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
         indication="xyzzy_fake_disease_99999",
-        max_results=10,
+
     )
 
     assert trials == []
@@ -432,7 +432,7 @@ async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
     trials = await clinical_trials_client.search_trials(
         drug="",
         indication="diabetes",
-        max_results=10,
+
     )
 
     # Empty drug acts as no filter, so may return results
