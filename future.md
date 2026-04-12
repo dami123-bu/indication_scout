@@ -25,6 +25,21 @@ The MVP uses a fixed call sequence with no retry logic. Once time allows, add:
 
 ---
 
+## Clinical Trials — WITHDRAWN Coverage Gap
+
+`get_terminated` only queries `filter.overallStatus=TERMINATED`. Trials with status
+`WITHDRAWN` (pulled before any participants were enrolled) are not captured at all.
+
+These are a distinct signal: a sponsor committing to a trial and then backing out before
+enrollment may indicate early safety signals, failed IND, or strategic retreat — all
+relevant to repurposing analysis.
+
+Consider adding a separate `WITHDRAWN` query (drug-wide and/or indication-specific) and
+a corresponding `WithdrawnTrial` model or an extended `TerminatedTrial` with a
+`pre_enrollment: bool` flag to distinguish the two statuses.
+
+---
+
 ## WhitespaceResult Schema Gap
 
 `is_whitespace` is binary, but that misses a third state: "early stage, unproven."

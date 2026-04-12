@@ -31,8 +31,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="IndicationScout", layout="centered")
-st.title("IndicationScout")
+st.set_page_config(page_title="IndicationScout", page_icon="static/favicon.png", layout="centered")
+
+col1, col2 = st.columns([1, 4], vertical_alignment="center")
+with col1:
+    st.image("static/favicon.png", width=80)
+with col2:
+    st.title("Indication Scout")
 st.caption("Drug repurposing analysis powered by AI agents.")
 
 
