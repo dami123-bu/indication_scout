@@ -1,5 +1,7 @@
 """Structured output from the supervisor agent."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from indication_scout.agents.clinical_trials.clinical_trials_output import (
@@ -13,6 +15,7 @@ class CandidateFindings(BaseModel):
     """Per-candidate findings aggregated by the supervisor."""
 
     disease: str
+    source: Literal["competitor", "mechanism", "both"] = "competitor"
     literature: LiteratureOutput | None = None
     clinical_trials: ClinicalTrialsOutput | None = None
 

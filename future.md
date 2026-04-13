@@ -53,3 +53,9 @@ The phase/maturity dimension is not captured in `WhitespaceResult`. Consider add
 - A `max_phase` field (highest phase among exact-match trials)
 - A `maturity` enum: `whitespace` / `early_stage` / `established`
 - Or aggregate enrollment of exact-match trials as a proxy for how well-covered the space is
+
+---
+
+## Disease Name Canonicalisation
+
+The supervisor may investigate mechanism-surfaced diseases under names that differ from their find_candidates equivalents (e.g. "non-alcoholic steatohepatitis" vs "fatty liver disease"). Both are valid but the report does not collapse them. Cross-reference against Open Targets disease IDs if exact matching is needed.

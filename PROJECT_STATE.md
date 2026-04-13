@@ -391,3 +391,39 @@ The database layer (PostgreSQL + pgvector) is used for caching PubMed abstracts 
 ### Known Issues / Caveats Added
 - `SentenceTransformer` model lacks native async support — required wrapper with `asyncio.Lock` for safe concurrent access.
 - After making `embed_abstracts()` async, all callers and mocks must be updated; transitional cache invalidation needed if deploying to running systems.
+
+---
+
+## Update (2026-04-12)
+
+### Supervisor Dual-Source Candidate Allowlist
+
+The supervisor agent previously restricted investigation (`analyze_literature`, `analyze_clinical_trials`) to diseases returned by `find_candidates` only — i.e., diseases where competitor drugs are active. Diseases surfaced by `analyze_mechanism` with strong target-disease associations were treated as context only, never investigated.
+
+The supervisor now merges **two** candidate sources into a single allowlist:
+
+1. **Competitor-sourced** — diseases from `find_candidates` (unchanged).
+2. **Mechanism-sourced** — diseases from `analyze_mechanism` whose Open Targets `overall_score >= MECHANISM_ASSOCIATION_MIN_SCORE` (0.3, defined in `constants.py`).
+
+When a disease appears in both sources, it is tagged `"both"`.
+
+#### Allowlist mechanics
+
+The allowlist is implemented in two places that must stay in sync:
+
+- **Tool-level** (`supervisor_tools.py`): `allowed_diseases` is a closure-scoped `dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]]` mapping lowercase disease name → (canonical name, source). Populated by `find_candidates` (competitor entries) and `analyze_mechanism` (mechanism entries above threshold). The guard checks in `analyze_literature` / `analyze_clinical_trials` use `in allowed_diseases` on the dict keys.
+- **Output-assembly** (`supervisor_agent.py`, `run_supervisor_agent`): Reconstructs the same dual-source allowlist from `candidates` (list from `find_candidates` artifact) and `mechanism.associations` (from `analyze_mechanism` artifact). Uses `disease_id` from `Association` for dedup to handle cases where the same disease has different string names across the two sources. Each `CandidateFindings` is tagged with `source: Literal["competitor", "mechanism", "both"]`.
+
+#### LLM prompt changes
+
+The `SYSTEM_PROMPT` `STRICT CANDIDATE RULE` (which forbade mechanism diseases entirely) was replaced with `CANDIDATE RULE` explaining the two-source allowlist. The `analyze_mechanism` tool summary now appends a note listing which mechanism diseases were added to the allowlist, so the LLM knows it can investigate them.
+
+#### Race condition note
+
+`find_candidates` calls `allowed_diseases.clear()` before populating competitor entries. If `analyze_mechanism` completes before `find_candidates`, the clear would wipe mechanism-added entries. In practice LangGraph collects all parallel tool results before the next LLM turn, so this does not occur — but it is a latent issue if the execution model changes.
+
+### Implementation Status Changes
+- `constants.py` — Added `MECHANISM_ASSOCIATION_MIN_SCORE = 0.3`.
+- `agents/supervisor/supervisor_output.py` — `CandidateFindings` gained `source: Literal["competitor", "mechanism", "both"]` field (default `"competitor"`).
+- `agents/supervisor/supervisor_tools.py` — `allowed_diseases` changed from `set[str]` to `dict[str, tuple[str, Literal[...]]]`; `analyze_mechanism` now promotes qualifying associations into the allowlist.
+- `agents/supervisor/supervisor_agent.py` — `run_supervisor_agent` builds dual-source allowlist with `disease_id` dedup; `SYSTEM_PROMPT` updated.
