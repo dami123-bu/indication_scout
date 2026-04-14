@@ -91,7 +91,7 @@ class OpenTargetsClient(BaseClient):
         return RichDrugData(drug=drug, targets=list(targets))
 
     async def get_drug(self, drug_name: str) -> DrugData:
-        """Fetch drug data by name, enriched with ATC codes from ChEMBL."""
+        """Fetch drug data by name, enriched with ATC codes and trade names from ChEMBL."""
         chembl_id = await self._resolve_drug_name(drug_name)
 
         cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
@@ -99,9 +99,10 @@ class OpenTargetsClient(BaseClient):
             return DrugData.model_validate(cached)
 
         async with ChEMBLClient() as chembl_client:
-            drug_data, molecule = await asyncio.gather(
+            drug_data, molecule, chembl_trade_names = await asyncio.gather(
                 self._fetch_drug(chembl_id),
                 chembl_client.get_molecule(chembl_id),
+                chembl_client.get_trade_names(chembl_id),
                 return_exceptions=True,
             )
 
@@ -115,6 +116,11 @@ class OpenTargetsClient(BaseClient):
             logger.warning("ChEMBL ATC lookup failed for %s: %s", chembl_id, molecule)
         else:
             drug_data.atc_classifications = molecule.atc_classifications
+
+        if isinstance(chembl_trade_names, BaseException):
+            logger.warning("ChEMBL trade name lookup failed for %s: %s", chembl_id, chembl_trade_names)
+        else:
+            drug_data.trade_names = chembl_trade_names
 
         cache_set(
             "drug",

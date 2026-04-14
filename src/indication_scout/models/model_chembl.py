@@ -29,6 +29,22 @@ class ATCDescription(BaseModel):
         return values
 
 
+class MoleculeSynonym(BaseModel):
+    """A single synonym entry from the ChEMBL molecule endpoint."""
+
+    molecule_synonym: str = ""
+    syn_type: str = ""
+    synonyms: str = ""  # uppercase normalized form
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values: dict) -> dict:
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default is not None:
+                values[field_name] = field_info.default
+        return values
+
+
 class MoleculeData(BaseModel):
     """Data returned by the ChEMBL molecule endpoint for a single compound."""
 
@@ -39,6 +55,7 @@ class MoleculeData(BaseModel):
     black_box_warning: int | None = None
     first_approval: int | None = None
     oral: bool | None = None
+    molecule_synonyms: list[MoleculeSynonym] = []
 
     @model_validator(mode="before")
     @classmethod

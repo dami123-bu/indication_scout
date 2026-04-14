@@ -2,7 +2,7 @@
 
 import pytest
 
-from indication_scout.models.model_chembl import ATCDescription, MoleculeData
+from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
 
 
 @pytest.mark.parametrize(
@@ -79,3 +79,36 @@ async def test_get_atc_description(
     assert result.level4_description == level4_description
     assert result.level5 == level5
     assert result.who_name == who_name
+
+
+# --- get_trade_names ---
+
+
+@pytest.mark.parametrize(
+    "chembl_id, expected_names",
+    [
+        (
+            "CHEMBL894",
+            ["Wellbutrin", "Zyban", "Aplenzin", "Forfivo XL"],
+        ),
+        (
+            "CHEMBL2108724",
+            ["Ozempic", "Rybelsus", "Wegovy"],
+        ),
+    ],
+)
+async def test_get_trade_names(
+    chembl_client, chembl_id, expected_names, test_cache_dir
+):
+    from indication_scout.data_sources.chembl import ChEMBLClient
+
+    client = ChEMBLClient(cache_dir=test_cache_dir)
+    async with client:
+        result = await client.get_trade_names(chembl_id)
+
+    for name in expected_names:
+        assert name in result, f"Expected '{name}' in trade names for {chembl_id}, got {result}"
+
+    # "component of" entries should be filtered out
+    for name in result:
+        assert "component of" not in name.lower()

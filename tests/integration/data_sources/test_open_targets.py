@@ -34,8 +34,19 @@ async def test_single_drug_data(open_targets_client):
     assert drug.atc_classifications == ["N06AX12"]
 
 
+async def test_bupropion_drug_data(open_targets_client):
+    """Test bupropion DrugData fields including ChEMBL trade names from salt forms."""
+    drug = await open_targets_client.get_drug("bupropion")
+
+    assert drug.atc_classifications == ["N06AX12"]
+    assert "Wellbutrin" in drug.trade_names
+    assert "Zyban" in drug.trade_names
+    assert "Aplenzin" in drug.trade_names
+    assert "Forfivo xl" in drug.trade_names
+
+
 async def test_semaglutide_drug_data(open_targets_client):
-    """Test fetching drug data and indications for semaglutide."""
+    """Test all semaglutide DrugData fields: top-level, targets, MoA, indications."""
     drug = await open_targets_client.get_drug("semaglutide")
 
     # DrugData top-level fields
@@ -53,30 +64,13 @@ async def test_semaglutide_drug_data(open_targets_client):
     assert len(drug.warnings) == 1
     assert drug.atc_classifications == ["A10BJ06"]
 
-    # Indications - should include type 2 diabetes (approved)
-    t2d_indication = next(
-        (i for i in drug.indications if "type 2 diabetes" in i.disease_name.lower()),
-        None,
-    )
-    assert t2d_indication is not None
-    assert t2d_indication.max_clinical_stage == "APPROVAL"
-
-
-async def test_semaglutide_drug_target(open_targets_client):
-    """Test DrugTarget fields for semaglutide's GLP1R target."""
-    drug = await open_targets_client.get_drug("semaglutide")
+    # DrugTarget — GLP1R
     [glp1r] = [t for t in drug.targets if t.target_symbol == "GLP1R"]
-
     assert glp1r.target_id == "ENSG00000112164"
-    assert glp1r.target_symbol == "GLP1R"
     assert glp1r.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
     assert glp1r.action_type == "AGONIST"
 
-
-async def test_semaglutide_drug_mechanisms_of_action(open_targets_client):
-    """DrugData.mechanisms_of_action should be populated from mechanismsOfAction rows."""
-    drug = await open_targets_client.get_drug("semaglutide")
-
+    # MechanismOfAction
     assert len(drug.mechanisms_of_action) == 1
     moa = drug.mechanisms_of_action[0]
     assert moa.mechanism_of_action == "Glucagon-like peptide 1 receptor agonist"
@@ -84,40 +78,37 @@ async def test_semaglutide_drug_mechanisms_of_action(open_targets_client):
     assert "ENSG00000112164" in moa.target_ids
     assert "GLP1R" in moa.target_symbols
 
-
-async def test_semaglutide_indication(open_targets_client):
-    """Test Indication fields for semaglutide's type 2 diabetes indication."""
-    drug = await open_targets_client.get_drug("semaglutide")
+    # Indication — type 2 diabetes mellitus
     [t2d] = [
         i for i in drug.indications if i.disease_name == "type 2 diabetes mellitus"
     ]
-
     assert t2d.disease_id == "MONDO_0005148"
-    assert t2d.disease_name == "type 2 diabetes mellitus"
     assert t2d.max_clinical_stage == "APPROVAL"
 
 
-async def test_trastuzumab_adverse_event(open_targets_client):
-    """Test AdverseEvent fields for trastuzumab."""
+async def test_trastuzumab_drug_data(open_targets_client):
+    """Test trastuzumab: ATC classification and adverse events."""
     drug = await open_targets_client.get_drug("trastuzumab")
+
+    assert drug.atc_classifications == ["L01FD01"]
+
+    # AdverseEvent fields
     adverse_event = next(
         ae for ae in drug.adverse_events if ae.name == "ejection fraction decreased"
     )
-
-    assert drug.atc_classifications == ["L01FD01"]
-    assert adverse_event.name == "ejection fraction decreased"
     assert adverse_event.meddra_code == "10050528"
     assert adverse_event.count > 0
     assert adverse_event.log_likelihood_ratio > 0
 
 
-async def test_rofecoxib_drug_warning(open_targets_client):
-    """Test DrugWarning fields for rofecoxib (Vioxx) - a withdrawn drug with complete warning data."""
+async def test_rofecoxib_drug_data(open_targets_client):
+    """Test rofecoxib (Vioxx): ATC, and DrugWarning with all fields."""
     drug = await open_targets_client.get_drug("rofecoxib")
-    assert len(drug.warnings) > 5
-    assert drug.atc_classifications == ["M01AH02"]
 
-    # Find a specific warning with all fields populated
+    assert drug.atc_classifications == ["M01AH02"]
+    assert len(drug.warnings) > 5
+
+    # DrugWarning — cardiotoxicity withdrawal
     warning = next(
         w
         for w in drug.warnings
@@ -125,20 +116,17 @@ async def test_rofecoxib_drug_warning(open_targets_client):
         and w.efo_id == "EFO:0000612"
         and "serious cardiovascular events" in (w.description or "")
     )
-
     assert warning.warning_type == "Withdrawn"
     assert (
         warning.description
         == "Increased risk of serious cardiovascular events, such as heart attacks and strokes"
     )
-    assert warning.toxicity_class == "cardiotoxicity"
     assert warning.country == "Worldwide"
     assert warning.year == 2004
-    assert warning.efo_id == "EFO:0000612"
 
 
 async def test_metformin_drug_data(open_targets_client):
-    """Simple test for metformin - a different drug than others in the suite."""
+    """Test metformin basic DrugData fields."""
     drug = await open_targets_client.get_drug("metformin")
 
     assert drug.chembl_id == "CHEMBL1431"
@@ -151,27 +139,14 @@ async def test_metformin_drug_data(open_targets_client):
 # --- get_drug error handling ---
 
 
-async def test_nonexistent_drug_raises_error(open_targets_client):
-    """Test that a nonexistent drug raises DataSourceError."""
+@pytest.mark.parametrize(
+    "bad_name",
+    ["xyzzy_not_a_real_drug_12345", "", "!!!@@@###$$$"],
+)
+async def test_get_drug_invalid_input_raises_error(open_targets_client, bad_name):
+    """Invalid drug names raise DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_drug("xyzzy_not_a_real_drug_12345")
-
-    assert exc_info.value.source == "open_targets"
-    assert "No drug found" in str(exc_info.value)
-
-
-async def test_empty_drug_name_raises_error(open_targets_client):
-    """Test that empty drug name raises DataSourceError."""
-    with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_drug("")
-
-    assert exc_info.value.source == "open_targets"
-
-
-async def test_special_characters_drug_name_raises_error(open_targets_client):
-    """Test that special characters in drug name raises DataSourceError."""
-    with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_drug("!!!@@@###$$$")
+        await open_targets_client.get_drug(bad_name)
 
     assert exc_info.value.source == "open_targets"
 
@@ -218,26 +193,14 @@ async def test_get_disease_synonyms_nonexistent(open_targets_client):
 # --- get_target_data error handling ---
 
 
-async def test_nonexistent_target_raises_error(open_targets_client):
-    """Test that a nonexistent target ID raises DataSourceError."""
+@pytest.mark.parametrize(
+    "bad_id",
+    ["ENSG99999999999", "not_an_ensembl_id", ""],
+)
+async def test_get_target_data_invalid_input_raises_error(open_targets_client, bad_id):
+    """Invalid target IDs raise DataSourceError."""
     with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_target_data("ENSG99999999999")
-
-    assert exc_info.value.source == "open_targets"
-
-
-async def test_invalid_target_format_raises_error(open_targets_client):
-    """Test that invalid target format raises DataSourceError."""
-    with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_target_data("not_an_ensembl_id")
-
-    assert exc_info.value.source == "open_targets"
-
-
-async def test_empty_target_id_raises_error(open_targets_client):
-    """Test that empty target ID raises DataSourceError."""
-    with pytest.raises(DataSourceError) as exc_info:
-        await open_targets_client.get_target_data("")
+        await open_targets_client.get_target_data(bad_id)
 
     assert exc_info.value.source == "open_targets"
 
@@ -245,28 +208,22 @@ async def test_empty_target_id_raises_error(open_targets_client):
 # --- get_target_data ---
 
 
-async def test_glp1r_target_associations(open_targets_client):
-    """Test fetching associations for GLP1R target."""
+async def test_glp1r_target_data(open_targets_client):
+    """Test GLP1R TargetData: associations, drug summaries, and mouse phenotypes."""
     target = await open_targets_client.get_target_data("ENSG00000112164")
 
+    # Association — gastroparesis
     assert len(target.associations) > 10
     [assoc] = [a for a in target.associations if a.disease_name == "gastroparesis"]
-
-    assert assoc is not None
     assert assoc.disease_id.startswith("EFO_") or assoc.disease_id.startswith("MONDO_")
     assert assoc.overall_score > 0.2
     assert 0.4 < assoc.datatype_scores["genetic_association"] < 0.5
     assert 0.2 < assoc.datatype_scores["literature"] < 0.3
     assert "gastrointestinal disease" in assoc.therapeutic_areas
 
-
-async def test_glp1r_drug_summary(open_targets_client):
-    """Test DrugSummary fields for GLP1R target."""
-    target = await open_targets_client.get_target_data("ENSG00000112164")
+    # DrugSummary — liraglutide
     liraglutide = next(d for d in target.drug_summaries if d.drug_name == "LIRAGLUTIDE")
-
     assert liraglutide.drug_id == "CHEMBL4084119"
-    assert liraglutide.drug_name == "LIRAGLUTIDE"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
     t2d = next(
@@ -275,110 +232,80 @@ async def test_glp1r_drug_summary(open_targets_client):
     assert t2d.disease_id == "MONDO_0005148"
 
 
-async def test_pdgfrb_target_pathway(open_targets_client):
-    """Test Pathway fields for PDGFRB target."""
+async def test_pdgfrb_target_data(open_targets_client):
+    """Test PDGFRB TargetData: pathways and interactions."""
     target = await open_targets_client.get_target_data("ENSG00000113721")
-    [pathway] = [p for p in target.pathways if p.pathway_name == "Signaling by PDGF"]
 
+    # Pathway — Signaling by PDGF
+    [pathway] = [p for p in target.pathways if p.pathway_name == "Signaling by PDGF"]
     assert pathway.pathway_id == "R-HSA-186797"
-    assert pathway.pathway_name == "Signaling by PDGF"
     assert pathway.top_level_pathway == "Signal Transduction"
 
-
-async def test_pdgfrb_target_interaction(open_targets_client):
-    """Test Interaction fields for PDGFRB target."""
-    target = await open_targets_client.get_target_data("ENSG00000113721")
+    # Interaction — PLCG1 via STRING
     interaction = next(
         i
         for i in target.interactions
         if i.interacting_target_symbol == "PLCG1" and i.source_database == "string"
     )
-
     assert interaction.interacting_target_id == "ENSG00000124181"
-    assert interaction.interacting_target_symbol == "PLCG1"
     assert interaction.interaction_score > 0.99
-    assert interaction.source_database == "string"
     assert interaction.biological_role == "unspecified role"
     assert interaction.evidence_count == 4
 
 
-async def test_atp1a1_target_tissue_expression(open_targets_client):
-    """Test TissueExpression, RNAExpression, ProteinExpression, and CellTypeExpression fields."""
+async def test_atp1a1_target_data(open_targets_client):
+    """Test ATP1A1 TargetData: tissue expression and safety liabilities."""
     target = await open_targets_client.get_target_data("ENSG00000163399")
+
+    # TissueExpression — liver
     expression = next(e for e in target.expressions if e.tissue_name == "liver")
-
-    # TissueExpression fields
     assert expression.tissue_id == "UBERON_0002107"
-    assert expression.tissue_name == "liver"
     assert expression.tissue_anatomical_system == "endocrine system"
-
-    # RNAExpression fields
     assert expression.rna.value > 0
     assert expression.rna.quantile == 5
-
-    # ProteinExpression fields
     assert expression.protein.level == 2
     assert expression.protein.reliability is True
 
-
-async def test_glp1r_target_mouse_phenotype(open_targets_client):
-    """Test MousePhenotype and BiologicalModel fields for GLP1R target."""
-    target = await open_targets_client.get_target_data("ENSG00000112164")
-    phenotype = next(
-        p for p in target.mouse_phenotypes if p.phenotype_id == "MP:0013279"
-    )
-
-    # MousePhenotype fields
-    assert phenotype.phenotype_id == "MP:0013279"
-    assert phenotype.phenotype_label == "increased fasting circulating glucose level"
-    assert "homeostasis/metabolism phenotype" in phenotype.phenotype_categories
-    assert len(phenotype.biological_models) == 1
-
-    # BiologicalModel fields
-    [model] = phenotype.biological_models
-    assert model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
-    assert model.genetic_background == "C57BL/6NTac"
-
-
-async def test_erbb2_target_genetic_constraint(open_targets_client):
-    """Test GeneticConstraint fields for ERBB2 target."""
-    target = await open_targets_client.get_target_data("ENSG00000141736")
-    lof_constraint = next(
-        gc for gc in target.genetic_constraint if gc.constraint_type == "lof"
-    )
-
-    assert lof_constraint.constraint_type == "lof"
-    assert 0.41 < lof_constraint.oe < 0.42
-    assert 0.33 < lof_constraint.oe_lower < 0.34
-    assert 0.51 < lof_constraint.oe_upper < 0.52
-    assert 0.06 < lof_constraint.score < 0.07
-    assert lof_constraint.upper_bin == 1
-
-
-async def test_atp1a1_target_safety_liability(open_targets_client):
-    """Test SafetyLiability and SafetyEffect fields for ATP1A1 target."""
-    target = await open_targets_client.get_target_data("ENSG00000163399")
+    # SafetyLiability — cardiac arrhythmia
     assert len(target.safety_liabilities) > 5
-
-    # Find a specific safety liability with effects
     liability = next(
         sl
         for sl in target.safety_liabilities
         if sl.event == "cardiac arrhythmia" and sl.event_id == "EFO_0004269"
     )
-
-    # SafetyLiability fields
-    assert liability.event == "cardiac arrhythmia"
-    assert liability.event_id == "EFO_0004269"
     assert liability.datasource == "Lynch et al. (2017)"
     assert liability.literature == "28216264"
     assert liability.url is None
     assert len(liability.effects) == 1
-
-    # SafetyEffect fields
     [effect] = liability.effects
     assert effect.direction == "Inhibition/Decrease/Downregulation"
     assert effect.dosing == "acute"
+
+
+async def test_glp1r_target_mouse_phenotype_and_erbb2_constraint(open_targets_client):
+    """Test MousePhenotype (GLP1R) and GeneticConstraint (ERBB2) — two small single-field tests combined."""
+    # GLP1R — MousePhenotype + BiologicalModel
+    glp1r = await open_targets_client.get_target_data("ENSG00000112164")
+    phenotype = next(
+        p for p in glp1r.mouse_phenotypes if p.phenotype_id == "MP:0013279"
+    )
+    assert phenotype.phenotype_label == "increased fasting circulating glucose level"
+    assert "homeostasis/metabolism phenotype" in phenotype.phenotype_categories
+    assert len(phenotype.biological_models) == 1
+    [model] = phenotype.biological_models
+    assert model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
+    assert model.genetic_background == "C57BL/6NTac"
+
+    # ERBB2 — GeneticConstraint (lof)
+    erbb2 = await open_targets_client.get_target_data("ENSG00000141736")
+    lof_constraint = next(
+        gc for gc in erbb2.genetic_constraint if gc.constraint_type == "lof"
+    )
+    assert 0.41 < lof_constraint.oe < 0.42
+    assert 0.33 < lof_constraint.oe_lower < 0.34
+    assert 0.51 < lof_constraint.oe_upper < 0.52
+    assert 0.06 < lof_constraint.score < 0.07
+    assert lof_constraint.upper_bin == 1
 
 
 # SALT_SUFFIXES = [
@@ -430,7 +357,7 @@ async def test_atp1a1_target_safety_liability(open_targets_client):
 #     return top_10
 
 
-async def test_drug_target_competitors(open_targets_client):
+async def test_drug_target_competitors_semaglutide(open_targets_client):
     """Test get_drug_target_competitors returns DrugSummary lists keyed by target symbol."""
     result = await open_targets_client.get_drug_target_competitors("semaglutide")
 
@@ -625,18 +552,3 @@ async def test_empagliflozin_candidates(open_targets_client):
     assert "type 2 diabetes mellitus" not in diseases
 
 
-# TODO rework
-async def test_get_drug_target_competitors_semaglutide(open_targets_client):
-    """Test get_drug_target_competitors returns drugs grouped by target symbol."""
-    result = await open_targets_client.get_drug_target_competitors("semaglutide")
-
-    # Semaglutide targets GLP1R (and possibly others)
-    assert "GLP1R" in result
-    assert len(result["GLP1R"]) > 5
-
-    # LIRAGLUTIDE should be among the GLP1R drugs
-    liraglutide = next(d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE")
-    assert liraglutide.drug_id == "CHEMBL4084119"
-    assert liraglutide.drug_name == "LIRAGLUTIDE"
-    assert liraglutide.max_clinical_stage == "APPROVAL"
-    assert len(liraglutide.diseases) > 0

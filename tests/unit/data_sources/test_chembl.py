@@ -1,4 +1,4 @@
-"""Unit tests for ChEMBLClient.get_molecule() and get_atc_description()."""
+"""Unit tests for ChEMBLClient.get_molecule(), get_atc_description(), and get_trade_names()."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -6,7 +6,7 @@ import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.chembl import ChEMBLClient
-from indication_scout.models.model_chembl import ATCDescription, MoleculeData
+from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
 
 CHEMBL894_FIXTURE = {
     "molecule_chembl_id": "CHEMBL894",
@@ -16,6 +16,9 @@ CHEMBL894_FIXTURE = {
     "black_box_warning": 1,
     "first_approval": 1985,
     "oral": True,
+    "molecule_synonyms": [
+        {"molecule_synonym": "Bupropion", "syn_type": "INN", "synonyms": "BUPROPION"},
+    ],
 }
 
 CHEMBL2108724_FIXTURE = {
@@ -26,6 +29,10 @@ CHEMBL2108724_FIXTURE = {
     "black_box_warning": 1,
     "first_approval": 2017,
     "oral": True,
+    "molecule_synonyms": [
+        {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+        {"molecule_synonym": "Semaglutide", "syn_type": "INN", "synonyms": "SEMAGLUTIDE"},
+    ],
 }
 
 # Sildenafil
@@ -37,6 +44,7 @@ CHEMBL192_FIXTURE = {
     "black_box_warning": 0,
     "first_approval": 1998,
     "oral": True,
+    "molecule_synonyms": [],
 }
 
 # Rituximab
@@ -48,6 +56,7 @@ CHEMBL1201585_FIXTURE = {
     "black_box_warning": 1,
     "first_approval": 1998,
     "oral": False,
+    "molecule_synonyms": [],
 }
 
 # Compound with null max_phase and no ATC codes
@@ -59,6 +68,7 @@ CHEMBL426_FIXTURE = {
     "black_box_warning": 0,
     "first_approval": None,
     "oral": False,
+    "molecule_synonyms": None,
 }
 
 
@@ -254,3 +264,219 @@ async def test_get_atc_description_raises_on_data_source_error(tmp_path):
     ):
         with pytest.raises(DataSourceError):
             await client.get_atc_description("A10BA02")
+
+
+# --- get_trade_names ---
+
+# Parent molecule (bupropion freebase) — no TRADE_NAME synonyms on parent
+PARENT_FIXTURE = {
+    "molecule_chembl_id": "CHEMBL894",
+    "molecule_type": "Small molecule",
+    "max_phase": "4.0",
+    "atc_classifications": ["N06AX12"],
+    "black_box_warning": 1,
+    "first_approval": 1985,
+    "oral": True,
+    "molecule_synonyms": [
+        {"molecule_synonym": "Bupropion", "syn_type": "INN", "synonyms": "BUPROPION"},
+        {"molecule_synonym": "BW-323", "syn_type": "RESEARCH_CODE", "synonyms": "BW-323"},
+    ],
+}
+
+# Salt form (bupropion HCl) — has TRADE_NAME synonyms
+SALT_HCL_MOLECULE = {
+    "molecule_chembl_id": "CHEMBL1698",
+    "molecule_synonyms": [
+        {"molecule_synonym": "Wellbutrin", "syn_type": "TRADE_NAME", "synonyms": "WELLBUTRIN"},
+        {"molecule_synonym": "Zyban", "syn_type": "TRADE_NAME", "synonyms": "ZYBAN"},
+        {"molecule_synonym": "Bupropion hydrochloride", "syn_type": "INN", "synonyms": "BUPROPION HYDROCHLORIDE"},
+        {"molecule_synonym": "Bupropion hydrochloride component of contrave", "syn_type": "TRADE_NAME", "synonyms": "BUPROPION HYDROCHLORIDE COMPONENT OF CONTRAVE"},
+    ],
+}
+
+SALT_HBR_MOLECULE = {
+    "molecule_chembl_id": "CHEMBL1201735",
+    "molecule_synonyms": [
+        {"molecule_synonym": "Aplenzin", "syn_type": "TRADE_NAME", "synonyms": "APLENZIN"},
+    ],
+}
+
+HIERARCHY_RESPONSE = {
+    "molecules": [
+        {"molecule_chembl_id": "CHEMBL894", "molecule_synonyms": PARENT_FIXTURE["molecule_synonyms"]},
+        SALT_HCL_MOLECULE,
+        SALT_HBR_MOLECULE,
+    ],
+}
+
+# Biologic (semaglutide) — trade names directly on parent, no salts
+BIOLOGIC_PARENT_FIXTURE = {
+    "molecule_chembl_id": "CHEMBL2108724",
+    "molecule_type": "Protein",
+    "max_phase": "4.0",
+    "atc_classifications": ["A10BJ06"],
+    "black_box_warning": 1,
+    "first_approval": 2017,
+    "oral": True,
+    "molecule_synonyms": [
+        {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+        {"molecule_synonym": "Rybelsus", "syn_type": "TRADE_NAME", "synonyms": "RYBELSUS"},
+        {"molecule_synonym": "Wegovy", "syn_type": "TRADE_NAME", "synonyms": "WEGOVY"},
+        {"molecule_synonym": "Semaglutide", "syn_type": "INN", "synonyms": "SEMAGLUTIDE"},
+    ],
+}
+
+BIOLOGIC_HIERARCHY_RESPONSE = {
+    "molecules": [
+        {"molecule_chembl_id": "CHEMBL2108724", "molecule_synonyms": BIOLOGIC_PARENT_FIXTURE["molecule_synonyms"]},
+    ],
+}
+
+
+async def test_get_trade_names_small_molecule_with_salts(tmp_path):
+    """Trade names come from salt forms, not the parent freebase molecule."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL894.json" in url:
+            return PARENT_FIXTURE
+        if "/molecule.json" in url:
+            return HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL894")
+
+    assert result == ["Wellbutrin", "Zyban", "Aplenzin"]
+
+
+async def test_get_trade_names_biologic_no_salts(tmp_path):
+    """Biologics have trade names on the parent molecule directly."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return BIOLOGIC_PARENT_FIXTURE
+        if "/molecule.json" in url:
+            return BIOLOGIC_HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL2108724")
+
+    assert result == ["Ozempic", "Rybelsus", "Wegovy"]
+
+
+async def test_get_trade_names_filters_component_of(tmp_path):
+    """Entries containing 'component of' are excluded."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL894.json" in url:
+            return PARENT_FIXTURE
+        if "/molecule.json" in url:
+            return HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL894")
+
+    assert "Bupropion hydrochloride component of contrave" not in result
+
+
+async def test_get_trade_names_no_synonyms_returns_empty(tmp_path):
+    """Molecule with no synonyms returns empty list."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+    bare_fixture = {
+        "molecule_chembl_id": "CHEMBL999",
+        "molecule_type": "Small molecule",
+        "max_phase": None,
+        "atc_classifications": [],
+        "black_box_warning": 0,
+        "first_approval": None,
+        "oral": False,
+        "molecule_synonyms": [],
+    }
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL999.json" in url:
+            return bare_fixture
+        if "/molecule.json" in url:
+            return {"molecules": []}
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL999")
+
+    assert result == []
+
+
+async def test_get_trade_names_hierarchy_failure_still_returns_parent_names(tmp_path):
+    """If hierarchy lookup fails, still returns trade names from the parent."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return BIOLOGIC_PARENT_FIXTURE
+        if "/molecule.json" in url:
+            raise DataSourceError("chembl", "HTTP 500", 500)
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL2108724")
+
+    assert result == ["Ozempic", "Rybelsus", "Wegovy"]
+
+
+async def test_get_trade_names_deduplicates(tmp_path):
+    """Same trade name from parent and salt is not repeated."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+    parent = {
+        **BIOLOGIC_PARENT_FIXTURE,
+        "molecule_synonyms": [
+            {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+        ],
+    }
+    hierarchy = {
+        "molecules": [
+            {
+                "molecule_chembl_id": "CHEMBL_SALT",
+                "molecule_synonyms": [
+                    {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+                ],
+            },
+        ],
+    }
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return parent
+        if "/molecule.json" in url:
+            return hierarchy
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_trade_names("CHEMBL2108724")
+
+    assert result == ["Ozempic"]
+
+
+async def test_get_trade_names_caches_result(tmp_path):
+    """Second call uses cache, no additional API calls."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return BIOLOGIC_PARENT_FIXTURE
+        if "/molecule.json" in url:
+            return BIOLOGIC_HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    mock = AsyncMock(side_effect=mock_rest_get)
+    with patch.object(client, "_rest_get", new=mock):
+        first = await client.get_trade_names("CHEMBL2108724")
+        second = await client.get_trade_names("CHEMBL2108724")
+
+    assert first == second == ["Ozempic", "Rybelsus", "Wegovy"]
+    # get_molecule calls _rest_get once, hierarchy calls once = 2 total
+    assert mock.await_count == 2
