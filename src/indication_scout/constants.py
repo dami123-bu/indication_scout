@@ -125,6 +125,10 @@ VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
 
 MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset({"genetic_association", "literature", "affected_pathway"})
 
+# -- openFDA ----------------------------------------------------------------
+OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/label.json"
+OPENFDA_LABEL_LIMIT: int = 5
+
 # -- Supervisor: mechanism-sourced candidate threshold -----------------------
 # Minimum Open Targets overall_score for a mechanism-surfaced disease
 # association to be promoted into the supervisor's investigation allowlist.

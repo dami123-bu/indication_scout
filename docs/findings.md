@@ -131,6 +131,13 @@ Each entry is dated and categorized.
 - `_parse_result()` checked `isinstance(content, dict)` to parse tool responses, but LangChain may serialize tool return values as JSON strings in `ToolMessage.content`. The `isinstance` check silently skipped the data.
 - Fix: added `json.loads(content)` fallback when content is a string before the type checks.
 
+### FDA approval check for mechanism-sourced diseases (2026-04-13)
+- Mechanism-sourced diseases (from `analyze_mechanism`) were promoted into the supervisor's investigation allowlist with only a score threshold filter (`MECHANISM_ASSOCIATION_MIN_SCORE >= 0.3`), bypassing all approval checking. A disease already FDA-approved for the drug could be added as a repurposing candidate.
+- Fix: added an FDA approval check in both the tool-level gate (`supervisor_tools.py`, `analyze_mechanism`) and the output-assembly post-processing (`supervisor_agent.py`, `run_supervisor_agent`). After collecting qualifying mechanism associations, the code fetches the drug's trade names from Open Targets, queries openFDA labels via `get_fda_approved_diseases` (in `services/approval_check.py`), and excludes matches from the allowlist.
+- The tool-level filter is the critical gate (prevents the LLM from investigating approved diseases); the post-processing mirror ensures output assembly matches.
+- `run_supervisor_agent` signature changed to accept `cache_dir: Path` for the OpenTargets/FDA calls.
+- `FDAClient` (`data_sources/fda.py`) and `approval_check` service (`services/approval_check.py`) are new modules added in this change, along with an LLM prompt template (`prompts/extract_fda_approvals.txt`) for clinical label matching.
+
 ---
 
 ### RAG pipeline parallelization with semaphores (2026-03-29)

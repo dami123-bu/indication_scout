@@ -17,6 +17,8 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from indication_scout.constants import MECHANISM_ASSOCIATION_MIN_SCORE
+from indication_scout.data_sources.open_targets import OpenTargetsClient
+from indication_scout.services.approval_check import get_fda_approved_diseases
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +162,33 @@ def build_supervisor_tools(
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
         logger.info("analyze_mechanism took %.2fs for %s", time.perf_counter() - t0, drug_name)
 
+        # Collect qualifying mechanism disease names not already in the allowlist
+        mechanism_candidates: list[str] = []
+        for assoc_list in output.associations.values():
+            for assoc in assoc_list:
+                if (assoc.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE:
+                    key = assoc.disease_name.lower().strip()
+                    if key not in allowed_diseases:
+                        mechanism_candidates.append(assoc.disease_name)
+
+        # FDA approval check — remove already-approved diseases
+        fda_approved_lower: set[str] = set()
+        if mechanism_candidates:
+            async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
+                drug_data = await ot_client.get_drug(drug_name)
+            if drug_data.trade_names:
+                fda_approved = await get_fda_approved_diseases(
+                    trade_names=drug_data.trade_names,
+                    candidate_diseases=mechanism_candidates,
+                    cache_dir=svc.cache_dir,
+                )
+                if fda_approved:
+                    logger.warning(
+                        "[TOOL] FDA approval check removing %d mechanism diseases: %s",
+                        len(fda_approved), fda_approved,
+                    )
+                fda_approved_lower = {d.lower().strip() for d in fda_approved}
+
         # Promote mechanism associations above the score threshold into the
         # investigation allowlist so the LLM can run literature / trials on them.
         mechanism_added = 0
@@ -167,6 +196,8 @@ def build_supervisor_tools(
             for assoc in assoc_list:
                 if (assoc.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE:
                     key = assoc.disease_name.lower().strip()
+                    if key in fda_approved_lower:
+                        continue  # FDA-approved — skip
                     if key in allowed_diseases:
                         # Already a competitor candidate — upgrade source to "both"
                         name, source = allowed_diseases[key]

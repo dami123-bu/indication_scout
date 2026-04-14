@@ -30,7 +30,7 @@ from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.sqlalchemy.pubmed_abstracts import PubmedAbstracts
 from indication_scout.services.embeddings import embed_async
 from indication_scout.models.model_evidence_summary import EvidenceSummary
-from indication_scout.services.llm import parse_llm_response, query_llm, query_small_llm
+from indication_scout.services.llm import parse_llm_response, query_llm, query_small_llm, strip_markdown_fences
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -448,13 +448,7 @@ class RetrievalService:
         )
 
         response = await query_llm(prompt)
-        # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
-        stripped = response.strip()
-        if stripped.startswith("```"):
-            stripped = stripped.split("```", 2)[1]
-            if stripped.startswith("json"):
-                stripped = stripped[4:].lstrip()
-            stripped = stripped.rsplit("```", 1)[0].strip()
+        stripped = strip_markdown_fences(response)
         try:
             data = json.loads(stripped)
         except json.JSONDecodeError as e:

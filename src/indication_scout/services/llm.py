@@ -20,6 +20,17 @@ _small_model = _settings.small_llm_model
 client = AsyncAnthropic()
 
 
+def strip_markdown_fences(text: str) -> str:
+    """Remove markdown code fences (```json ... ``` or ``` ... ```) from LLM output."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("```", 2)[1]
+        if stripped.startswith("json"):
+            stripped = stripped[4:].lstrip()
+        stripped = stripped.rsplit("```", 1)[0].strip()
+    return stripped
+
+
 def parse_llm_response(response: str) -> list[str]:
     # Try to find a JSON array anywhere in the response
     match = re.search(r"\[.*?\]", response, re.DOTALL)

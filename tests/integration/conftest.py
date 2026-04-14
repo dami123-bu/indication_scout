@@ -16,6 +16,7 @@ from indication_scout.config import get_settings
 from indication_scout.constants import TEST_CACHE_DIR
 from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
+from indication_scout.data_sources.fda import FDAClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.data_sources.pubmed import PubMedClient
 
@@ -79,6 +80,14 @@ def test_cache_dir():
     need to import or reference TEST_CACHE_DIR directly.
     """
     return TEST_CACHE_DIR
+
+
+@pytest.fixture
+async def fda_client():
+    """Create and tear down an FDAClient using the test cache."""
+    c = FDAClient(cache_dir=TEST_CACHE_DIR)
+    yield c
+    await c.close()
 
 
 @pytest.fixture

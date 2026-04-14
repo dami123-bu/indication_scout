@@ -187,4 +187,15 @@ class ChEMBLClient(BaseClient):
             self.cache_dir,
             ttl=CACHE_TTL,
         )
+
+        # Reverse index: name → ChEMBL ID so any code can go name → all trade names
+        for name in result:
+            cache_set(
+                "drug_name_to_chembl",
+                {"name": name.lower()},
+                chembl_id,
+                self.cache_dir,
+                ttl=CACHE_TTL,
+            )
+
         return result

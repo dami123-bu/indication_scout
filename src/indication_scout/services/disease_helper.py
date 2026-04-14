@@ -20,7 +20,7 @@ from indication_scout.constants import (
 )
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.pubmed import PubMedClient
-from indication_scout.services.llm import query_small_llm
+from indication_scout.services.llm import query_small_llm, strip_markdown_fences
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -95,12 +95,7 @@ async def llm_normalize_disease_batch(raw_terms: list[str]) -> dict[str, str]:
         .format(raw_terms=json.dumps(uncached))
     )
     response = await query_small_llm(prompt)
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```", 2)[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.rsplit("```", 1)[0].strip()
+    cleaned = strip_markdown_fences(response)
 
     try:
         batch_results: dict[str, str] = json.loads(cleaned)
@@ -144,13 +139,7 @@ async def merge_duplicate_diseases(
         .format(disease_names=diseases, drug_indications=drug_indications)
     )
     response = await query_small_llm(prompt)
-    cleaned = response.strip()
-    # Strip markdown code fences if present
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```", 2)[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.rsplit("```", 1)[0].strip()
+    cleaned = strip_markdown_fences(response)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:

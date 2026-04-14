@@ -427,3 +427,57 @@ The `SYSTEM_PROMPT` `STRICT CANDIDATE RULE` (which forbade mechanism diseases en
 - `agents/supervisor/supervisor_output.py` — `CandidateFindings` gained `source: Literal["competitor", "mechanism", "both"]` field (default `"competitor"`).
 - `agents/supervisor/supervisor_tools.py` — `allowed_diseases` changed from `set[str]` to `dict[str, tuple[str, Literal[...]]]`; `analyze_mechanism` now promotes qualifying associations into the allowlist.
 - `agents/supervisor/supervisor_agent.py` — `run_supervisor_agent` builds dual-source allowlist with `disease_id` dedup; `SYSTEM_PROMPT` updated.
+
+---
+
+## Update (2026-04-13)
+
+### FDA Approval Check for Mechanism-Sourced Diseases
+
+Mechanism-sourced diseases (from `analyze_mechanism`) were promoted into the supervisor's investigation allowlist with only a score threshold filter (`MECHANISM_ASSOCIATION_MIN_SCORE >= 0.3`), bypassing all approval checking. A disease already FDA-approved for the drug could be added as a repurposing candidate — a false positive.
+
+Competitor-sourced diseases already had two layers of approval filtering (OT client filters `max_clinical_stage == "APPROVAL"`, and `merge_duplicate_diseases` uses LLM to remove synonym matches against approved indications). Mechanism diseases had neither.
+
+#### Fix
+
+Added an FDA approval check in both the tool-level gate and the output-assembly post-processing:
+
+1. **Tool-level** (`supervisor_tools.py`, `analyze_mechanism`): After `run_mechanism_agent` returns, collects qualifying mechanism disease names not already in `allowed_diseases`, fetches the drug's trade names from Open Targets via `get_drug()`, queries openFDA labels via `get_fda_approved_diseases()`, and excludes matches before the allowlist promotion loop.
+2. **Output-assembly** (`supervisor_agent.py`, `run_supervisor_agent`): Mirrors the same FDA check when rebuilding `allowed_lower` from mechanism associations. Collects mechanism candidates not in the competitor allowlist, runs the same `get_fda_approved_diseases()` call, and skips FDA-approved diseases in the promotion loop.
+
+The tool-level filter is the critical gate (prevents the LLM from investigating approved diseases); the post-processing mirror ensures output assembly matches.
+
+#### New modules (already existed as untracked files, now wired in)
+
+- `data_sources/fda.py` — `FDAClient` extending `BaseClient`; queries openFDA drug label endpoint by brand name; caches results; `get_all_label_indications()` fans out across trade names concurrently.
+- `services/approval_check.py` — `get_fda_approved_diseases()` orchestrates FDAClient label fetching and LLM-based extraction; `extract_approved_from_labels()` uses an LLM prompt to match candidate diseases against FDA label text.
+- `prompts/extract_fda_approvals.txt` — LLM prompt template for clinical label matching.
+
+### Implementation Status Changes
+- `agents/supervisor/supervisor_tools.py` — Complete. Added FDA approval check in `analyze_mechanism`: collects mechanism candidates, fetches trade names via `OpenTargetsClient.get_drug()`, calls `get_fda_approved_diseases()`, guards promotion loop with `fda_approved_lower` set.
+- `agents/supervisor/supervisor_agent.py` — Complete. `run_supervisor_agent` signature changed to `(agent, drug_name: str, cache_dir: Path)`. Added FDA check for mechanism associations before the promotion loop in post-processing.
+- `app.py` — Complete. Updated `run_supervisor_agent` call to pass `cache_dir=DEFAULT_CACHE_DIR`.
+- `tests/integration/agents/test_supervisor_agent.py` — Complete. Updated `test_metformin_supervisor_agent` to pass `test_cache_dir` to `run_supervisor_agent`.
+- `tests/integration/conftest.py` — Complete. Added `fda_client` fixture and `FDAClient` import.
+- `data_sources/fda.py` — Complete. `FDAClient` with `get_label_indications()` (single brand) and `get_all_label_indications()` (fan-out + dedup).
+- `services/approval_check.py` — Complete. `get_fda_approved_diseases()` and `extract_approved_from_labels()` with caching and LLM extraction.
+- `prompts/extract_fda_approvals.txt` — Complete. Clinical pharmacology prompt for matching candidates against FDA label text.
+- `constants.py` — Complete. Added `OPENFDA_BASE_URL` and `OPENFDA_LABEL_LIMIT` constants.
+- `tests/unit/data_sources/test_fda.py` — Complete. 10 unit tests covering `get_label_indications` (success, 404, 500, empty, caching) and `get_all_label_indications` (combine, dedup, empty, failures).
+- `tests/unit/services/test_approval_check.py` — Complete. 10 unit tests covering `extract_approved_from_labels` (match, no match, empty inputs, markdown fences, hallucinated disease, invalid JSON, case insensitive, caching) and `get_fda_approved_diseases` (end-to-end, empty inputs, no labels).
+- `tests/unit/agents/test_supervisor_tools.py` — Complete. 3 unit tests: FDA filter excludes approved disease, keeps non-approved, skips check when no trade names.
+- `tests/unit/agents/test_supervisor_agent.py` — Complete. 2 unit tests: FDA filter in post-processing excludes approved mechanism disease, keeps non-approved.
+- `tests/integration/data_sources/test_fda.py` — Complete. 4 integration tests hitting real openFDA API (Wegovy, nonexistent brand, semaglutide brands, Xeljanz).
+- `tests/integration/services/test_approval_check.py` — Complete. 3 integration tests hitting real openFDA + LLM APIs (semaglutide/diabetes, xeljanz/UC, xeljanz/RA).
+- `docs/findings.md` — Complete. Appended finding documenting the FDA approval check pattern and where it lives.
+
+### New Patterns / Decisions
+- FDA approval check uses a two-step approach: (1) fetch raw indication text from openFDA drug labels via trade names, (2) use LLM (`query_small_llm`) to match candidate disease names against the label text. This avoids brittle string matching for clinical name variations (e.g. "NASH" vs "non-alcoholic steatohepatitis").
+- Trade names come from `OpenTargetsClient.get_drug()` which is already cached from `find_candidates` running in parallel — no additional API call in practice.
+- The FDA check only runs when there are mechanism candidates not already in the competitor allowlist AND the drug has trade names. No-ops gracefully otherwise.
+- `run_supervisor_agent` now requires `cache_dir: Path` — all callers updated.
+
+### Known Issues / Caveats Added
+- If a drug has no trade names in Open Targets, the FDA check is skipped entirely — mechanism diseases will not be filtered for approval status. This is an acceptable limitation since drugs without trade names are unlikely to have FDA-approved indications.
+- The `find_candidates` path has its own approval filtering (OT-level + LLM merge); the FDA check is specific to mechanism-sourced diseases only.
+- All 390 unit tests pass; 0 regressions.
