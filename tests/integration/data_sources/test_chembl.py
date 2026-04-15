@@ -81,34 +81,44 @@ async def test_get_atc_description(
     assert result.who_name == who_name
 
 
-# --- get_trade_names ---
+# --- get_all_drug_names ---
 
 
 @pytest.mark.parametrize(
-    "chembl_id, expected_names",
+    "chembl_id, expected_pref_name, expected_trade_names",
     [
         (
             "CHEMBL894",
-            ["Wellbutrin", "Zyban", "Aplenzin", "Forfivo XL"],
+            "bupropion",
+            ["wellbutrin", "zyban", "aplenzin", "forfivo xl"],
         ),
         (
             "CHEMBL2108724",
-            ["Ozempic", "Rybelsus", "Wegovy"],
+            "semaglutide",
+            ["ozempic", "rybelsus", "wegovy"],
         ),
     ],
 )
-async def test_get_trade_names(
-    chembl_client, chembl_id, expected_names, test_cache_dir
+async def test_get_all_drug_names(
+    chembl_client, chembl_id, expected_pref_name, expected_trade_names, test_cache_dir
 ):
     from indication_scout.data_sources.chembl import ChEMBLClient
 
     client = ChEMBLClient(cache_dir=test_cache_dir)
     async with client:
-        result = await client.get_trade_names(chembl_id)
+        result = await client.get_all_drug_names(chembl_id)
 
-    for name in expected_names:
-        assert name in result, f"Expected '{name}' in trade names for {chembl_id}, got {result}"
+    # pref_name is always first
+    assert result[0] == expected_pref_name
+
+    # all expected trade names present
+    for name in expected_trade_names:
+        assert name in result, f"Expected '{name}' in drug names for {chembl_id}, got {result}"
+
+    # all names are lowercase
+    for name in result:
+        assert name == name.lower(), f"Expected lowercase, got '{name}'"
 
     # "component of" entries should be filtered out
     for name in result:
-        assert "component of" not in name.lower()
+        assert "component of" not in name

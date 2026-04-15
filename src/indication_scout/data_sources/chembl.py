@@ -99,8 +99,12 @@ class ChEMBLClient(BaseClient):
             for s in raw.get("molecule_synonyms") or []
         ]
 
+        hierarchy = raw.get("molecule_hierarchy") or {}
+
         return MoleculeData(
             molecule_chembl_id=raw["molecule_chembl_id"],
+            pref_name=raw.get("pref_name", ""),
+            parent_chembl_id=hierarchy.get("parent_chembl_id", ""),
             molecule_type=raw["molecule_type"],
             max_phase=raw["max_phase"],
             atc_classifications=raw.get("atc_classifications") or [],
@@ -110,8 +114,12 @@ class ChEMBLClient(BaseClient):
             molecule_synonyms=synonyms,
         )
 
-    async def get_trade_names(self, chembl_id: str) -> list[str]:
-        """Fetch trade names for a drug from ChEMBL, including salt forms.
+    async def get_all_drug_names(self, chembl_id: str) -> list[str]:
+        """Fetch all known names for a drug from ChEMBL.
+
+        Returns a list where the first element is always pref_name (the
+        generic/preferred name), followed by trade names from the parent
+        molecule and its salt forms. All names are lowercased.
 
         For small molecules, trade names often live on salt forms (e.g. HCl,
         HBr) rather than the parent molecule. This method fetches the parent
@@ -119,24 +127,26 @@ class ChEMBLClient(BaseClient):
         endpoint, and collects TRADE_NAME synonyms from all of them.
 
         Filters out "component of" entries (combination products).
-        Results are cached under namespace "chembl_trade_names".
+        Results are cached under namespace "chembl_drug_names".
 
         Args:
             chembl_id: ChEMBL ID of the parent molecule (e.g. "CHEMBL894").
 
         Returns:
-            Deduplicated list of trade names.
+            Deduplicated list of drug names, pref_name first. All lowercase.
         """
         cached = cache_get(
-            "chembl_trade_names", {"chembl_id": chembl_id}, self.cache_dir
+            "chembl_drug_names", {"chembl_id": chembl_id}, self.cache_dir
         )
         if cached is not None:
             return cached
 
         trade_names: list[str] = []
 
-        # 1. Get trade names from the parent molecule itself
+        # 1. Get pref_name and trade names from the parent molecule itself
         parent = await self.get_molecule(chembl_id)
+        pref_name = parent.pref_name.lower() if parent.pref_name else chembl_id
+
         trade_names.extend(
             s.molecule_synonym
             for s in parent.molecule_synonyms
@@ -168,34 +178,54 @@ class ChEMBLClient(BaseClient):
                 if s.get("syn_type") == "TRADE_NAME":
                     trade_names.append(s.get("molecule_synonym", ""))
 
-        # 3. Filter out "component of" entries and deduplicate
+        # 3. Filter out "component of" entries, lowercase, deduplicate with pref_name first
         filtered = [
-            name
+            name.lower()
             for name in trade_names
             if name and "component of" not in name.lower()
         ]
-        result = list(dict.fromkeys(filtered))
+        result = [pref_name] + [n for n in list(dict.fromkeys(filtered)) if n != pref_name]
 
         logger.info(
-            "ChEMBL trade names for %s: %d found", chembl_id, len(result)
+            "ChEMBL drug names for %s: %d found", chembl_id, len(result)
         )
 
         cache_set(
-            "chembl_trade_names",
+            "chembl_drug_names",
             {"chembl_id": chembl_id},
             result,
             self.cache_dir,
             ttl=CACHE_TTL,
         )
 
-        # Reverse index: name → ChEMBL ID so any code can go name → all trade names
+        # Reverse index: name → ChEMBL ID so any code can go name → all drug names
         for name in result:
             cache_set(
                 "drug_name_to_chembl",
-                {"name": name.lower()},
+                {"name": name},
                 chembl_id,
                 self.cache_dir,
                 ttl=CACHE_TTL,
             )
 
         return result
+
+
+async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> list[str]:
+    """Fetch all known names for a drug, cache-aware.
+
+    Checks the "chembl_drug_names" cache first. On miss, instantiates a
+    ChEMBLClient and delegates to ChEMBLClient.get_all_drug_names.
+
+    Args:
+        chembl_id: ChEMBL ID of the parent molecule.
+        cache_dir: Directory for file-based cache.
+
+    Returns:
+        Deduplicated list of drug names, pref_name first. All lowercase.
+    """
+    cached = cache_get("chembl_drug_names", {"chembl_id": chembl_id}, cache_dir)
+    if cached is not None:
+        return cached
+    async with ChEMBLClient(cache_dir=cache_dir) as client:
+        return await client.get_all_drug_names(chembl_id)

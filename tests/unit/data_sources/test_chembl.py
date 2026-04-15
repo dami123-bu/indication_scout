@@ -1,15 +1,17 @@
-"""Unit tests for ChEMBLClient.get_molecule(), get_atc_description(), and get_trade_names()."""
+"""Unit tests for ChEMBLClient.get_molecule(), get_atc_description(), and get_all_drug_names()."""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names
 from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
 
 CHEMBL894_FIXTURE = {
     "molecule_chembl_id": "CHEMBL894",
+    "pref_name": "BUPROPION",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL894"},
     "molecule_type": "Small molecule",
     "max_phase": "4.0",
     "atc_classifications": ["N06AX12"],
@@ -23,6 +25,8 @@ CHEMBL894_FIXTURE = {
 
 CHEMBL2108724_FIXTURE = {
     "molecule_chembl_id": "CHEMBL2108724",
+    "pref_name": "SEMAGLUTIDE",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL2108724"},
     "molecule_type": "Protein",
     "max_phase": "4.0",
     "atc_classifications": ["A10BJ06"],
@@ -38,6 +42,8 @@ CHEMBL2108724_FIXTURE = {
 # Sildenafil
 CHEMBL192_FIXTURE = {
     "molecule_chembl_id": "CHEMBL192",
+    "pref_name": "SILDENAFIL",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL192"},
     "molecule_type": "Small molecule",
     "max_phase": "4.0",
     "atc_classifications": ["G04BE03"],
@@ -50,6 +56,8 @@ CHEMBL192_FIXTURE = {
 # Rituximab
 CHEMBL1201585_FIXTURE = {
     "molecule_chembl_id": "CHEMBL1201585",
+    "pref_name": "RITUXIMAB",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL1201585"},
     "molecule_type": "Antibody",
     "max_phase": "4.0",
     "atc_classifications": ["L01FD01"],
@@ -62,6 +70,8 @@ CHEMBL1201585_FIXTURE = {
 # Compound with null max_phase and no ATC codes
 CHEMBL426_FIXTURE = {
     "molecule_chembl_id": "CHEMBL426",
+    "pref_name": None,
+    "molecule_hierarchy": None,
     "molecule_type": "Small molecule",
     "max_phase": None,
     "atc_classifications": [],
@@ -266,11 +276,13 @@ async def test_get_atc_description_raises_on_data_source_error(tmp_path):
             await client.get_atc_description("A10BA02")
 
 
-# --- get_trade_names ---
+# --- get_all_drug_names ---
 
 # Parent molecule (bupropion freebase) — no TRADE_NAME synonyms on parent
 PARENT_FIXTURE = {
     "molecule_chembl_id": "CHEMBL894",
+    "pref_name": "BUPROPION",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL894"},
     "molecule_type": "Small molecule",
     "max_phase": "4.0",
     "atc_classifications": ["N06AX12"],
@@ -312,6 +324,8 @@ HIERARCHY_RESPONSE = {
 # Biologic (semaglutide) — trade names directly on parent, no salts
 BIOLOGIC_PARENT_FIXTURE = {
     "molecule_chembl_id": "CHEMBL2108724",
+    "pref_name": "SEMAGLUTIDE",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL2108724"},
     "molecule_type": "Protein",
     "max_phase": "4.0",
     "atc_classifications": ["A10BJ06"],
@@ -333,8 +347,8 @@ BIOLOGIC_HIERARCHY_RESPONSE = {
 }
 
 
-async def test_get_trade_names_small_molecule_with_salts(tmp_path):
-    """Trade names come from salt forms, not the parent freebase molecule."""
+async def test_get_all_drug_names_small_molecule_with_salts(tmp_path):
+    """pref_name first, then trade names from salt forms, all lowercase."""
     client = ChEMBLClient(cache_dir=tmp_path)
 
     async def mock_rest_get(url: str, params: dict):
@@ -345,12 +359,12 @@ async def test_get_trade_names_small_molecule_with_salts(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL894")
+        result = await client.get_all_drug_names("CHEMBL894")
 
-    assert result == ["Wellbutrin", "Zyban", "Aplenzin"]
+    assert result == ["bupropion", "wellbutrin", "zyban", "aplenzin"]
 
 
-async def test_get_trade_names_biologic_no_salts(tmp_path):
+async def test_get_all_drug_names_biologic_no_salts(tmp_path):
     """Biologics have trade names on the parent molecule directly."""
     client = ChEMBLClient(cache_dir=tmp_path)
 
@@ -362,12 +376,12 @@ async def test_get_trade_names_biologic_no_salts(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL2108724")
+        result = await client.get_all_drug_names("CHEMBL2108724")
 
-    assert result == ["Ozempic", "Rybelsus", "Wegovy"]
+    assert result == ["semaglutide", "ozempic", "rybelsus", "wegovy"]
 
 
-async def test_get_trade_names_filters_component_of(tmp_path):
+async def test_get_all_drug_names_filters_component_of(tmp_path):
     """Entries containing 'component of' are excluded."""
     client = ChEMBLClient(cache_dir=tmp_path)
 
@@ -379,16 +393,18 @@ async def test_get_trade_names_filters_component_of(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL894")
+        result = await client.get_all_drug_names("CHEMBL894")
 
-    assert "Bupropion hydrochloride component of contrave" not in result
+    assert "bupropion hydrochloride component of contrave" not in result
 
 
-async def test_get_trade_names_no_synonyms_returns_empty(tmp_path):
-    """Molecule with no synonyms returns empty list."""
+async def test_get_all_drug_names_no_synonyms_no_pref_name(tmp_path):
+    """Molecule with no synonyms and no pref_name returns [chembl_id lowercase]."""
     client = ChEMBLClient(cache_dir=tmp_path)
     bare_fixture = {
         "molecule_chembl_id": "CHEMBL999",
+        "pref_name": None,
+        "molecule_hierarchy": None,
         "molecule_type": "Small molecule",
         "max_phase": None,
         "atc_classifications": [],
@@ -406,13 +422,13 @@ async def test_get_trade_names_no_synonyms_returns_empty(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL999")
+        result = await client.get_all_drug_names("CHEMBL999")
 
-    assert result == []
+    assert result == ["CHEMBL999"]
 
 
-async def test_get_trade_names_hierarchy_failure_still_returns_parent_names(tmp_path):
-    """If hierarchy lookup fails, still returns trade names from the parent."""
+async def test_get_all_drug_names_hierarchy_failure_still_returns_parent_names(tmp_path):
+    """If hierarchy lookup fails, still returns pref_name and trade names from the parent."""
     client = ChEMBLClient(cache_dir=tmp_path)
 
     async def mock_rest_get(url: str, params: dict):
@@ -423,12 +439,12 @@ async def test_get_trade_names_hierarchy_failure_still_returns_parent_names(tmp_
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL2108724")
+        result = await client.get_all_drug_names("CHEMBL2108724")
 
-    assert result == ["Ozempic", "Rybelsus", "Wegovy"]
+    assert result == ["semaglutide", "ozempic", "rybelsus", "wegovy"]
 
 
-async def test_get_trade_names_deduplicates(tmp_path):
+async def test_get_all_drug_names_deduplicates(tmp_path):
     """Same trade name from parent and salt is not repeated."""
     client = ChEMBLClient(cache_dir=tmp_path)
     parent = {
@@ -456,12 +472,12 @@ async def test_get_trade_names_deduplicates(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
-        result = await client.get_trade_names("CHEMBL2108724")
+        result = await client.get_all_drug_names("CHEMBL2108724")
 
-    assert result == ["Ozempic"]
+    assert result == ["semaglutide", "ozempic"]
 
 
-async def test_get_trade_names_caches_result(tmp_path):
+async def test_get_all_drug_names_caches_result(tmp_path):
     """Second call uses cache, no additional API calls."""
     client = ChEMBLClient(cache_dir=tmp_path)
 
@@ -474,9 +490,69 @@ async def test_get_trade_names_caches_result(tmp_path):
 
     mock = AsyncMock(side_effect=mock_rest_get)
     with patch.object(client, "_rest_get", new=mock):
-        first = await client.get_trade_names("CHEMBL2108724")
-        second = await client.get_trade_names("CHEMBL2108724")
+        first = await client.get_all_drug_names("CHEMBL2108724")
+        second = await client.get_all_drug_names("CHEMBL2108724")
 
-    assert first == second == ["Ozempic", "Rybelsus", "Wegovy"]
+    assert first == second == ["semaglutide", "ozempic", "rybelsus", "wegovy"]
     # get_molecule calls _rest_get once, hierarchy calls once = 2 total
     assert mock.await_count == 2
+
+
+async def test_get_all_drug_names_pref_name_not_duplicated_with_trade_name(tmp_path):
+    """If pref_name matches a trade name, it appears only once (first position)."""
+    client = ChEMBLClient(cache_dir=tmp_path)
+    fixture = {
+        **BIOLOGIC_PARENT_FIXTURE,
+        "pref_name": "OZEMPIC",
+        "molecule_synonyms": [
+            {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+            {"molecule_synonym": "Rybelsus", "syn_type": "TRADE_NAME", "synonyms": "RYBELSUS"},
+        ],
+    }
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return fixture
+        if "/molecule.json" in url:
+            return BIOLOGIC_HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch.object(client, "_rest_get", new=AsyncMock(side_effect=mock_rest_get)):
+        result = await client.get_all_drug_names("CHEMBL2108724")
+
+    assert result == ["ozempic", "rybelsus"]
+    assert result[0] == "ozempic"
+
+
+# --- module-level get_all_drug_names ---
+
+
+async def test_module_get_all_drug_names_cache_hit(tmp_path):
+    """Module-level helper returns cached result without instantiating a client."""
+    from indication_scout.utils.cache import cache_set
+
+    cached_names = ["metformin", "glucophage", "fortamet"]
+    cache_set("chembl_drug_names", {"chembl_id": "CHEMBL1431"}, cached_names, tmp_path)
+
+    result = await get_all_drug_names("CHEMBL1431", cache_dir=tmp_path)
+    assert result == ["metformin", "glucophage", "fortamet"]
+
+
+async def test_module_get_all_drug_names_cache_miss_delegates(tmp_path):
+    """Module-level helper instantiates client and delegates on cache miss."""
+    expected = ["semaglutide", "ozempic", "rybelsus", "wegovy"]
+
+    async def mock_rest_get(url: str, params: dict):
+        if "/molecule/CHEMBL2108724.json" in url:
+            return BIOLOGIC_PARENT_FIXTURE
+        if "/molecule.json" in url:
+            return BIOLOGIC_HIERARCHY_RESPONSE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch(
+        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+        new=AsyncMock(side_effect=mock_rest_get),
+    ):
+        result = await get_all_drug_names("CHEMBL2108724", cache_dir=tmp_path)
+
+    assert result == expected

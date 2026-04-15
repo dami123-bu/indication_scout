@@ -49,6 +49,8 @@ class MoleculeData(BaseModel):
     """Data returned by the ChEMBL molecule endpoint for a single compound."""
 
     molecule_chembl_id: str = ""
+    pref_name: str = ""
+    parent_chembl_id: str = ""
     molecule_type: str = ""
     max_phase: str | None = None
     atc_classifications: list[str] = []
