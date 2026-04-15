@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from indication_scout.config import get_settings
 from indication_scout.constants import CACHE_TTL
-from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names
 from indication_scout.data_sources.open_targets import (
     CompetitorRawData,
     OpenTargetsClient,
@@ -82,27 +82,27 @@ class RetrievalService:
                 merged[key] = set(diseases[original])
         return merged
 
-    async def get_drug_competitors(self, drug_name: str) -> dict[str, set[str]]:
+    async def get_drug_competitors(self, chembl_id: str) -> dict[str, set[str]]:
         """Fetch top disease indications and their competitor drugs from Open Targets.
 
         Fetches raw competitor data from the client, then uses an LLM to merge
         duplicate disease names and remove overly broad terms before returning.
 
         Args:
-            drug_name: Common drug name (e.g. "empagliflozin").
+            chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
 
         Returns:
             Dict mapping disease name to set of competitor drug names.
         """
-        cache_params = {"drug_name": drug_name}
+        cache_params = {"chembl_id": chembl_id}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
         if cached is not None and len(cached) > 0:
             logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
-                           drug_name, len(cached), list(cached.keys()))
+                           chembl_id, len(cached), list(cached.keys()))
             return {disease: set(drugs) for disease, drugs in cached.items()}
 
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
-            raw: CompetitorRawData = await client.get_drug_competitors(drug_name)
+            raw: CompetitorRawData = await client.get_drug_competitors(chembl_id)
             logger.warning("[COMP] raw from OT: %d diseases: %s",
                            len(raw["diseases"]), list(raw["diseases"].keys()))
 
@@ -158,19 +158,19 @@ class RetrievalService:
         )
         return top_15
 
-    async def build_drug_profile(self, drug_name: str) -> DrugProfile:
+    async def build_drug_profile(self, chembl_id: str) -> DrugProfile:
         """Fetch drug + target data from Open Targets, enrich with ATC descriptions from ChEMBL,
         and return a DrugProfile ready for use in search term expansion.
 
         Args:
-            drug_name: Common drug name (e.g. "metformin").
+            chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
 
         Returns:
             DrugProfile with all fields populated. atc_descriptions will be [] if the drug
             has no ATC classifications.
         """
         async with OpenTargetsClient(cache_dir=self.cache_dir) as open_targets_client:
-            rich = await open_targets_client.get_rich_drug_data(drug_name)
+            rich = await open_targets_client.get_rich_drug_data(chembl_id)
 
         atc_descriptions = []
         if rich.drug.atc_classifications:
@@ -362,7 +362,7 @@ class RetrievalService:
         return all_pmids
 
     async def semantic_search(
-        self, disease: str, drug: str, pmids: list[str], db: Session
+        self, disease: str, chembl_id: str, pmids: list[str], db: Session
     ) -> list[AbstractResult]:
         """For a given drug, disease, and list of PMIDs, return top-k most similar abstracts from pgvector
 
@@ -372,15 +372,16 @@ class RetrievalService:
 
         Args:
             disease: e.g. "colorectal cancer"
-            drug: e.g. "metformin"
+            chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
             pmids: e.g. ["29734553", "31245678", "30198432"]
 
         Returns:
             List of dicts ranked by descending similarity, e.g.:
             [{"pmid": "29734553", "title": "Metformin suppresses colorectal...", "abstract": "...", "similarity": 0.89}, ...]
         """
+        pref_name = (await get_all_drug_names(chembl_id, self.cache_dir))[0]
         query_string = (
-            f"Evidence for {drug} as a treatment for {disease}, "
+            f"Evidence for {pref_name} as a treatment for {disease}, "
             "including clinical trials, efficacy data, mechanism of action, "
             "and preclinical studies"
         )
@@ -421,7 +422,7 @@ class RetrievalService:
         return results
 
     async def synthesize(
-        self, drug: str, disease: str, top_abstracts: list[AbstractResult]
+        self, chembl_id: str, disease: str, top_abstracts: list[AbstractResult]
     ) -> EvidenceSummary:
         """Summarize PubMed evidence for a drug-disease pair using an LLM.
 
@@ -429,7 +430,7 @@ class RetrievalService:
         and parses the JSON response into an EvidenceSummary.
 
         Args:
-            drug: Drug name (e.g. "metformin").
+            chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
             disease: Candidate disease (e.g. "colorectal cancer").
             top_abstracts: Output of semantic_search — list of dicts with keys
                 "pmid", "title", "abstract", "similarity".
@@ -437,6 +438,7 @@ class RetrievalService:
         Returns:
             EvidenceSummary with all fields populated from the LLM response.
         """
+        pref_name = (await get_all_drug_names(chembl_id, self.cache_dir))[0]
         formatted = "\n\n".join(
             f"PMID: {r.pmid}\nTitle: {r.title}\nAbstract: {r.abstract}"
             for r in top_abstracts
@@ -444,7 +446,7 @@ class RetrievalService:
 
         template = (_PROMPTS_DIR / "synthesize.txt").read_text()
         prompt = template.format(
-            drug_name=drug, disease_name=disease, abstracts=formatted
+            drug_name=pref_name, disease_name=disease, abstracts=formatted
         )
 
         response = await query_llm(prompt)
@@ -485,7 +487,7 @@ class RetrievalService:
         return organ_term
 
     async def expand_search_terms(
-        self, drug_name: str, disease_name: str, drug_profile: DrugProfile
+        self, chembl_id: str, disease_name: str, drug_profile: DrugProfile
     ) -> list[str]:
         """Use LLM to generate diverse PubMed search queries from a drug-disease pair.
 
@@ -495,7 +497,7 @@ class RetrievalService:
         pair and deduplicated (case-insensitive) before return.
 
         Args:
-            drug_name: Common drug name (e.g. "metformin").
+            chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
             disease_name: Target indication (e.g. "colorectal cancer").
             drug_profile: DrugProfile built from Open Targets + ChEMBL data.
 
@@ -523,20 +525,22 @@ class RetrievalService:
         """
         cached = cache_get(
             "expand_search_terms",
-            {"drug_name": drug_name, "disease_name": disease_name},
+            {"chembl_id": chembl_id, "disease_name": disease_name},
             self.cache_dir,
         )
         if cached is not None:
             logger.debug(
-                "Cache hit for expand_search_terms: %s / %s", drug_name, disease_name
+                "Cache hit for expand_search_terms: %s / %s", chembl_id, disease_name
             )
             return cached
 
+        all_names = await get_all_drug_names(chembl_id, self.cache_dir)
+        pref_name = all_names[0]
         organ_term = await self.extract_organ_term(disease_name)
 
         template = (_PROMPTS_DIR / "expand_search_terms.txt").read_text()
         prompt = template.format(
-            drug_name=drug_name,
+            drug_name=pref_name,
             disease_name=disease_name,
             organ_term=organ_term,
             synonyms=", ".join(drug_profile.synonyms),
@@ -560,7 +564,7 @@ class RetrievalService:
 
         cache_set(
             "expand_search_terms",
-            {"drug_name": drug_name, "disease_name": disease_name},
+            {"chembl_id": chembl_id, "disease_name": disease_name},
             deduped,
             self.cache_dir,
             ttl=CACHE_TTL,
@@ -568,7 +572,7 @@ class RetrievalService:
         logger.debug(
             "expand_search_terms returned %d queries for %s / %s",
             len(deduped),
-            drug_name,
+            chembl_id,
             disease_name,
         )
         return deduped
