@@ -154,7 +154,7 @@ async def test_expand_search_terms_returns_queries(svc):
     """expand_search_terms should return queries covering all 5 prompt axes."""
     profile = DrugProfile(
         name="metformin",
-        synonyms=["Glucophage", "Fortamet"],
+        synonyms=["glucophage", "fortamet"],
         target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
         mechanisms_of_action=[
             "AMP-activated protein kinase activator",
@@ -199,7 +199,7 @@ async def test_expand_search_terms_returns_queries(svc):
     [
         (
             "metformin",
-            "METFORMIN",
+            "metformin",
             "Small molecule",
             ["A10BA02"],
             ["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],

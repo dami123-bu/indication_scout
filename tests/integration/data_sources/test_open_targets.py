@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @no_review
 async def test_sildenafil_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
-    drug = await open_targets_client.get_drug("Semaglutide")
+    drug = await open_targets_client.get_drug("semaglutide")
     indications = drug.indications
     match = [i for i in indications if "kidney" in i.disease_name.lower()]
     approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
@@ -39,10 +39,10 @@ async def test_bupropion_drug_data(open_targets_client):
     drug = await open_targets_client.get_drug("bupropion")
 
     assert drug.atc_classifications == ["N06AX12"]
-    assert "Wellbutrin" in drug.trade_names
-    assert "Zyban" in drug.trade_names
-    assert "Aplenzin" in drug.trade_names
-    assert "Forfivo xl" in drug.trade_names
+    assert "wellbutrin" in drug.trade_names
+    assert "zyban" in drug.trade_names
+    assert "aplenzin" in drug.trade_names
+    assert "forfivo xl" in drug.trade_names
 
 
 async def test_semaglutide_drug_data(open_targets_client):
@@ -51,10 +51,10 @@ async def test_semaglutide_drug_data(open_targets_client):
 
     # DrugData top-level fields
     assert drug.chembl_id == "CHEMBL2108724"
-    assert drug.name == "SEMAGLUTIDE"
-    assert "NN-9535" in drug.synonyms
-    assert "Ozempic" in drug.trade_names
-    assert "Wegovy" in drug.trade_names
+    assert drug.name == "semaglutide"
+    assert "nn-9535" in drug.synonyms
+    assert "ozempic" in drug.trade_names
+    assert "wegovy" in drug.trade_names
     assert drug.drug_type == "Protein"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert len(drug.indications) > 5
@@ -130,7 +130,7 @@ async def test_metformin_drug_data(open_targets_client):
     drug = await open_targets_client.get_drug("metformin")
 
     assert drug.chembl_id == "CHEMBL1431"
-    assert drug.name == "METFORMIN"
+    assert drug.name == "metformin"
     assert drug.drug_type == "Small molecule"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert drug.atc_classifications == ["A10BA02"]
@@ -148,7 +148,7 @@ async def test_get_drug_invalid_input_raises_error(open_targets_client, bad_name
     with pytest.raises(DataSourceError) as exc_info:
         await open_targets_client.get_drug(bad_name)
 
-    assert exc_info.value.source == "open_targets"
+    assert exc_info.value.source == "chembl"
 
 
 # --- get_disease_synonyms ---
@@ -222,7 +222,7 @@ async def test_glp1r_target_data(open_targets_client):
     assert "gastrointestinal disease" in assoc.therapeutic_areas
 
     # DrugSummary — liraglutide
-    liraglutide = next(d for d in target.drug_summaries if d.drug_name == "LIRAGLUTIDE")
+    liraglutide = next(d for d in target.drug_summaries if d.drug_name == "liraglutide")
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
@@ -371,9 +371,9 @@ async def test_drug_target_competitors_semaglutide(open_targets_client):
         assert len(summaries) > 0
 
     # Spot-check a known GLP1R competitor: LIRAGLUTIDE
-    liraglutide = next(d for d in result["GLP1R"] if d.drug_name == "LIRAGLUTIDE")
+    liraglutide = next(d for d in result["GLP1R"] if d.drug_name == "liraglutide")
     assert liraglutide.drug_id == "CHEMBL4084119"
-    assert liraglutide.drug_name == "LIRAGLUTIDE"
+    assert liraglutide.drug_name == "liraglutide"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
 
@@ -391,10 +391,10 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     # --- DrugData fields ---
     drug = result.drug
     assert drug.chembl_id == "CHEMBL2108724"
-    assert drug.name == "SEMAGLUTIDE"
-    assert "NN-9535" in drug.synonyms
-    assert "Ozempic" in drug.trade_names
-    assert "Wegovy" in drug.trade_names
+    assert drug.name == "semaglutide"
+    assert "nn-9535" in drug.synonyms
+    assert "ozempic" in drug.trade_names
+    assert "wegovy" in drug.trade_names
     assert drug.drug_type == "Protein"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert len(drug.indications) > 5
@@ -454,9 +454,9 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     assert "gastrointestinal disease" in gastroparesis.therapeutic_areas
 
     # DrugSummary — semaglutide on GLP1R
-    sema_summary = next(d for d in glp1r.drug_summaries if d.drug_name == "SEMAGLUTIDE")
+    sema_summary = next(d for d in glp1r.drug_summaries if d.drug_name == "semaglutide")
     assert sema_summary.drug_id == "CHEMBL2108724"
-    assert sema_summary.drug_name == "SEMAGLUTIDE"
+    assert sema_summary.drug_name == "semaglutide"
     assert sema_summary.max_clinical_stage == "APPROVAL"
     assert len(sema_summary.diseases) > 0
     t2d_disease = next(

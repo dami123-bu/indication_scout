@@ -135,10 +135,10 @@ async def test_get_target_drug_summaries(open_targets_client):
     )
 
     assert len(drug_summaries) > 5
-    liraglutide = next(d for d in drug_summaries if d.drug_name == "LIRAGLUTIDE")
+    liraglutide = next(d for d in drug_summaries if d.drug_name == "liraglutide")
     # Verify DrugSummary fields
     assert liraglutide.drug_id == "CHEMBL4084119"
-    assert liraglutide.drug_name == "LIRAGLUTIDE"
+    assert liraglutide.drug_name == "liraglutide"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
     t2d = next(
@@ -245,8 +245,8 @@ async def test_get_disease_drugs(open_targets_client):
     drugs = await open_targets_client.get_disease_drugs("MONDO_0005148")
 
     assert len(drugs) > 10
-    semaglutide = next(d for d in drugs if d.drug_name == "SEMAGLUTIDE")
+    semaglutide = next(d for d in drugs if d.drug_name == "semaglutide")
     # Verify DrugSummary fields
     assert semaglutide.drug_id == "CHEMBL2108724"
-    assert semaglutide.drug_name == "SEMAGLUTIDE"
+    assert semaglutide.drug_name == "semaglutide"
     assert semaglutide.max_clinical_stage == "APPROVAL"

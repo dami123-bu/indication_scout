@@ -19,7 +19,7 @@ def sample_drug_data():
     """Create a sample DrugData for testing."""
     return DrugData(
         chembl_id="CHEMBL2108724",
-        name="SEMAGLUTIDE",
+        name="semaglutide",
         drug_type="Protein",
         maximum_clinical_stage="APPROVAL",
         targets=[
@@ -77,7 +77,7 @@ def test_drug_data_mechanisms_of_action_field():
     """DrugData.mechanisms_of_action should store MechanismOfAction objects."""
     drug = DrugData(
         chembl_id="CHEMBL2108724",
-        name="SEMAGLUTIDE",
+        name="semaglutide",
         mechanisms_of_action=[
             MechanismOfAction(
                 mechanism_of_action="GLP-1 receptor agonist",

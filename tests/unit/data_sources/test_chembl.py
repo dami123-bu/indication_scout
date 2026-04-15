@@ -1,11 +1,11 @@
-"""Unit tests for ChEMBLClient.get_molecule(), get_atc_description(), and get_all_drug_names()."""
+"""Unit tests for ChEMBLClient.get_molecule(), get_atc_description(), get_all_drug_names(), and resolve_drug_name()."""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names
+from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names, resolve_drug_name
 from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
 
 CHEMBL894_FIXTURE = {
@@ -556,3 +556,135 @@ async def test_module_get_all_drug_names_cache_miss_delegates(tmp_path):
         result = await get_all_drug_names("CHEMBL2108724", cache_dir=tmp_path)
 
     assert result == expected
+
+
+# --- resolve_drug_name ---
+
+# OT search response fixtures
+OT_SEARCH_HIT_PARENT = {
+    "data": {"search": {"hits": [{"id": "CHEMBL1431", "entity": "drug"}]}}
+}
+
+OT_SEARCH_HIT_SALT = {
+    "data": {"search": {"hits": [{"id": "CHEMBL1703", "entity": "drug"}]}}
+}
+
+OT_SEARCH_NO_HITS = {
+    "data": {"search": {"hits": []}}
+}
+
+# ChEMBL molecule responses for parent normalization
+METFORMIN_PARENT_MOLECULE = {
+    "molecule_chembl_id": "CHEMBL1431",
+    "pref_name": "METFORMIN",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL1431"},
+    "molecule_type": "Small molecule",
+    "max_phase": "4.0",
+    "atc_classifications": ["A10BA02"],
+    "black_box_warning": 0,
+    "first_approval": 1972,
+    "oral": True,
+    "molecule_synonyms": [],
+}
+
+METFORMIN_HCL_SALT_MOLECULE = {
+    "molecule_chembl_id": "CHEMBL1703",
+    "pref_name": "METFORMIN HYDROCHLORIDE",
+    "molecule_hierarchy": {"parent_chembl_id": "CHEMBL1431"},
+    "molecule_type": "Small molecule",
+    "max_phase": "4.0",
+    "atc_classifications": [],
+    "black_box_warning": 0,
+    "first_approval": None,
+    "oral": True,
+    "molecule_synonyms": [],
+}
+
+
+async def test_resolve_drug_name_parent_input(tmp_path):
+    """Parent molecule input returns its own ChEMBL ID."""
+
+    async def mock_ot_graphql(url, query, variables):
+        return OT_SEARCH_HIT_PARENT
+
+    async def mock_chembl_rest_get(url, params):
+        if "/molecule/CHEMBL1431.json" in url:
+            return METFORMIN_PARENT_MOLECULE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch(
+        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        new=AsyncMock(side_effect=mock_ot_graphql),
+    ), patch(
+        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+        new=AsyncMock(side_effect=mock_chembl_rest_get),
+    ):
+        result = await resolve_drug_name("metformin", cache_dir=tmp_path)
+
+    assert result == "CHEMBL1431"
+
+
+async def test_resolve_drug_name_salt_follows_to_parent(tmp_path):
+    """Salt input (metformin HCl) follows molecule_hierarchy to parent."""
+
+    async def mock_ot_graphql(url, query, variables):
+        return OT_SEARCH_HIT_SALT
+
+    async def mock_chembl_rest_get(url, params):
+        if "/molecule/CHEMBL1703.json" in url:
+            return METFORMIN_HCL_SALT_MOLECULE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with patch(
+        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        new=AsyncMock(side_effect=mock_ot_graphql),
+    ), patch(
+        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+        new=AsyncMock(side_effect=mock_chembl_rest_get),
+    ):
+        result = await resolve_drug_name("metformin hydrochloride", cache_dir=tmp_path)
+
+    assert result == "CHEMBL1431"
+
+
+async def test_resolve_drug_name_not_found_raises(tmp_path):
+    """Unknown drug name raises DataSourceError."""
+
+    async def mock_ot_graphql(url, query, variables):
+        return OT_SEARCH_NO_HITS
+
+    with patch(
+        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        new=AsyncMock(side_effect=mock_ot_graphql),
+    ):
+        with pytest.raises(DataSourceError):
+            await resolve_drug_name("notarealdrug", cache_dir=tmp_path)
+
+
+async def test_resolve_drug_name_caches_result(tmp_path):
+    """Second call uses cache, no additional API calls."""
+
+    async def mock_ot_graphql(url, query, variables):
+        return OT_SEARCH_HIT_PARENT
+
+    async def mock_chembl_rest_get(url, params):
+        if "/molecule/CHEMBL1431.json" in url:
+            return METFORMIN_PARENT_MOLECULE
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    ot_mock = AsyncMock(side_effect=mock_ot_graphql)
+    chembl_mock = AsyncMock(side_effect=mock_chembl_rest_get)
+
+    with patch(
+        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        new=ot_mock,
+    ), patch(
+        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+        new=chembl_mock,
+    ):
+        first = await resolve_drug_name("metformin", cache_dir=tmp_path)
+        second = await resolve_drug_name("metformin", cache_dir=tmp_path)
+
+    assert first == second == "CHEMBL1431"
+    # Only one OT search call — second call hits cache
+    assert ot_mock.await_count == 1

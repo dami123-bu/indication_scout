@@ -49,7 +49,7 @@ def _mechanism_output(associations: dict[str, list[Association]]) -> MechanismOu
 
 
 def _drug_data(trade_names: list[str]) -> DrugData:
-    return DrugData(name="METFORMIN", trade_names=trade_names)
+    return DrugData(name="metformin", trade_names=trade_names)
 
 
 def _build_tools(tmp_path):
@@ -72,7 +72,7 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
     mechanism_output = _mechanism_output(
         {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
     )
-    drug_data = _drug_data(trade_names=["Glucophage"])
+    drug_data = _drug_data(trade_names=["glucophage"])
 
     mock_ot_client = AsyncMock()
     mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)
@@ -117,7 +117,7 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
     mechanism_output = _mechanism_output(
         {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
     )
-    drug_data = _drug_data(trade_names=["Glucophage"])
+    drug_data = _drug_data(trade_names=["glucophage"])
 
     mock_ot_client = AsyncMock()
     mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)

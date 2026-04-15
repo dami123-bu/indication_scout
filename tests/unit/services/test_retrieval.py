@@ -41,9 +41,9 @@ def atc_metformin() -> ATCDescription:
 def rich_metformin(atc_metformin) -> RichDrugData:
     drug = DrugData(
         chembl_id="CHEMBL1431",
-        name="METFORMIN",
-        synonyms=["Glucophage", "Glucophage"],  # intentional duplicate
-        trade_names=["Fortamet", "Glucophage"],  # overlap with synonyms
+        name="metformin",
+        synonyms=["glucophage", "glucophage"],  # intentional duplicate
+        trade_names=["fortamet", "glucophage"],  # overlap with synonyms
         drug_type="Small molecule",
         maximum_clinical_stage="APPROVAL",
         atc_classifications=["A10BA02"],
@@ -81,7 +81,7 @@ def rich_metformin(atc_metformin) -> RichDrugData:
 def metformin_profile() -> DrugProfile:
     return DrugProfile(
         name="metformin",
-        synonyms=["Glucophage", "Fortamet"],
+        synonyms=["glucophage", "fortamet"],
         target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
         mechanisms_of_action=[
             "AMP-activated protein kinase activator",
@@ -103,8 +103,8 @@ def svc(tmp_path):
 
 def test_drug_profile_from_rich_drug_data(rich_metformin, atc_metformin):
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
-    assert profile.name == "METFORMIN"
-    assert profile.synonyms == ["Glucophage", "Fortamet"]
+    assert profile.name == "metformin"
+    assert profile.synonyms == ["glucophage", "fortamet"]
     assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
     assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
     assert profile.atc_codes == ["A10BA02"]
@@ -120,9 +120,9 @@ def test_drug_profile_from_rich_drug_data_synonyms_deduped(
 ):
     """synonyms = drug.synonyms + drug.trade_names, deduplicated, order-preserving."""
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
-    # synonyms: ["Glucophage", "Glucophage"] → deduped → ["Glucophage"]
-    # trade_names: ["Fortamet", "Glucophage"] → "Glucophage" already seen
-    assert profile.synonyms == ["Glucophage", "Fortamet"]
+    # synonyms: ["glucophage", "glucophage"] → deduped → ["glucophage"]
+    # trade_names: ["fortamet", "glucophage"] → "glucophage" already seen
+    assert profile.synonyms == ["glucophage", "fortamet"]
 
 
 def test_drug_profile_from_rich_drug_data_target_gene_symbols(
@@ -375,8 +375,8 @@ async def test_build_drug_profile_returns_profile(svc, rich_metformin, atc_metfo
     ):
         profile = await svc.build_drug_profile("metformin")
 
-    assert profile.name == "METFORMIN"
-    assert profile.synonyms == ["Glucophage", "Fortamet"]
+    assert profile.name == "metformin"
+    assert profile.synonyms == ["glucophage", "fortamet"]
     assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
     assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
     assert profile.atc_codes == ["A10BA02"]

@@ -20,7 +20,7 @@ def mock_db() -> MagicMock:
 def drug_profile() -> DrugProfile:
     return DrugProfile(
         name="metformin",
-        synonyms=["Glucophage"],
+        synonyms=["glucophage"],
         target_gene_symbols=["PRKAA1"],
         mechanisms_of_action=["AMP-activated protein kinase activator"],
         atc_codes=["A10BA02"],

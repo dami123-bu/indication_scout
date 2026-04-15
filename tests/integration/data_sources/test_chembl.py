@@ -6,10 +6,10 @@ from indication_scout.models.model_chembl import ATCDescription, MoleculeData, M
 
 
 @pytest.mark.parametrize(
-    "chembl_id, expected_atc, expected_type, expected_max_phase, expected_black_box, expected_first_approval, expected_oral",
+    "chembl_id, expected_atc, expected_type, expected_max_phase, expected_black_box, expected_first_approval, expected_oral, expected_pref_name, expected_parent_chembl_id",
     [
-        ("CHEMBL894", ["N06AX12"], "Small molecule", "4.0", 1, 1985, True),
-        ("CHEMBL2108724", ["A10BJ06"], "Protein", "4.0", 1, 2017, True),
+        ("CHEMBL894", ["N06AX12"], "Small molecule", "4.0", 1, 1985, True, "bupropion", "CHEMBL894"),
+        ("CHEMBL2108724", ["A10BJ06"], "Protein", "4.0", 1, 2017, True, "semaglutide", "CHEMBL2108724"),
     ],
 )
 async def test_get_molecule(
@@ -21,11 +21,15 @@ async def test_get_molecule(
     expected_black_box,
     expected_first_approval,
     expected_oral,
+    expected_pref_name,
+    expected_parent_chembl_id,
 ):
     result = await chembl_client.get_molecule(chembl_id)
 
     assert isinstance(result, MoleculeData)
     assert result.molecule_chembl_id == chembl_id
+    assert result.pref_name == expected_pref_name
+    assert result.parent_chembl_id == expected_parent_chembl_id
     assert result.molecule_type == expected_type
     assert result.max_phase == expected_max_phase
     assert result.atc_classifications == expected_atc
@@ -122,3 +126,22 @@ async def test_get_all_drug_names(
     # "component of" entries should be filtered out
     for name in result:
         assert "component of" not in name
+
+
+# --- resolve_drug_name ---
+
+
+@pytest.mark.parametrize(
+    "drug_name, expected_chembl_id",
+    [
+        ("metformin", "CHEMBL1431"),
+        ("metformin hydrochloride", "CHEMBL1431"),
+        ("semaglutide", "CHEMBL2108724"),
+    ],
+)
+async def test_resolve_drug_name(drug_name, expected_chembl_id, test_cache_dir):
+    """Parent inputs resolve to themselves; salt inputs follow to parent."""
+    from indication_scout.data_sources.chembl import resolve_drug_name
+
+    result = await resolve_drug_name(drug_name, cache_dir=test_cache_dir)
+    assert result == expected_chembl_id

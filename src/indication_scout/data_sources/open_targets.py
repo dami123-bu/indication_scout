@@ -25,7 +25,7 @@ from indication_scout.constants import (
 from indication_scout.markers import no_review
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.data_sources.chembl import ChEMBLClient, resolve_drug_name
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 
 from indication_scout.models.model_open_targets import (
@@ -92,7 +92,7 @@ class OpenTargetsClient(BaseClient):
 
     async def get_drug(self, drug_name: str) -> DrugData:
         """Fetch drug data by name, enriched with ATC codes and trade names from ChEMBL."""
-        chembl_id = await self._resolve_drug_name(drug_name)
+        chembl_id = await resolve_drug_name(drug_name, cache_dir=self.cache_dir)
 
         cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
         if cached:
@@ -102,7 +102,7 @@ class OpenTargetsClient(BaseClient):
             drug_data, molecule, chembl_trade_names = await asyncio.gather(
                 self._fetch_drug(chembl_id),
                 chembl_client.get_molecule(chembl_id),
-                chembl_client.get_trade_names(chembl_id),
+                chembl_client.get_all_drug_names(chembl_id),
                 return_exceptions=True,
             )
 
@@ -385,18 +385,6 @@ class OpenTargetsClient(BaseClient):
     # Private: network calls
     # ------------------------------------------------------------------
 
-    async def _resolve_drug_name(self, name: str) -> str:
-        """Search by name → return ChEMBL ID."""
-        data = await self._graphql(self.BASE_URL, SEARCH_QUERY, {"q": name})
-        hits = data["data"]["search"]["hits"]
-        drug_hits = [h for h in hits if h["entity"] == "drug"]
-        if not drug_hits:
-            raise DataSourceError(
-                self._source_name,
-                f"No drug found for '{name}'",
-            )
-        return drug_hits[0]["id"]
-
     async def _resolve_disease_name(self, name: str) -> str:
         """Search by name → return EFO/MONDO disease ID."""
         data = await self._graphql(self.BASE_URL, DISEASE_SEARCH_QUERY, {"q": name})
@@ -527,9 +515,9 @@ class OpenTargetsClient(BaseClient):
 
         return DrugData(
             chembl_id=raw["id"],
-            name=raw["name"],
-            synonyms=raw.get("synonyms", []),
-            trade_names=raw.get("tradeNames", []),
+            name=raw["name"].lower(),
+            synonyms=[s.lower() for s in raw.get("synonyms", [])],
+            trade_names=[t.lower() for t in raw.get("tradeNames", [])],
             drug_type=raw.get("drugType"),
             maximum_clinical_stage=raw.get("maximumClinicalStage"),
             mechanisms_of_action=mechanisms_of_action,
@@ -618,7 +606,7 @@ class OpenTargetsClient(BaseClient):
         return DrugSummary(
             id=raw.get("id", ""),
             drug_id=drug.get("id", ""),
-            drug_name=drug.get("name", ""),
+            drug_name=drug.get("name", "").lower(),
             drug_type=drug.get("drugType"),
             max_clinical_stage=raw.get("maxClinicalStage"),
             diseases=diseases,
@@ -721,14 +709,6 @@ class OpenTargetsClient(BaseClient):
 # ------------------------------------------------------------------
 # GraphQL queries
 # ------------------------------------------------------------------
-
-SEARCH_QUERY = """
-query($q: String!) {
-    search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
-        hits { id entity }
-    }
-}
-"""
 
 DISEASE_SEARCH_QUERY = """
 query($q: String!) {

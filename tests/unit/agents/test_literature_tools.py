@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 DRUG_PROFILE = DrugProfile(
     name="metformin",
-    synonyms=["Glucophage"],
+    synonyms=["glucophage"],
     target_gene_symbols=["PRKAA1"],
     mechanisms_of_action=["AMP-activated protein kinase activator"],
     atc_codes=["A10BA02"],
@@ -91,7 +91,7 @@ async def test_build_drug_profile_calls_svc_and_returns_artifact():
     svc.build_drug_profile.assert_awaited_once_with("metformin")
     assert isinstance(msg.artifact, DrugProfile)
     assert msg.artifact.name == "metformin"
-    assert msg.artifact.synonyms == ["Glucophage"]
+    assert msg.artifact.synonyms == ["glucophage"]
     assert "metformin" in msg.content
     assert "1 synonyms" in msg.content
 
