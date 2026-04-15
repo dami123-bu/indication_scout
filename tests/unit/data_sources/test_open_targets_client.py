@@ -138,7 +138,7 @@ async def test_get_drug_competitors_skips_summary_with_none_stage(tmp_path):
             new=AsyncMock(return_value=summaries),
         ),
     ):
-        result = await client.get_drug_competitors("testdrug", min_stage="PHASE_3")
+        result = await client.get_drug_competitors("CHEMBL1", min_stage="PHASE_3")
 
     # anxiety (stage=None) must be absent; depression (PHASE_3) must be present
     assert "anxiety" not in result["diseases"]
@@ -178,7 +178,7 @@ async def test_get_drug_competitors_returns_raw_diseases(tmp_path):
             new=AsyncMock(return_value=summaries),
         ),
     ):
-        result = await client.get_drug_competitors("testdrug", min_stage="PHASE_3")
+        result = await client.get_drug_competitors("CHEMBL1", min_stage="PHASE_3")
 
     assert "narcolepsy" in result["diseases"]
     assert "narcolepsy-cataplexy syndrome" in result["diseases"]
@@ -227,7 +227,7 @@ async def test_get_drug_competitors_groups_by_disease_id(tmp_path):
             new=AsyncMock(return_value=summaries),
         ),
     ):
-        result = await client.get_drug_competitors("testdrug", min_stage="PHASE_3")
+        result = await client.get_drug_competitors("CHEMBL1", min_stage="PHASE_3")
 
     assert len(result["diseases"]) == 1
     assert "type 2 diabetes mellitus" in result["diseases"]

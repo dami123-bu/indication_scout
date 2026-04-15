@@ -25,7 +25,7 @@ from indication_scout.constants import (
 from indication_scout.markers import no_review
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient, resolve_drug_name
+from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 
 from indication_scout.models.model_open_targets import (
@@ -82,18 +82,16 @@ class OpenTargetsClient(BaseClient):
     # Public: get_drug and get_target and get_rich_drug_data
     # ------------------------------------------------------------------
 
-    async def get_rich_drug_data(self, drug_name: str) -> RichDrugData:
+    async def get_rich_drug_data(self, chembl_id: str) -> RichDrugData:
         """Fetch drug data and all associated target data in parallel."""
-        drug = await self.get_drug(drug_name)
+        drug = await self.get_drug(chembl_id)
         targets = await asyncio.gather(
             *[self.get_target_data(t.target_id) for t in drug.targets]
         )
         return RichDrugData(drug=drug, targets=list(targets))
 
-    async def get_drug(self, drug_name: str) -> DrugData:
-        """Fetch drug data by name, enriched with ATC codes and trade names from ChEMBL."""
-        chembl_id = await resolve_drug_name(drug_name, cache_dir=self.cache_dir)
-
+    async def get_drug(self, chembl_id: str) -> DrugData:
+        """Fetch drug data by ChEMBL ID, enriched with ATC codes and trade names from ChEMBL."""
         cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
         if cached:
             return DrugData.model_validate(cached)
@@ -133,13 +131,12 @@ class OpenTargetsClient(BaseClient):
         return drug_data
 
     async def get_drug_competitors(
-        self, name: str, min_stage: str = "PHASE_3"
+        self, chembl_id: str, min_stage: str = "PHASE_3"
     ) -> CompetitorRawData:
         """Fetch competitor drugs for a given drug, grouped by disease."""
-        normalized_name = normalize_drug_name(name)
         min_rank = CLINICAL_STAGE_RANK.get(min_stage, 0)
 
-        cache_params = {"drug_name": normalized_name, "min_stage": min_stage}
+        cache_params = {"chembl_id": chembl_id, "min_stage": min_stage}
         cached = cache_get("drug_competitors", cache_params, self.cache_dir)
         if cached is not None:
             return CompetitorRawData(
@@ -149,7 +146,7 @@ class OpenTargetsClient(BaseClient):
                 drug_indications=cached["drug_indications"],
             )
 
-        drug = await self.get_drug(normalized_name)
+        drug = await self.get_drug(chembl_id)
         targets = drug.targets
 
         # Build set of approved indication names to exclude from repurposing candidates.
@@ -229,19 +226,19 @@ class OpenTargetsClient(BaseClient):
 
         return result
 
-    async def get_drug_indications(self, drug_name: str) -> list[Indication]:
-        drug = await self.get_drug(drug_name)
+    async def get_drug_indications(self, chembl_id: str) -> list[Indication]:
+        drug = await self.get_drug(chembl_id)
         return drug.indications
 
     async def get_drug_target_competitors(
-        self, drug_name: str
+        self, chembl_id: str
     ) -> dict[str, list[DrugSummary]]:
         """For each target of a drug, fetch all drugs acting on that target.
 
         Returns a dict mapping target symbol (e.g. "GLP1R") to the list of
         DrugSummary objects from Open Targets' drugAndClinicalCandidates for that target.
         """
-        drug = await self.get_drug(drug_name)
+        drug = await self.get_drug(chembl_id)
         result: dict[str, list[DrugSummary]] = {}
         for target in drug.targets:
             drug_summaries = await self.get_target_data_drug_summaries(target.target_id)
