@@ -613,7 +613,7 @@ async def test_resolve_drug_name_parent_input(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch(
-        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
         new=AsyncMock(side_effect=mock_ot_graphql),
     ), patch(
         "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
@@ -636,7 +636,7 @@ async def test_resolve_drug_name_salt_follows_to_parent(tmp_path):
         raise AssertionError(f"Unexpected URL: {url}")
 
     with patch(
-        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
         new=AsyncMock(side_effect=mock_ot_graphql),
     ), patch(
         "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
@@ -654,7 +654,7 @@ async def test_resolve_drug_name_not_found_raises(tmp_path):
         return OT_SEARCH_NO_HITS
 
     with patch(
-        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
         new=AsyncMock(side_effect=mock_ot_graphql),
     ):
         with pytest.raises(DataSourceError):
@@ -676,7 +676,7 @@ async def test_resolve_drug_name_caches_result(tmp_path):
     chembl_mock = AsyncMock(side_effect=mock_chembl_rest_get)
 
     with patch(
-        "indication_scout.data_sources.open_targets.OpenTargetsClient._graphql",
+        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
         new=ot_mock,
     ), patch(
         "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",

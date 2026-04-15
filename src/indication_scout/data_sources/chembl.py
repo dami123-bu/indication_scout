@@ -211,6 +211,17 @@ class ChEMBLClient(BaseClient):
         return result
 
 
+class _OTSearchClient(BaseClient):
+    """Minimal client for Open Targets GraphQL search.
+
+    Avoids importing OpenTargetsClient (which imports chembl → circular).
+    """
+
+    @property
+    def _source_name(self) -> str:
+        return "open_targets"
+
+
 _OT_DRUG_SEARCH_QUERY = """
 query($q: String!) {
     search(queryString: $q, entityNames: ["drug"], page: {index: 0, size: 1}) {
@@ -242,13 +253,9 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
         return cached
 
     # Step 1: OT search → some ChEMBL ID
-    # Use OpenTargetsClient to avoid reimplementing GraphQL + retry logic.
-    # Deferred import to avoid circular dependency (open_targets imports chembl).
-    from indication_scout.data_sources.open_targets import OpenTargetsClient
-
-    async with OpenTargetsClient(cache_dir=cache_dir) as ot_client:
-        data = await ot_client._graphql(
-            ot_client.BASE_URL, _OT_DRUG_SEARCH_QUERY, {"q": drug_name}
+    async with _OTSearchClient() as client:
+        data = await client._graphql(
+            OPEN_TARGETS_BASE_URL, _OT_DRUG_SEARCH_QUERY, {"q": drug_name}
         )
 
     hits = data["data"]["search"]["hits"]
