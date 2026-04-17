@@ -19,7 +19,6 @@ def sample_drug_data():
     """Create a sample DrugData for testing."""
     return DrugData(
         chembl_id="CHEMBL2108724",
-        name="semaglutide",
         drug_type="Protein",
         maximum_clinical_stage="APPROVAL",
         targets=[
@@ -77,7 +76,6 @@ def test_drug_data_mechanisms_of_action_field():
     """DrugData.mechanisms_of_action should store MechanismOfAction objects."""
     drug = DrugData(
         chembl_id="CHEMBL2108724",
-        name="semaglutide",
         mechanisms_of_action=[
             MechanismOfAction(
                 mechanism_of_action="GLP-1 receptor agonist",
@@ -111,7 +109,7 @@ def test_drug_data_mechanisms_of_action_field():
 
 def test_drug_data_mechanisms_of_action_defaults_to_empty():
     """DrugData.mechanisms_of_action should default to [] when not provided."""
-    drug = DrugData(chembl_id="CHEMBL9999", name="NO_MOA_DRUG")
+    drug = DrugData(chembl_id="CHEMBL9999")
 
     assert drug.mechanisms_of_action == []
 
@@ -120,7 +118,6 @@ def test_drug_data_coerce_nones_converts_null_mechanisms_of_action_to_empty():
     """DrugData with mechanisms_of_action=None must coerce to []."""
     drug = DrugData(
         chembl_id="CHEMBL9999",
-        name="TEST_DRUG",
         mechanisms_of_action=None,
     )
 
@@ -175,7 +172,6 @@ def test_drug_target_action_type_optional():
     """DrugTarget.action_type should be optional (None allowed)."""
     drug = DrugData(
         chembl_id="CHEMBL1234",
-        name="TEST_DRUG",
         drug_type="Small molecule",
         maximum_clinical_stage="PHASE_2",
         targets=[
@@ -199,7 +195,6 @@ def test_drug_data_empty_targets():
     """DrugData.targets should default to empty list."""
     drug = DrugData(
         chembl_id="CHEMBL9999",
-        name="NO_TARGET_DRUG",
         drug_type="Small molecule",
         maximum_clinical_stage="PHASE_1",
     )
@@ -211,9 +206,6 @@ def test_drug_data_coerce_nones_converts_null_lists_to_empty():
     """DrugData with all list fields set to None must coerce them to []."""
     drug = DrugData(
         chembl_id="CHEMBL9999",
-        name="TEST_DRUG",
-        synonyms=None,
-        trade_names=None,
         mechanisms_of_action=None,
         warnings=None,
         indications=None,
@@ -222,8 +214,6 @@ def test_drug_data_coerce_nones_converts_null_lists_to_empty():
         atc_classifications=None,
     )
 
-    assert drug.synonyms == []
-    assert drug.trade_names == []
     assert drug.mechanisms_of_action == []
     assert drug.warnings == []
     assert drug.indications == []
@@ -249,7 +239,6 @@ def test_approved_disease_ids_empty_when_no_indications():
     """approved_disease_ids should be empty when no indications."""
     drug = DrugData(
         chembl_id="CHEMBL9999",
-        name="NO_INDICATION_DRUG",
         drug_type="Small molecule",
         maximum_clinical_stage="PHASE_1",
         indications=[],
@@ -333,7 +322,6 @@ def test_investigated_disease_ids_empty_when_no_indications():
     """investigated_disease_ids should be empty when no indications."""
     drug = DrugData(
         chembl_id="CHEMBL9999",
-        name="NO_INDICATION_DRUG",
         drug_type="Small molecule",
         maximum_clinical_stage="PHASE_1",
         indications=[],

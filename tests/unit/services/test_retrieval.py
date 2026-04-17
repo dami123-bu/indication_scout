@@ -41,9 +41,6 @@ def atc_metformin() -> ATCDescription:
 def rich_metformin(atc_metformin) -> RichDrugData:
     drug = DrugData(
         chembl_id="CHEMBL1431",
-        name="metformin",
-        synonyms=["glucophage", "glucophage"],  # intentional duplicate
-        trade_names=["fortamet", "glucophage"],  # overlap with synonyms
         drug_type="Small molecule",
         maximum_clinical_stage="APPROVAL",
         atc_classifications=["A10BA02"],
@@ -80,8 +77,7 @@ def rich_metformin(atc_metformin) -> RichDrugData:
 @pytest.fixture
 def metformin_profile() -> DrugProfile:
     return DrugProfile(
-        name="metformin",
-        synonyms=["glucophage", "fortamet"],
+        chembl_id="CHEMBL1431",
         target_gene_symbols=["PRKAA1", "PRKAA2", "STK11"],
         mechanisms_of_action=[
             "AMP-activated protein kinase activator",
@@ -103,8 +99,7 @@ def svc(tmp_path):
 
 def test_drug_profile_from_rich_drug_data(rich_metformin, atc_metformin):
     profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
-    assert profile.name == "metformin"
-    assert profile.synonyms == ["glucophage", "fortamet"]
+    assert profile.chembl_id == "CHEMBL1431"
     assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
     assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
     assert profile.atc_codes == ["A10BA02"]
@@ -113,16 +108,6 @@ def test_drug_profile_from_rich_drug_data(rich_metformin, atc_metformin):
         "Biguanides",
     ]
     assert profile.drug_type == "Small molecule"
-
-
-def test_drug_profile_from_rich_drug_data_synonyms_deduped(
-    rich_metformin, atc_metformin
-):
-    """synonyms = drug.synonyms + drug.trade_names, deduplicated, order-preserving."""
-    profile = DrugProfile.from_rich_drug_data(rich_metformin, [atc_metformin])
-    # synonyms: ["glucophage", "glucophage"] → deduped → ["glucophage"]
-    # trade_names: ["fortamet", "glucophage"] → "glucophage" already seen
-    assert profile.synonyms == ["glucophage", "fortamet"]
 
 
 def test_drug_profile_from_rich_drug_data_target_gene_symbols(
@@ -242,6 +227,38 @@ async def test_expand_search_terms_prompt_contains_drug_name(
 
     assert "metformin" in captured["prompt"]
     assert "colorectal cancer" in captured["prompt"]
+
+
+async def test_expand_search_terms_prompt_sources_names_from_chembl(
+    tmp_path, metformin_profile
+):
+    """Both `{drug_name}` and `{synonyms}` come from get_all_drug_names(chembl_id):
+    index 0 is the pref_name, the rest are synonyms.
+    """
+    captured = {}
+
+    async def capture_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return '["x"]'
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.get_all_drug_names",
+            new=AsyncMock(return_value=["CHEMBL_PREF", "CHEMBL_SYN_1", "CHEMBL_SYN_2"]),
+        ),
+        patch(
+            "indication_scout.services.retrieval.RetrievalService.extract_organ_term",
+            new=AsyncMock(return_value="colon"),
+        ),
+        patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
+    ):
+        await RetrievalService(tmp_path).expand_search_terms(
+            "CHEMBL1431", "colorectal cancer", metformin_profile
+        )
+
+    prompt = captured["prompt"]
+    assert "Drug name: CHEMBL_PREF" in prompt
+    assert "Synonyms and trade names: CHEMBL_SYN_1, CHEMBL_SYN_2" in prompt
 
 
 async def test_expand_search_terms_prompt_contains_targets(tmp_path, metformin_profile):
@@ -399,8 +416,7 @@ async def test_build_drug_profile_returns_profile(svc, rich_metformin, atc_metfo
     ):
         profile = await svc.build_drug_profile("CHEMBL1431")
 
-    assert profile.name == "metformin"
-    assert profile.synonyms == ["glucophage", "fortamet"]
+    assert profile.chembl_id == "CHEMBL1431"
     assert profile.target_gene_symbols == ["PRKAA1", "PRKAA2"]
     assert profile.mechanisms_of_action == ["AMP-activated protein kinase activator"]
     assert profile.atc_codes == ["A10BA02"]
@@ -888,6 +904,37 @@ async def test_semantic_search_embeds_therapeutic_query(svc):
     assert "obesity" in captured["texts"][0]
 
 
+async def test_semantic_search_uses_pref_name_not_chembl_id(svc):
+    """The embedded query string uses pref_name (first element of get_all_drug_names),
+    not the ChEMBL ID or any other identifier. Sentinel values guarantee correct routing.
+    """
+    mock_db = _make_db_with_rows([])
+    mock_vector = [0.1] * 768
+    captured = {}
+
+    def capture_embed(texts: list[str]) -> list[list[float]]:
+        captured["texts"] = texts
+        return [mock_vector]
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.get_all_drug_names",
+            new=AsyncMock(return_value=["SENTINEL_PREF", "SENTINEL_SYN_A"]),
+        ),
+        patch(
+            "indication_scout.services.retrieval.embed_async", side_effect=capture_embed
+        ),
+    ):
+        await svc.semantic_search("obesity", "CHEMBL999", ["111"], mock_db)
+
+    query = captured["texts"][0]
+    assert "SENTINEL_PREF" in query
+    # ChEMBL ID must not leak into the embedded query
+    assert "CHEMBL999" not in query
+    # Non-pref synonyms must not be used as the drug identifier
+    assert "SENTINEL_SYN_A" not in query
+
+
 async def test_semantic_search_passes_pmids_to_query(svc):
     """The pmids list is passed as a bind parameter to the SQL query."""
     mock_db = _make_db_with_rows([])
@@ -1082,6 +1129,33 @@ async def test_synthesize_calls_llm_with_correct_prompt(svc):
     assert (
         "This RCT showed significant reduction in CRC incidence." in captured["prompt"]
     )
+
+
+async def test_synthesize_prompt_uses_pref_name(svc):
+    """`{drug_name}` in the synthesize prompt must come from get_all_drug_names[0]
+    (pref_name), not from the ChEMBL ID. Uses a distinct sentinel to guarantee routing.
+    """
+    captured = {}
+
+    async def capture_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return _SAMPLE_LLM_RESPONSE
+
+    with (
+        patch(
+            "indication_scout.services.retrieval.get_all_drug_names",
+            new=AsyncMock(return_value=["SENTINEL_PREF", "SENTINEL_SYN"]),
+        ),
+        patch("indication_scout.services.retrieval.query_llm", new=capture_llm),
+    ):
+        await svc.synthesize("CHEMBL999", "colorectal cancer", _SAMPLE_ABSTRACTS)
+
+    prompt = captured["prompt"]
+    assert "SENTINEL_PREF" in prompt
+    # ChEMBL ID must not leak into the prompt
+    assert "CHEMBL999" not in prompt
+    # Non-pref synonyms must not appear (synthesize only uses pref_name)
+    assert "SENTINEL_SYN" not in prompt
 
 
 async def test_synthesize_strips_markdown_fences(svc):

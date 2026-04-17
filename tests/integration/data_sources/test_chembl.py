@@ -84,39 +84,48 @@ async def test_get_atc_description(
     assert result.level5 == level5
     assert result.who_name == who_name
 
+# TODO Delete
+async def test_single_drug(test_cache_dir
+):
+    from indication_scout.data_sources.chembl import get_all_drug_names
+    #chembl_id="CHEMBL894"  # bupropion
+    #chembl_id = "CHEMBL1431"  # metformin
+    chembl_id="CHEMBL1201583"  #trastuzumab
+
+
+    result = await get_all_drug_names(chembl_id, cache_dir=test_cache_dir)
+    assert result
 
 # --- get_all_drug_names ---
 
 
 @pytest.mark.parametrize(
-    "chembl_id, expected_pref_name, expected_trade_names",
+    "chembl_id, expected_pref_name, expected_names",
     [
         (
             "CHEMBL894",
             "bupropion",
-            ["wellbutrin", "zyban", "aplenzin", "forfivo xl"],
+            ["wellbutrin", "zyban", "aplenzin", "forfivo xl", 'bupropion hcl','bw-323'],
         ),
         (
             "CHEMBL2108724",
             "semaglutide",
-            ["ozempic", "rybelsus", "wegovy"],
+            ["ozempic", "rybelsus", "wegovy","nn9535"],
         ),
     ],
 )
 async def test_get_all_drug_names(
-    chembl_client, chembl_id, expected_pref_name, expected_trade_names, test_cache_dir
+    chembl_id, expected_pref_name, expected_names, test_cache_dir
 ):
-    from indication_scout.data_sources.chembl import ChEMBLClient
+    from indication_scout.data_sources.chembl import get_all_drug_names
 
-    client = ChEMBLClient(cache_dir=test_cache_dir)
-    async with client:
-        result = await client.get_all_drug_names(chembl_id)
+    result = await get_all_drug_names(chembl_id, cache_dir=test_cache_dir)
 
     # pref_name is always first
     assert result[0] == expected_pref_name
 
     # all expected trade names present
-    for name in expected_trade_names:
+    for name in expected_names:
         assert name in result, f"Expected '{name}' in drug names for {chembl_id}, got {result}"
 
     # all names are lowercase

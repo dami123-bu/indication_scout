@@ -164,7 +164,7 @@ async def test_expand_search_terms_returns_queries(svc):
         atc_descriptions=["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
         drug_type="Small molecule",
     )
-    queries = await svc.expand_search_terms("metformin", "colorectal cancer", profile)
+    queries = await svc.expand_search_terms("CHEMBL1431", "colorectal cancer", profile)
     queries_lower = [q.lower() for q in queries]
 
     assert 5 <= len(queries) <= 10
@@ -195,11 +195,10 @@ async def test_expand_search_terms_returns_queries(svc):
 
 
 @pytest.mark.parametrize(
-    "drug_name, expected_name, expected_drug_type, expected_atc_codes, expected_atc_descriptions, expected_target_gene_symbols, expected_mechanisms_of_action",
+    "chembl_id, expected_drug_type, expected_atc_codes, expected_atc_descriptions, expected_target_gene_symbols, expected_mechanisms_of_action",
     [
         (
-            "metformin",
-            "metformin",
+            "CHEMBL1431",
             "Small molecule",
             ["A10BA02"],
             ["BLOOD GLUCOSE LOWERING DRUGS, EXCL. INSULINS", "Biguanides"],
@@ -210,8 +209,7 @@ async def test_expand_search_terms_returns_queries(svc):
             ],
         ),
         (
-            "trastuzumab",
-            "TRASTUZUMAB",
+            "CHEMBL1201585",
             "Antibody",
             ["L01FD01"],
             [
@@ -222,8 +220,7 @@ async def test_expand_search_terms_returns_queries(svc):
             ["Receptor protein-tyrosine kinase erbB-2 inhibitor"],
         ),
         (
-            "pembrolizumab",
-            "PEMBROLIZUMAB",
+            "CHEMBL3137343",
             "Antibody",
             ["L01FF02"],
             [
@@ -237,8 +234,7 @@ async def test_expand_search_terms_returns_queries(svc):
 )
 async def test_build_drug_profile(
     svc,
-    drug_name,
-    expected_name,
+    chembl_id,
     expected_drug_type,
     expected_atc_codes,
     expected_atc_descriptions,
@@ -246,9 +242,9 @@ async def test_build_drug_profile(
     expected_mechanisms_of_action,
 ):
     """build_drug_profile assembles a complete DrugProfile from live Open Targets + ChEMBL data."""
-    profile = await svc.build_drug_profile(drug_name)
+    profile = await svc.build_drug_profile(chembl_id)
 
-    assert profile.name == expected_name
+    assert profile.chembl_id == chembl_id
     assert profile.drug_type == expected_drug_type
     assert profile.atc_codes == expected_atc_codes
     assert profile.atc_descriptions == expected_atc_descriptions
@@ -471,10 +467,10 @@ async def test_empareg_in_results(svc, db_session_truncating):
         ["empagliflozin AND myocardial infarction"], db_session_truncating
     )
     top_15 = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
+        "myocardial infarction", "CHEMBL2107830", pmids, db_session_truncating
     )
     result_pmids = [r.pmid for r in top_15]
-    assert "38587237" in result_pmids  # EMPACT-MI
+    assert "40765598" in result_pmids  # EMPACT-MI
 
 
 async def test_recovery_in_results(svc, db_session_truncating):
@@ -487,7 +483,7 @@ async def test_recovery_in_results(svc, db_session_truncating):
     )
     top_5 = await svc.semantic_search(
         "severe acute respiratory syndrome",
-        "empagliflozin",
+        "CHEMBL2107830",
         pmids,
         db_session_truncating,
     )
@@ -503,7 +499,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
     ]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     results = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
+        "myocardial infarction", "CHEMBL2107830", pmids, db_session_truncating
     )
 
     assert len(results) == 5
@@ -524,7 +520,7 @@ async def test_semantic_search_returns_relevant_results(svc, db_session_truncati
     ]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     results = await svc.semantic_search(
-        "myocardial infarction", "empagliflozin", pmids, db_session_truncating
+        "myocardial infarction", "CHEMBL2107830", pmids, db_session_truncating
     )
 
     assert len(results) == 5
@@ -543,7 +539,7 @@ async def test_semantic_search_sema_nash(svc, db_session_truncating):
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
 
     results = await svc.semantic_search(
-        "NASH", "semaglutide", pmids, db_session_truncating
+        "NASH", "CHEMBL2108724", pmids, db_session_truncating
     )
 
     assert len(results) == 5
@@ -559,10 +555,10 @@ async def test_synthesize_strong_candidate(svc, db_session_truncating):
     queries = ["empagliflozin AND diabetic nephropathy"]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     top_5 = await svc.semantic_search(
-        "diabetic nephropathy", "empagliflozin", pmids, db_session_truncating
+        "diabetic nephropathy", "CHEMBL2107830", pmids, db_session_truncating
     )
 
-    result = await svc.synthesize("empagliflozin", "diabetic nephropathy", top_5)
+    result = await svc.synthesize("CHEMBL2107830", "diabetic nephropathy", top_5)
 
     assert isinstance(result, EvidenceSummary)
     assert result.strength in ["strong", "moderate"]
@@ -577,13 +573,13 @@ async def test_synthesize_negative_candidate(svc, db_session_truncating):
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     top_5 = await svc.semantic_search(
         "severe acute respiratory syndrome",
-        "empagliflozin",
+        "CHEMBL2107830",
         pmids,
         db_session_truncating,
     )
 
     result = await svc.synthesize(
-        "empagliflozin", "severe acute respiratory syndrome", top_5
+        "CHEMBL2107830", "severe acute respiratory syndrome", top_5
     )
 
     assert result.strength == "none"
@@ -595,10 +591,10 @@ async def test_synthesize_contraindication(svc, db_session_truncating):
     queries = ["bupropion AND hypertension"]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     top_5 = await svc.semantic_search(
-        "hypertension", "bupropion", pmids, db_session_truncating
+        "hypertension", "CHEMBL894", pmids, db_session_truncating
     )
 
-    result = await svc.synthesize("bupropion", "hypertension", top_5)
+    result = await svc.synthesize("CHEMBL894", "hypertension", top_5)
 
     assert result.strength == "none"
     assert result.has_adverse_effects is True

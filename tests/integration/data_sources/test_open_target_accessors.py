@@ -139,12 +139,14 @@ async def test_get_target_drug_summaries(open_targets_client):
     # Verify DrugSummary fields
     assert liraglutide.drug_id == "CHEMBL4084119"
     assert liraglutide.drug_name == "liraglutide"
+    assert liraglutide.drug_type == "Protein"
     assert liraglutide.max_clinical_stage == "APPROVAL"
     assert len(liraglutide.diseases) > 0
     t2d = next(
         d for d in liraglutide.diseases if d.disease_name == "type 2 diabetes mellitus"
     )
     assert t2d.disease_id == "MONDO_0005148"
+    assert t2d.disease_from_source != ""
 
 
 async def test_get_target_expression(open_targets_client):
@@ -184,6 +186,10 @@ async def test_get_target_phenotypes(open_targets_client):
     [model] = glucose.biological_models
     assert model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
     assert model.genetic_background == "C57BL/6NTac"
+    assert model.model_id == "MGI:5637223"
+    assert "8898756" in model.literature
+    assert "23959939" in model.literature
+    assert "14966573" in model.literature
 
 
 async def test_get_target_safety_liabilities(open_targets_client):
@@ -227,16 +233,20 @@ async def test_get_target_genetic_constraints(open_targets_client):
     assert 0.51 < lof_constraint.oe_upper < 0.52
     assert 0.06 < lof_constraint.score < 0.07
     assert lof_constraint.upper_bin == 1
+    assert lof_constraint.exp > 100
+    assert lof_constraint.obs > 0
+    assert lof_constraint.upper_bin6 == 1
 
 
 async def test_get_drug_indications(open_targets_client):
     """Test get_drug_indications returns indication data."""
-    indications = await open_targets_client.get_drug_indications("semaglutide")
+    indications = await open_targets_client.get_drug_indications("CHEMBL2108724")
 
     assert len(indications) > 5
     [t2d] = [i for i in indications if i.disease_name == "type 2 diabetes mellitus"]
     assert t2d.disease_id == "MONDO_0005148"
     assert t2d.max_clinical_stage == "APPROVAL"
+    assert t2d.id != ""
 
 
 async def test_get_disease_drugs(open_targets_client):

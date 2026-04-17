@@ -33,17 +33,17 @@ Should include - the mechanism, drug class, ATC codes, synonyms
 
 **fetch → embed → search → stuff into prompt → generate grounded summary**
 
-1. **Build drug profile** — fetch structured drug data needed for search term expansion. Calls `OpenTargetsClient.get_rich_drug_data()` for targets, mechanisms, indications, and synonyms; then enriches ATC codes with human-readable descriptions via `ChEMBLClient.get_atc_description()`. Returns a `DrugProfile` used in the next step.
+1. **Build drug profile** — fetch structured drug data needed for search term expansion. Calls `OpenTargetsClient.get_rich_drug_data()` for targets, mechanisms, and indications; then enriches ATC codes with human-readable descriptions via `ChEMBLClient.get_atc_description()`. Returns a `DrugProfile` used in the next step. Drug names (pref_name + synonyms + trade names) are sourced separately from `get_all_drug_names(chembl_id)`.
 
    ```python
    # services/retrieval.py
    profile = await build_drug_profile("metformin")
-   # profile.synonyms, profile.target_gene_symbols, profile.mechanisms_of_action,
+   # profile.chembl_id, profile.target_gene_symbols, profile.mechanisms_of_action,
    # profile.atc_codes, profile.atc_descriptions, profile.drug_type
    ```
 
 2. **Normalize disease name** — convert raw Open Targets disease names (e.g. `"narcolepsy-cataplexy syndrome"`) into PubMed-friendly search terms (e.g. `"narcolepsy"`). Two-step Haiku strategy: normalize first, then verify with a PubMed count and broaden if results are too sparse. See `services/disease_normalizer.py`.
-3. **Expand search terms** — given a drug+disease, query an LLM with the `DrugProfile` (mechanism, drug class, ATC codes, synonyms, target gene symbols) to generate diverse PubMed keyword queries across 5 axes. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, ... (5–10 queries total)
+3. **Expand search terms** — given a drug+disease, query an LLM with the `DrugProfile` (mechanism, drug class, ATC codes, target gene symbols) plus drug names from `get_all_drug_names(chembl_id)` (pref_name + synonyms) to generate diverse PubMed keyword queries across 5 axes. e.g. "Metformin + colorectal" → `"metformin AND colorectal neoplasm"`, `"biguanide AND colorectal"`, `"metformin AND AMPK AND colon"`, ... (5–10 queries total)
 4. **Fetch & cache** — hit PubMed E-utilities with each query (up to 500 PMIDs), fetch abstracts for any not already stored, embed with BioLORD-2023, store in pgvector
 5. **Semantic search** — embed the drug+disease query with BioLORD-2023, run cosine similarity over pgvector, return top 5 abstracts (configurable via `top_k`). Finds conceptually relevant papers even without exact keyword matches (e.g. "biguanide antineoplastic mechanisms" matches a metformin/cancer query)
 6. **Synthesize** — stuff the top abstracts into a Claude prompt. Claude reads the actual retrieved papers, not training data. Output is a structured `EvidenceSummary` with PMIDs attached to every claim — every finding is traceable to a real paper

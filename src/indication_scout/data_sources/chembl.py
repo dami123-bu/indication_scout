@@ -114,103 +114,6 @@ class ChEMBLClient(BaseClient):
             molecule_synonyms=synonyms,
         )
 
-    async def get_all_drug_names(self, chembl_id: str) -> list[str]:
-        """Fetch all known names for a drug from ChEMBL.
-
-        Returns a list where the first element is always pref_name (the
-        generic/preferred name), followed by trade names from the parent
-        molecule and its salt forms. All names are lowercased.
-
-        For small molecules, trade names often live on salt forms (e.g. HCl,
-        HBr) rather than the parent molecule. This method fetches the parent
-        molecule's synonyms, discovers salt forms via the molecule_hierarchy
-        endpoint, and collects TRADE_NAME synonyms from all of them.
-
-        Filters out "component of" entries (combination products).
-        Results are cached under namespace "chembl_drug_names".
-
-        Args:
-            chembl_id: ChEMBL ID of the parent molecule (e.g. "CHEMBL894").
-
-        Returns:
-            Deduplicated list of drug names, pref_name first. All lowercase.
-        """
-        cached = cache_get(
-            "chembl_drug_names", {"chembl_id": chembl_id}, self.cache_dir
-        )
-        if cached is not None:
-            return cached
-
-        trade_names: list[str] = []
-
-        # 1. Get pref_name and trade names from the parent molecule itself
-        parent = await self.get_molecule(chembl_id)
-        pref_name = parent.pref_name if parent.pref_name else chembl_id
-
-        trade_names.extend(
-            s.molecule_synonym
-            for s in parent.molecule_synonyms
-            if s.syn_type == "TRADE_NAME"
-        )
-
-        # 2. Discover salt forms via molecule_hierarchy
-        hierarchy_url = f"{CHEMBL_BASE_URL}/molecule.json"
-        try:
-            hierarchy_raw = await self._rest_get(
-                hierarchy_url,
-                params={
-                    "molecule_hierarchy__parent_chembl_id": chembl_id,
-                    "limit": 50,
-                },
-            )
-        except DataSourceError as e:
-            logger.warning(
-                "Failed to fetch salt forms for %s: %s", chembl_id, e
-            )
-            hierarchy_raw = {}
-
-        salt_molecules = (hierarchy_raw or {}).get("molecules", [])
-        for mol in salt_molecules:
-            mol_id = mol.get("molecule_chembl_id", "")
-            if mol_id == chembl_id:
-                continue  # skip the parent, already processed
-            for s in mol.get("molecule_synonyms") or []:
-                if s.get("syn_type") == "TRADE_NAME":
-                    trade_names.append(s.get("molecule_synonym", "").lower())
-
-        # 3. Filter out "component of" entries and deduplicate with pref_name first
-        filtered = [
-            name
-            for name in trade_names
-            if name and "component of" not in name
-        ]
-        result = [pref_name] + [n for n in list(dict.fromkeys(filtered)) if n != pref_name]
-
-        logger.info(
-            "ChEMBL drug names for %s: %d found", chembl_id, len(result)
-        )
-
-        cache_set(
-            "chembl_drug_names",
-            {"chembl_id": chembl_id},
-            result,
-            self.cache_dir,
-            ttl=CACHE_TTL,
-        )
-
-        # Reverse index: name → ChEMBL ID so any code can go name → all drug names
-        for name in result:
-            cache_set(
-                "drug_name_to_chembl",
-                {"name": name},
-                chembl_id,
-                self.cache_dir,
-                ttl=CACHE_TTL,
-            )
-
-        return result
-
-
 class _OTSearchClient(BaseClient):
     """Minimal client for Open Targets GraphQL search.
 
@@ -234,9 +137,12 @@ query($q: String!) {
 async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> str:
     """Resolve a free-text drug name to a canonical (parent) ChEMBL ID.
 
-    1. Searches Open Targets GraphQL for the drug name → some ChEMBL ID.
-    2. Fetches the molecule from ChEMBL to read parent_chembl_id.
-    3. If the result is a salt (parent differs), follows to the parent.
+    1. Checks the `resolve_drug_name` cache (previously-resolved inputs).
+    2. Checks the `drug_name_to_chembl` reverse index (populated by
+       `get_all_drug_names` — covers any synonym of a drug we've fetched before).
+    3. Searches Open Targets GraphQL for the drug name → some ChEMBL ID.
+    4. Fetches the molecule from ChEMBL to read parent_chembl_id.
+    5. If the result is a salt (parent differs), follows to the parent.
 
     Results are cached under namespace "resolve_drug_name".
     Raises DataSourceError if the drug is not found.
@@ -248,9 +154,23 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
     Returns:
         Canonical parent ChEMBL ID (e.g. "CHEMBL1431").
     """
-    cached = cache_get("resolve_drug_name", {"drug_name": drug_name.lower()}, cache_dir)
+    normalized = drug_name.lower()
+
+    cached = cache_get("resolve_drug_name", {"drug_name": normalized}, cache_dir)
     if cached is not None:
         return cached
+
+    # Reverse-index hit: any synonym we've already seen maps to its parent ChEMBL ID
+    reverse_hit = cache_get("drug_name_to_chembl", {"name": normalized}, cache_dir)
+    if reverse_hit is not None:
+        cache_set(
+            "resolve_drug_name",
+            {"drug_name": normalized},
+            reverse_hit,
+            cache_dir,
+            ttl=CACHE_TTL,
+        )
+        return reverse_hit
 
     # Step 1: OT search → some ChEMBL ID
     async with _OTSearchClient() as client:
@@ -282,7 +202,7 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
 
     cache_set(
         "resolve_drug_name",
-        {"drug_name": drug_name.lower()},
+        {"drug_name": normalized},
         canonical_id,
         cache_dir,
         ttl=CACHE_TTL,
@@ -292,13 +212,24 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
 
 
 async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> list[str]:
-    """Fetch all known names for a drug, cache-aware.
+    """Fetch all known names for a drug from ChEMBL.
 
-    Checks the "chembl_drug_names" cache first. On miss, instantiates a
-    ChEMBLClient and delegates to ChEMBLClient.get_all_drug_names.
+    Returns a list where the first element is always pref_name (the
+    generic/preferred name), followed by every other synonym from the
+    parent molecule and its salt forms, regardless of syn_type
+    (TRADE_NAME, RESEARCH_CODE, OTHER, USAN, INN, INN_FRENCH, BAN, FDA,
+    JAN, etc.). All names are lowercased.
+
+    For small molecules, trade names often live on salt forms (e.g. HCl,
+    HBr) rather than the parent molecule. Fetches the parent molecule's
+    synonyms and discovers salt forms via the molecule_hierarchy
+    endpoint, collecting all synonyms from both.
+
+    Filters out "component of" entries (combination products).
+    Results are cached under namespace "chembl_drug_names".
 
     Args:
-        chembl_id: ChEMBL ID of the parent molecule.
+        chembl_id: ChEMBL ID of the parent molecule (e.g. "CHEMBL894").
         cache_dir: Directory for file-based cache.
 
     Returns:
@@ -307,5 +238,63 @@ async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
     cached = cache_get("chembl_drug_names", {"chembl_id": chembl_id}, cache_dir)
     if cached is not None:
         return cached
+
+    all_names: list[str] = []
+
     async with ChEMBLClient(cache_dir=cache_dir) as client:
-        return await client.get_all_drug_names(chembl_id)
+        # 1. Get pref_name and trade names from the parent molecule itself
+        parent = await client.get_molecule(chembl_id)
+        pref_name = parent.pref_name if parent.pref_name else chembl_id
+
+        all_names.extend(
+            s.molecule_synonym
+            for s in parent.molecule_synonyms
+        )
+
+        # 2. Discover salt forms via molecule_hierarchy
+        hierarchy_url = f"{CHEMBL_BASE_URL}/molecule.json"
+        try:
+            hierarchy_raw = await client._rest_get(
+                hierarchy_url,
+                params={
+                    "molecule_hierarchy__parent_chembl_id": chembl_id,
+                    "limit": 50,
+                },
+            )
+        except DataSourceError as e:
+            logger.warning("Failed to fetch salt forms for %s: %s", chembl_id, e)
+            hierarchy_raw = {}
+
+    salt_molecules = (hierarchy_raw or {}).get("molecules", [])
+    for mol in salt_molecules:
+        mol_id = mol.get("molecule_chembl_id", "")
+        if mol_id == chembl_id:
+            continue  # skip the parent, already processed
+        for s in mol.get("molecule_synonyms") or []:
+            all_names.append(s.get("molecule_synonym", "").lower())
+
+    # 3. Filter out "component of" entries and deduplicate with pref_name first
+    filtered = [name for name in all_names if name and "component of" not in name]
+    result = [pref_name] + [n for n in list(dict.fromkeys(filtered)) if n != pref_name]
+
+    logger.info("ChEMBL drug names for %s: %d found", chembl_id, len(result))
+
+    cache_set(
+        "chembl_drug_names",
+        {"chembl_id": chembl_id},
+        result,
+        cache_dir,
+        ttl=CACHE_TTL,
+    )
+
+    # Reverse index: name → ChEMBL ID so any code can go name → all drug names
+    for name in result:
+        cache_set(
+            "drug_name_to_chembl",
+            {"name": name},
+            chembl_id,
+            cache_dir,
+            ttl=CACHE_TTL,
+        )
+
+    return result

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @no_review
 async def test_sildenafil_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
-    drug = await open_targets_client.get_drug("semaglutide")
+    drug = await open_targets_client.get_drug("CHEMBL2108724")
     indications = drug.indications
     match = [i for i in indications if "kidney" in i.disease_name.lower()]
     approved = [a for a in match if a.disease_id in drug.approved_disease_ids]
@@ -29,32 +29,24 @@ async def test_sildenafil_drug_data(open_targets_client):
 @no_review
 async def test_single_drug_data(open_targets_client):
     """Test fetching drug data and indications for semaglutide."""
-    drug = await open_targets_client.get_drug("bupropion")
+    drug = await open_targets_client.get_drug("CHEMBL894")
     indications = drug.indications
     assert drug.atc_classifications == ["N06AX12"]
 
 
 async def test_bupropion_drug_data(open_targets_client):
     """Test bupropion DrugData fields including ChEMBL trade names from salt forms."""
-    drug = await open_targets_client.get_drug("bupropion")
+    drug = await open_targets_client.get_drug("CHEMBL894")
 
     assert drug.atc_classifications == ["N06AX12"]
-    assert "wellbutrin" in drug.trade_names
-    assert "zyban" in drug.trade_names
-    assert "aplenzin" in drug.trade_names
-    assert "forfivo xl" in drug.trade_names
 
 
 async def test_semaglutide_drug_data(open_targets_client):
     """Test all semaglutide DrugData fields: top-level, targets, MoA, indications."""
-    drug = await open_targets_client.get_drug("semaglutide")
+    drug = await open_targets_client.get_drug("CHEMBL2108724")
 
     # DrugData top-level fields
     assert drug.chembl_id == "CHEMBL2108724"
-    assert drug.name == "semaglutide"
-    assert "nn-9535" in drug.synonyms
-    assert "ozempic" in drug.trade_names
-    assert "wegovy" in drug.trade_names
     assert drug.drug_type == "Protein"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert len(drug.indications) > 5
@@ -84,11 +76,12 @@ async def test_semaglutide_drug_data(open_targets_client):
     ]
     assert t2d.disease_id == "MONDO_0005148"
     assert t2d.max_clinical_stage == "APPROVAL"
+    assert t2d.id != ""
 
 
 async def test_trastuzumab_drug_data(open_targets_client):
     """Test trastuzumab: ATC classification and adverse events."""
-    drug = await open_targets_client.get_drug("trastuzumab")
+    drug = await open_targets_client.get_drug("CHEMBL1201585")
 
     assert drug.atc_classifications == ["L01FD01"]
 
@@ -103,7 +96,7 @@ async def test_trastuzumab_drug_data(open_targets_client):
 
 async def test_rofecoxib_drug_data(open_targets_client):
     """Test rofecoxib (Vioxx): ATC, and DrugWarning with all fields."""
-    drug = await open_targets_client.get_drug("rofecoxib")
+    drug = await open_targets_client.get_drug("CHEMBL122")
 
     assert drug.atc_classifications == ["M01AH02"]
     assert len(drug.warnings) > 5
@@ -127,10 +120,9 @@ async def test_rofecoxib_drug_data(open_targets_client):
 
 async def test_metformin_drug_data(open_targets_client):
     """Test metformin basic DrugData fields."""
-    drug = await open_targets_client.get_drug("metformin")
+    drug = await open_targets_client.get_drug("CHEMBL1431")
 
     assert drug.chembl_id == "CHEMBL1431"
-    assert drug.name == "metformin"
     assert drug.drug_type == "Small molecule"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert drug.atc_classifications == ["A10BA02"]
@@ -148,7 +140,7 @@ async def test_get_drug_invalid_input_raises_error(open_targets_client, bad_name
     with pytest.raises(DataSourceError) as exc_info:
         await open_targets_client.get_drug(bad_name)
 
-    assert exc_info.value.source == "chembl"
+    assert exc_info.value.source == "open_targets"
 
 
 # --- get_disease_synonyms ---
@@ -295,6 +287,8 @@ async def test_glp1r_target_mouse_phenotype_and_erbb2_constraint(open_targets_cl
     [model] = phenotype.biological_models
     assert model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
     assert model.genetic_background == "C57BL/6NTac"
+    assert model.model_id == "MGI:5637223"
+    assert "8898756" in model.literature
 
     # ERBB2 — GeneticConstraint (lof)
     erbb2 = await open_targets_client.get_target_data("ENSG00000141736")
@@ -306,60 +300,14 @@ async def test_glp1r_target_mouse_phenotype_and_erbb2_constraint(open_targets_cl
     assert 0.51 < lof_constraint.oe_upper < 0.52
     assert 0.06 < lof_constraint.score < 0.07
     assert lof_constraint.upper_bin == 1
-
-
-# SALT_SUFFIXES = [
-#     " hydrochloride", " hydrobromide", " sulfate", " succinate", " chloride",
-#     " dimesylate", " tartrate", " citrate", " tosylate", " mesylate", " saccharate",
-#     " hemihydrate", " maleate", " phosphate", " malate", " esylate", " anhydrous"
-# ]
-#
-#
-# def normalize_drug_name(name: str) -> str:
-#     name_lower = name.lower()
-#     for suffix in SALT_SUFFIXES:
-#         if name_lower.endswith(suffix):
-#             return name_lower[: -len(suffix)].strip()
-#     return name_lower
-
-# TODO remove, for testing only
-# async def get_drug_competitors(open_targets_client, name) -> dict[str, set[str]]:
-#     """Fetch phase-4 competitor drugs for bupropion, grouped by disease."""
-#     name=name.lower()
-#     bup = await open_targets_client.get_drug(name)
-#     targets = bup.targets
-#
-#     siblings: dict[str, set[str]] = {}
-#
-#     for t in targets:
-#         logger.info(t.mechanism_of_action)
-#         summaries = await open_targets_client.get_target_data_drug_summaries(t.target_id)
-#         drugs=set([normalize_drug_name(s.drug_name.lower()) for s in summaries])
-#         diseases = set([s.disease_name.lower() for s in summaries])
-#         for summary in summaries:
-#             if summary.phase >= 3:
-#                 disease = summary.disease_name
-#                 drug_name = normalize_drug_name(summary.drug_name)
-#                 if disease in siblings:
-#                     siblings[disease].add(drug_name)
-#                 else:
-#                     siblings[disease] = {drug_name}
-#
-#     for key in list(siblings):
-#         val = siblings[key]
-#         if name in val:
-#             del siblings[key]
-#
-#     sorted_data = dict(
-#         sorted(siblings.items(), key=lambda item: len(item[1]), reverse=True)
-#     )
-#     top_10 = dict(list(sorted_data.items())[:10])
-#     return top_10
+    assert lof_constraint.exp > 100
+    assert lof_constraint.obs > 0
+    assert lof_constraint.upper_bin6 == 1
 
 
 async def test_drug_target_competitors_semaglutide(open_targets_client):
     """Test get_drug_target_competitors returns DrugSummary lists keyed by target symbol."""
-    result = await open_targets_client.get_drug_target_competitors("semaglutide")
+    result = await open_targets_client.get_drug_target_competitors("CHEMBL2108724")
 
     # Semaglutide targets GLP1R — must be present
     assert "GLP1R" in result
@@ -383,7 +331,7 @@ async def test_drug_target_competitors_semaglutide(open_targets_client):
 
 async def test_get_rich_drug_data_semaglutide(open_targets_client):
     """Test RichDrugData for semaglutide: all DrugData fields, all TargetData fields for GLP1R."""
-    result = await open_targets_client.get_rich_drug_data("semaglutide")
+    result = await open_targets_client.get_rich_drug_data("CHEMBL2108724")
 
     # --- RichDrugData structure ---
     assert len(result.targets) == len(result.drug.targets)
@@ -391,10 +339,6 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     # --- DrugData fields ---
     drug = result.drug
     assert drug.chembl_id == "CHEMBL2108724"
-    assert drug.name == "semaglutide"
-    assert "nn-9535" in drug.synonyms
-    assert "ozempic" in drug.trade_names
-    assert "wegovy" in drug.trade_names
     assert drug.drug_type == "Protein"
     assert drug.maximum_clinical_stage == "APPROVAL"
     assert len(drug.indications) > 5
@@ -419,6 +363,7 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     assert t2d.disease_id == "MONDO_0005148"
     assert t2d.disease_name == "type 2 diabetes mellitus"
     assert t2d.max_clinical_stage == "APPROVAL"
+    assert t2d.id != ""
 
     # DrugWarning — single warning for semaglutide
     [warning] = drug.warnings
@@ -457,12 +402,14 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     sema_summary = next(d for d in glp1r.drug_summaries if d.drug_name == "semaglutide")
     assert sema_summary.drug_id == "CHEMBL2108724"
     assert sema_summary.drug_name == "semaglutide"
+    assert sema_summary.drug_type == "Protein"
     assert sema_summary.max_clinical_stage == "APPROVAL"
     assert len(sema_summary.diseases) > 0
     t2d_disease = next(
         d for d in sema_summary.diseases if d.disease_name == "type 2 diabetes mellitus"
     )
     assert t2d_disease.disease_id == "MONDO_0005148"
+    assert t2d_disease.disease_from_source != ""
 
     # MousePhenotype — increased fasting circulating glucose level
     glucose_phenotype = next(
@@ -478,6 +425,8 @@ async def test_get_rich_drug_data_semaglutide(open_targets_client):
     [bio_model] = glucose_phenotype.biological_models
     assert bio_model.allelic_composition == "Glp1r<tm1b(KOMP)Mbp> hom early"
     assert bio_model.genetic_background == "C57BL/6NTac"
+    assert bio_model.model_id == "MGI:5637223"
+    assert len(bio_model.literature) > 0
 
     # Interaction — pick a STRING interaction
     string_interactions = [
@@ -501,7 +450,7 @@ async def test_get_rich_drug_data_null_interactions(open_targets_client):
     the Open Targets API. This guards against AttributeError on any target,
     regardless of which symbols the API returns.
     """
-    result = await open_targets_client.get_rich_drug_data("metformin")
+    result = await open_targets_client.get_rich_drug_data("CHEMBL1431")
 
     assert len(result.targets) > 0
     for t in result.targets:
@@ -525,7 +474,7 @@ async def test_get_drug_competitors_bupropion(open_targets_client):
     - result is a non-empty dict
     - known candidate diseases are present with expected sibling drugs
     """
-    result = await open_targets_client.get_drug_competitors("bupropion")
+    result = await open_targets_client.get_drug_competitors("CHEMBL894")
     diseases = result["diseases"]
 
     assert isinstance(diseases, dict)
@@ -543,7 +492,7 @@ async def test_get_drug_competitors_bupropion(open_targets_client):
 
 
 async def test_empagliflozin_candidates(open_targets_client):
-    result = await open_targets_client.get_drug_competitors("empagliflozin")
+    result = await open_targets_client.get_drug_competitors("CHEMBL2107830")
     diseases = set(result["diseases"].keys())
     # Should have candidate diseases
     assert len(diseases) > 0

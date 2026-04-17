@@ -25,7 +25,7 @@ from indication_scout.constants import (
 from indication_scout.markers import no_review
 from indication_scout.utils.cache import cache_get, cache_set
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient
+from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 
 from indication_scout.models.model_open_targets import (
@@ -91,16 +91,20 @@ class OpenTargetsClient(BaseClient):
         return RichDrugData(drug=drug, targets=list(targets))
 
     async def get_drug(self, chembl_id: str) -> DrugData:
-        """Fetch drug data by ChEMBL ID, enriched with ATC codes and trade names from ChEMBL."""
+        """Fetch drug data by ChEMBL ID, enriched with ATC codes from ChEMBL.
+
+        Also warms the ChEMBL drug-names cache (and the drug_name_to_chembl reverse
+        index) so downstream lookups via get_all_drug_names don't re-hit the API.
+        """
         cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
         if cached:
             return DrugData.model_validate(cached)
 
         async with ChEMBLClient() as chembl_client:
-            drug_data, molecule, chembl_trade_names = await asyncio.gather(
+            drug_data, molecule, names_result = await asyncio.gather(
                 self._fetch_drug(chembl_id),
                 chembl_client.get_molecule(chembl_id),
-                chembl_client.get_all_drug_names(chembl_id),
+                get_all_drug_names(chembl_id, self.cache_dir),
                 return_exceptions=True,
             )
 
@@ -115,10 +119,10 @@ class OpenTargetsClient(BaseClient):
         else:
             drug_data.atc_classifications = molecule.atc_classifications
 
-        if isinstance(chembl_trade_names, BaseException):
-            logger.warning("ChEMBL trade name lookup failed for %s: %s", chembl_id, chembl_trade_names)
-        else:
-            drug_data.trade_names = chembl_trade_names
+        if isinstance(names_result, BaseException):
+            logger.warning(
+                "ChEMBL drug-names warmup failed for %s: %s", chembl_id, names_result
+            )
 
         cache_set(
             "drug",
@@ -170,8 +174,6 @@ class OpenTargetsClient(BaseClient):
                 )
                 if stage_rank >= min_rank:
                     drug_name = normalize_drug_name(summary.drug_name)
-                    # if drug_name == normalized_name:
-                    #     continue
                     for cd in summary.diseases:
                         if cd.disease_name is None:
                             continue
@@ -512,9 +514,6 @@ class OpenTargetsClient(BaseClient):
 
         return DrugData(
             chembl_id=raw["id"],
-            name=raw["name"].lower(),
-            synonyms=[s.lower() for s in raw.get("synonyms", [])],
-            trade_names=[t.lower() for t in raw.get("tradeNames", [])],
             drug_type=raw.get("drugType"),
             maximum_clinical_stage=raw.get("maximumClinicalStage"),
             mechanisms_of_action=mechanisms_of_action,
@@ -718,7 +717,7 @@ query($q: String!) {
 DRUG_QUERY = """
 query($id: String!) {
     drug(chemblId: $id) {
-        id name synonyms tradeNames drugType
+        id drugType
         maximumClinicalStage
 
         mechanismsOfAction {

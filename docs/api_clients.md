@@ -82,7 +82,7 @@ Results are cached to disk (`_cache/` directory) with a 5-day TTL.
 async with OpenTargetsClient() as client:
     # Get drug data
     drug = await client.get_drug("semaglutide")
-    print(f"{drug.name}: {len(drug.indications)} indications")
+    print(f"{drug.chembl_id}: {len(drug.indications)} indications")
 
     # Get target data
     target = await client.get_target_data("ENSG00000112164")  # GLP1R

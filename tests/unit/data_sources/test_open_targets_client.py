@@ -235,3 +235,171 @@ async def test_get_drug_competitors_groups_by_disease_id(tmp_path):
         "competitor_a",
         "competitor_b",
     }
+
+
+# --- _parse_drug_data: indication.id ---
+
+
+def test_parse_drug_data_indication_id(tmp_path):
+    """_parse_drug_data populates Indication.id from the row's id field."""
+    raw = {
+        "id": "CHEMBL1234",
+        "name": "TESTDRUG",
+        "synonyms": [],
+        "tradeNames": [],
+        "drugType": "Small molecule",
+        "maximumClinicalStage": "APPROVAL",
+        "mechanismsOfAction": None,
+        "indications": {
+            "rows": [
+                {
+                    "id": "abc123hash",
+                    "maxClinicalStage": "APPROVAL",
+                    "disease": {"id": "MONDO_0001", "name": "test disease"},
+                },
+            ]
+        },
+        "drugWarnings": [],
+        "adverseEvents": {"rows": [], "criticalValue": None},
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_drug_data(raw)
+
+    [ind] = result.indications
+    assert ind.id == "abc123hash"
+    assert ind.disease_id == "MONDO_0001"
+    assert ind.disease_name == "test disease"
+    assert ind.max_clinical_stage == "APPROVAL"
+
+
+# --- _parse_drug_summary: drug_type and disease_from_source ---
+
+
+def test_parse_drug_summary_drug_type_and_disease_from_source(tmp_path):
+    """_parse_drug_summary populates drug_type and ClinicalDisease.disease_from_source."""
+    raw = {
+        "id": "hash1",
+        "drug": {
+            "id": "CHEMBL999",
+            "name": "TESTDRUG",
+            "drugType": "Protein",
+        },
+        "maxClinicalStage": "PHASE_3",
+        "diseases": [
+            {
+                "diseaseFromSource": "Type II diabetes",
+                "disease": {"id": "MONDO_0005148", "name": "type 2 diabetes mellitus"},
+            },
+        ],
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_drug_summary(raw)
+
+    assert result.id == "hash1"
+    assert result.drug_id == "CHEMBL999"
+    assert result.drug_type == "Protein"
+    [d] = result.diseases
+    assert d.disease_from_source == "Type II diabetes"
+    assert d.disease_id == "MONDO_0005148"
+    assert d.disease_name == "type 2 diabetes mellitus"
+
+
+# --- _parse_expression: RNAExpression.unit and ProteinExpression.cell_types ---
+
+
+def test_parse_expression_rna_unit_and_cell_types(tmp_path):
+    """_parse_expression populates rna.unit and protein.cell_types from raw response."""
+    raw = {
+        "tissue": {
+            "id": "UBERON_0002107",
+            "label": "liver",
+            "anatomicalSystems": ["digestive system"],
+        },
+        "rna": {"value": 12.5, "level": 4, "unit": "TPM"},
+        "protein": {
+            "level": 2,
+            "reliability": True,
+            "cellType": [
+                {"name": "hepatocytes", "level": 3, "reliability": True},
+                {"name": "bile duct cells", "level": 1, "reliability": False},
+            ],
+        },
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_expression(raw)
+
+    assert result.tissue_id == "UBERON_0002107"
+    assert result.rna.value == 12.5
+    assert result.rna.quantile == 4
+    assert result.rna.unit == "TPM"
+    assert len(result.protein.cell_types) == 2
+    assert result.protein.cell_types[0].name == "hepatocytes"
+    assert result.protein.cell_types[0].level == 3
+    assert result.protein.cell_types[0].reliability is True
+    assert result.protein.cell_types[1].name == "bile duct cells"
+    assert result.protein.cell_types[1].level == 1
+    assert result.protein.cell_types[1].reliability is False
+
+
+# --- _parse_phenotype: BiologicalModel.model_id and literature ---
+
+
+def test_parse_phenotype_biological_model_fields(tmp_path):
+    """_parse_phenotype populates BiologicalModel.model_id and literature lists."""
+    raw = {
+        "modelPhenotypeId": "MP:0001234",
+        "modelPhenotypeLabel": "test phenotype",
+        "modelPhenotypeClasses": [{"id": "MP:000", "label": "test category"}],
+        "biologicalModels": [
+            {
+                "allelicComposition": "Tgt<tm1> hom",
+                "geneticBackground": "C57BL/6",
+                "id": "MGI:1234567",
+                "literature": ["12345", "67890"],
+            },
+        ],
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_phenotype(raw)
+
+    assert result.phenotype_id == "MP:0001234"
+    [model] = result.biological_models
+    assert model.model_id == "MGI:1234567"
+    assert model.literature == ["12345", "67890"]
+    assert model.allelic_composition == "Tgt<tm1> hom"
+    assert model.genetic_background == "C57BL/6"
+
+
+# --- _parse_constraint: exp, obs, upper_bin6 ---
+
+
+def test_parse_constraint_all_fields(tmp_path):
+    """_parse_constraint populates all GeneticConstraint fields, including exp/obs/upper_bin6."""
+    raw = {
+        "constraintType": "lof",
+        "exp": 143.5,
+        "obs": 60.0,
+        "oe": 0.418,
+        "oeLower": 0.335,
+        "oeUpper": 0.515,
+        "score": 0.065,
+        "upperBin": 1,
+        "upperBin6": 1,
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_constraint(raw)
+
+    assert result.constraint_type == "lof"
+    assert result.exp == 143.5
+    assert result.obs == 60.0
+    assert result.oe == 0.418
+    assert result.oe_lower == 0.335
+    assert result.oe_upper == 0.515
+    assert result.score == 0.065
+    assert result.upper_bin == 1
+    assert result.upper_bin6 == 1

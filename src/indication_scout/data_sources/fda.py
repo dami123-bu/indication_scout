@@ -12,7 +12,6 @@ from indication_scout.constants import (
     OPENFDA_LABEL_LIMIT,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -100,18 +99,3 @@ class FDAClient(BaseClient):
             all_indications.extend(result)
 
         return list(dict.fromkeys(all_indications))
-
-
-async def get_all_drug_names(
-    chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
-) -> list[str]:
-    """Return all known names (generic + trade) for a drug by ChEMBL ID.
-
-    Checks the "chembl_drug_names" cache first. On cache miss, calls
-    ChEMBLClient.get_all_drug_names to fetch from the API and populate the cache.
-    """
-    cached = cache_get("chembl_drug_names", {"chembl_id": chembl_id}, cache_dir)
-    if cached is not None:
-        return cached
-    async with ChEMBLClient(cache_dir=cache_dir) as client:
-        return await client.get_all_drug_names(chembl_id)

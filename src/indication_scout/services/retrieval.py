@@ -536,6 +536,7 @@ class RetrievalService:
 
         all_names = await get_all_drug_names(chembl_id, self.cache_dir)
         pref_name = all_names[0]
+        synonyms = all_names[1:]
         organ_term = await self.extract_organ_term(disease_name)
 
         template = (_PROMPTS_DIR / "expand_search_terms.txt").read_text()
@@ -543,7 +544,7 @@ class RetrievalService:
             drug_name=pref_name,
             disease_name=disease_name,
             organ_term=organ_term,
-            synonyms=", ".join(drug_profile.synonyms),
+            synonyms=", ".join(synonyms),
             target_gene_symbols=", ".join(drug_profile.target_gene_symbols),
             mechanisms_of_action=", ".join(drug_profile.mechanisms_of_action),
             atc_codes=", ".join(drug_profile.atc_codes),

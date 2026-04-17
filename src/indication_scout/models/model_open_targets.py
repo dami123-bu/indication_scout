@@ -420,9 +420,6 @@ class DrugData(BaseModel):
     """
 
     chembl_id: str = ""
-    name: str = ""
-    synonyms: list[str] = []
-    trade_names: list[str] = []
     drug_type: str | None = None
     maximum_clinical_stage: str | None = None  # APPROVAL, PHASE_3, etc.
     mechanisms_of_action: list[MechanismOfAction] = []
