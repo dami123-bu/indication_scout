@@ -16,6 +16,22 @@ async def test_get_label_indications_wegovy(fda_client):
     assert any("steatohepatitis" in text.lower() for text in result)
 
 
+async def test_get_label_indications_generic_name_semaglutide(fda_client):
+    """Generic/INN name ("semaglutide") resolves via the generic_name clause.
+
+    Under a brand_name-only search, `semaglutide` 404s (no FDA brand is literally
+    named "semaglutide"). The OR query adds openfda.generic_name, which returns
+    semaglutide-labelled products (Ozempic/Wegovy/Rybelsus). A non-empty result
+    here proves the generic_name branch is live — guards against regression if
+    someone reverts the OR clause to brand_name-only.
+    """
+    result = await fda_client.get_label_indications("semaglutide")
+
+    assert len(result) > 0
+    combined = " ".join(result).lower()
+    assert "type 2 diabetes" in combined or "body weight" in combined
+
+
 async def test_get_label_indications_nonexistent_brand(fda_client):
     """A brand that doesn't exist returns an empty list, not an error."""
     result = await fda_client.get_label_indications("ZZZNotARealDrugBrand999")

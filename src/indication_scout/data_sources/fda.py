@@ -30,26 +30,32 @@ class FDAClient(BaseClient):
     def _source_name(self) -> str:
         return "openfda"
 
-    async def get_label_indications(self, brand_name: str) -> list[str]:
-        """Fetch indications_and_usage text from openFDA for a given brand name.
+    async def get_label_indications(self, drug_name: str) -> list[str]:
+        """Fetch indications_and_usage text from openFDA for a given drug name.
 
-        Queries the drug label endpoint filtered by openfda.brand_name.
+        Queries the drug label endpoint, matching either openfda.brand_name OR
+        openfda.generic_name. This catches labels where the name is registered
+        only under generic_name (e.g. ~5% of metformin labels).
         Returns a flat list of indication text strings across all matching labels.
-        A 404 response (no results for that brand) returns [] and is cached.
+        A 404 response (no results) returns [] and is cached.
 
         Args:
-            brand_name: Trade/brand name to search (e.g. "Wegovy").
+            drug_name: Any drug name — trade name, generic/INN, USAN, etc.
+                       (e.g. "Wegovy", "metformin").
 
         Returns:
             List of indications_and_usage text strings, possibly empty.
         """
-        cache_params = {"brand_name": brand_name.lower()}
+        cache_params = {"drug_name": drug_name.lower()}
         cached = cache_get("fda_label", cache_params, self.cache_dir)
         if cached is not None:
             return cached
 
         params: dict[str, str | int] = {
-            "search": f'openfda.brand_name:"{brand_name}"',
+            "search": (
+                f'(openfda.brand_name:"{drug_name}"'
+                f' OR openfda.generic_name:"{drug_name}")'
+            ),
             "limit": OPENFDA_LABEL_LIMIT,
         }
         if _settings.openfda_api_key:
@@ -71,29 +77,30 @@ class FDAClient(BaseClient):
         cache_set("fda_label", cache_params, indications, self.cache_dir, ttl=CACHE_TTL)
         return indications
 
-    async def get_all_label_indications(self, trade_names: list[str]) -> list[str]:
-        """Fetch indications from openFDA for all trade names concurrently.
+    async def get_all_label_indications(self, drug_names: list[str]) -> list[str]:
+        """Fetch indications from openFDA for all drug names concurrently.
 
-        Fans out get_label_indications for each trade name, deduplicates the
-        results, and tolerates individual failures (logs and skips).
+        Fans out get_label_indications for each name (trade or generic/INN),
+        deduplicates results, and tolerates individual failures (logs and skips).
 
         Args:
-            trade_names: List of brand/trade names (e.g. ["Ozempic", "Wegovy"]).
+            drug_names: List of any drug names — trade, generic/INN, USAN, etc.
+                        (e.g. ["Ozempic", "Wegovy", "semaglutide"]).
 
         Returns:
-            Deduplicated list of indication text strings across all trade names.
+            Deduplicated list of indication text strings across all names.
         """
-        if not trade_names:
+        if not drug_names:
             return []
 
-        tasks = [self.get_label_indications(name) for name in trade_names]
+        tasks = [self.get_label_indications(name) for name in drug_names]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_indications: list[str] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.warning(
-                    "openFDA label fetch failed for %r: %s", trade_names[i], result
+                    "openFDA label fetch failed for %r: %s", drug_names[i], result
                 )
                 continue
             all_indications.extend(result)

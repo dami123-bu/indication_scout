@@ -188,7 +188,7 @@ async def test_get_fda_approved_diseases_end_to_end(tmp_path):
         ) as mock_extract,
     ):
         result = await get_fda_approved_diseases(
-            trade_names=["wegovy"],
+            drug_names=["wegovy"],
             candidate_diseases=["obesity", "heart failure"],
             cache_dir=tmp_path,
         )
@@ -196,9 +196,9 @@ async def test_get_fda_approved_diseases_end_to_end(tmp_path):
     assert result == {"obesity"}
 
 
-async def test_get_fda_approved_diseases_empty_trade_names(tmp_path):
+async def test_get_fda_approved_diseases_empty_drug_names(tmp_path):
     result = await get_fda_approved_diseases(
-        trade_names=[],
+        drug_names=[],
         candidate_diseases=["obesity"],
         cache_dir=tmp_path,
     )
@@ -207,7 +207,7 @@ async def test_get_fda_approved_diseases_empty_trade_names(tmp_path):
 
 async def test_get_fda_approved_diseases_empty_candidates(tmp_path):
     result = await get_fda_approved_diseases(
-        trade_names=["wegovy"],
+        drug_names=["wegovy"],
         candidate_diseases=[],
         cache_dir=tmp_path,
     )
@@ -225,7 +225,7 @@ async def test_get_fda_approved_diseases_no_labels_found(tmp_path):
         return_value=mock_fda_client,
     ):
         result = await get_fda_approved_diseases(
-            trade_names=["unknownbrand"],
+            drug_names=["unknownbrand"],
             candidate_diseases=["obesity"],
             cache_dir=tmp_path,
         )

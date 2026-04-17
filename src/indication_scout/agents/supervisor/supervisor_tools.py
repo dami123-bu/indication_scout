@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from indication_scout.constants import MECHANISM_ASSOCIATION_MIN_SCORE
-from indication_scout.data_sources.open_targets import OpenTargetsClient
+from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.services.approval_check import get_fda_approved_diseases
 
 logger = logging.getLogger(__name__)
@@ -70,13 +70,17 @@ def build_supervisor_tools(
         sharing the same molecular targets) are being developed. Returns
         a list of disease names ranked by competitor activity.
         """
-        competitors = await svc.get_drug_competitors(drug_name)
+        chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
+        competitors = await svc.get_drug_competitors(chembl_id)
         diseases = list(competitors.keys())
         allowed_diseases.clear()
         for d in diseases:
             allowed_diseases[d.lower().strip()] = (d, "competitor")
-        logger.warning("[TOOL] find_candidates(%r) -> %s", drug_name, diseases)
-        return f"Found {len(diseases)} candidate diseases for {drug_name}", diseases
+        logger.warning("[TOOL] find_candidates(%r [%s]) -> %s", drug_name, chembl_id, diseases)
+        return (
+            f"Found {len(diseases)} candidate diseases for {drug_name} ({chembl_id})",
+            diseases,
+        )
 
     def _reject(disease_name: str, tool_label: str, empty_output):
         valid = sorted(allowed_diseases.keys())
@@ -174,11 +178,11 @@ def build_supervisor_tools(
         # FDA approval check — remove already-approved diseases
         fda_approved_lower: set[str] = set()
         if mechanism_candidates:
-            async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
-                drug_data = await ot_client.get_drug(drug_name)
-            if drug_data.trade_names:
+            chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
+            drug_names = await get_all_drug_names(chembl_id, svc.cache_dir)
+            if drug_names:
                 fda_approved = await get_fda_approved_diseases(
-                    trade_names=drug_data.trade_names,
+                    drug_names=drug_names,
                     candidate_diseases=mechanism_candidates,
                     cache_dir=svc.cache_dir,
                 )

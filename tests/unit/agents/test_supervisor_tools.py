@@ -7,7 +7,7 @@ from langchain_core.messages import ToolCall
 
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
-from indication_scout.models.model_open_targets import Association, DrugData
+from indication_scout.models.model_open_targets import Association
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +48,6 @@ def _mechanism_output(associations: dict[str, list[Association]]) -> MechanismOu
     )
 
 
-def _drug_data(trade_names: list[str]) -> DrugData:
-    return DrugData(name="metformin", trade_names=trade_names)
-
-
 def _build_tools(tmp_path):
     """Build supervisor tools with a mocked RetrievalService and dummy LLM/db."""
     svc = MagicMock()
@@ -72,12 +68,6 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
     mechanism_output = _mechanism_output(
         {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
     )
-    drug_data = _drug_data(trade_names=["glucophage"])
-
-    mock_ot_client = AsyncMock()
-    mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)
-    mock_ot_client.__aexit__ = AsyncMock(return_value=None)
-    mock_ot_client.get_drug = AsyncMock(return_value=drug_data)
 
     with (
         patch(
@@ -85,8 +75,12 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
             new=AsyncMock(return_value=mechanism_output),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
-            return_value=mock_ot_client,
+            "indication_scout.agents.supervisor.supervisor_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL1431"),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.get_all_drug_names",
+            new=AsyncMock(return_value=["metformin", "glucophage"]),
         ),
         patch(
             "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
@@ -117,12 +111,6 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
     mechanism_output = _mechanism_output(
         {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
     )
-    drug_data = _drug_data(trade_names=["glucophage"])
-
-    mock_ot_client = AsyncMock()
-    mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)
-    mock_ot_client.__aexit__ = AsyncMock(return_value=None)
-    mock_ot_client.get_drug = AsyncMock(return_value=drug_data)
 
     with (
         patch(
@@ -130,8 +118,12 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
             new=AsyncMock(return_value=mechanism_output),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
-            return_value=mock_ot_client,
+            "indication_scout.agents.supervisor.supervisor_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL1431"),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.get_all_drug_names",
+            new=AsyncMock(return_value=["metformin", "glucophage"]),
         ),
         patch(
             "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
@@ -151,19 +143,13 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
     assert "2 mechanism-sourced diseases added" in msg.content
 
 
-async def test_analyze_mechanism_skips_fda_check_when_no_trade_names(tmp_path):
-    """When DrugData has empty trade names, get_fda_approved_diseases is not called."""
+async def test_analyze_mechanism_skips_fda_check_when_no_drug_names(tmp_path):
+    """When get_all_drug_names returns [], get_fda_approved_diseases is not called."""
     tool_map = _build_tools(tmp_path)
 
     mechanism_output = _mechanism_output(
         {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
     )
-    drug_data = _drug_data(trade_names=[])
-
-    mock_ot_client = AsyncMock()
-    mock_ot_client.__aenter__ = AsyncMock(return_value=mock_ot_client)
-    mock_ot_client.__aexit__ = AsyncMock(return_value=None)
-    mock_ot_client.get_drug = AsyncMock(return_value=drug_data)
 
     mock_fda = AsyncMock(return_value=set())
 
@@ -173,8 +159,12 @@ async def test_analyze_mechanism_skips_fda_check_when_no_trade_names(tmp_path):
             new=AsyncMock(return_value=mechanism_output),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
-            return_value=mock_ot_client,
+            "indication_scout.agents.supervisor.supervisor_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL1431"),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.get_all_drug_names",
+            new=AsyncMock(return_value=[]),
         ),
         patch(
             "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
