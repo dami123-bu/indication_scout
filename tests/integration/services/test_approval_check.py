@@ -2,7 +2,8 @@
 
 import pytest
 
-from indication_scout.services.approval_check import get_fda_approved_diseases
+from indication_scout.services.approval_check import get_fda_approved_diseases, get_all_fda_approved_diseases
+
 
 async def test_random(test_cache_dir):
     result = await get_fda_approved_diseases(
@@ -44,6 +45,25 @@ async def test_xeljanz_detects_ulcerative_colitis(test_cache_dir):
     assert "ulcerative colitis" in result
     assert "colorectal cancer" not in result
 
+
+async def test_semaglutide_NASH(test_cache_dir):
+
+    result = await get_fda_approved_diseases(
+        drug_names=["semaglutide"],
+        cache_dir=test_cache_dir,
+    )
+
+    assert result
+
+# TODO delete
+async def test_semaglutide(test_cache_dir):
+
+    result = await get_all_fda_approved_diseases(
+        drug_names=["semaglutide"],
+        cache_dir=test_cache_dir,
+    )
+
+    assert result
 
 async def test_xeljanz_detects_rheumatoid_arthritis(test_cache_dir):
     """Xeljanz labels list rheumatoid arthritis as an approved indication."""

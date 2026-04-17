@@ -91,6 +91,18 @@ async def extract_approved_from_labels(
     )
     return validated
 
+# TODO delete
+async def get_all_fda_approved_diseases(
+    drug_names: list[str],
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+) -> set[str]:
+    async with FDAClient(cache_dir=cache_dir) as client:
+        label_texts = await client.get_all_label_indications(drug_names)
+
+    if not label_texts:
+        return set()
+    return label_texts
+
 
 async def get_fda_approved_diseases(
     drug_names: list[str],
