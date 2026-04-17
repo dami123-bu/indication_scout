@@ -7,6 +7,7 @@ diseases are already FDA-approved for a given drug's trade names.
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from indication_scout.constants import CACHE_TTL, DEFAULT_CACHE_DIR
 from indication_scout.data_sources.fda import FDAClient
@@ -95,7 +96,7 @@ async def extract_approved_from_labels(
 async def get_all_fda_approved_diseases(
     drug_names: list[str],
     cache_dir: Path = DEFAULT_CACHE_DIR,
-) -> set[str]:
+) -> Any:
     async with FDAClient(cache_dir=cache_dir) as client:
         label_texts = await client.get_all_label_indications(drug_names)
 
