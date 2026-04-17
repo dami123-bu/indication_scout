@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from indication_scout.config import get_settings
 from indication_scout.constants import MECHANISM_SIGNAL_KEYS
+from indication_scout.data_sources.chembl import resolve_drug_name
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import Association, MechanismOfAction
 
@@ -35,7 +36,8 @@ def build_mechanism_tools() -> list:
         subsequent tools can resolve target symbols. Call this first.
         """
         async with OpenTargetsClient() as client:
-            drug = await client.get_drug(drug_name)
+            chembl_id = await resolve_drug_name(drug_name, client.cache_dir)
+            drug = await client.get_drug(chembl_id)
 
         store["target_ids"] = {
             t.target_symbol: t.target_id
@@ -47,7 +49,7 @@ def build_mechanism_tools() -> list:
             f"{m.action_type} ({m.mechanism_of_action})" for m in moas
         ) or "none"
         return (
-            f"Found {len(moas)} mechanism(s) for {drug_name}: {summary}",
+            f"Found {len(moas)} mechanism(s) for {drug_name} ({chembl_id}): {summary}",
             moas,
         )
 

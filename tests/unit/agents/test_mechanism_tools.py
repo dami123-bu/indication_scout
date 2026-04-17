@@ -66,9 +66,15 @@ async def test_get_drug_returns_mechanisms_of_action():
     )
     mock_client = _mock_ot_client(get_drug=mock_drug)
 
-    with patch(
-        "indication_scout.agents.mechanism.mechanism_tools.OpenTargetsClient",
-        return_value=mock_client,
+    with (
+        patch(
+            "indication_scout.agents.mechanism.mechanism_tools.OpenTargetsClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "indication_scout.agents.mechanism.mechanism_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL1431"),
+        ),
     ):
         msg = await tool_map["get_drug"].ainvoke(
             ToolCall(name="get_drug", args={"drug_name": "metformin"}, id="tc0", type="tool_call")
@@ -79,6 +85,7 @@ async def test_get_drug_returns_mechanisms_of_action():
     assert msg.artifact[0].mechanism_of_action == "Complex I inhibitor"
     assert msg.artifact[0].action_type == "INHIBITOR"
     assert "metformin" in msg.content
+    assert "CHEMBL1431" in msg.content
     assert "INHIBITOR" in msg.content
 
 
@@ -98,9 +105,15 @@ async def test_get_target_associations_returns_dict_keyed_by_symbol():
     )
     mock_client = _mock_ot_client(get_drug=mock_drug, get_target_data_associations=[ASSOCIATION])
 
-    with patch(
-        "indication_scout.agents.mechanism.mechanism_tools.OpenTargetsClient",
-        return_value=mock_client,
+    with (
+        patch(
+            "indication_scout.agents.mechanism.mechanism_tools.OpenTargetsClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "indication_scout.agents.mechanism.mechanism_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL1431"),
+        ),
     ):
         # Populate the store via get_drug
         await tool_map["get_drug"].ainvoke(
