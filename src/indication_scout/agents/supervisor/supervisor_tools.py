@@ -73,6 +73,26 @@ def build_supervisor_tools(
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
         competitors = await svc.get_drug_competitors(chembl_id)
         diseases = list(competitors.keys())
+
+        # FDA approval check — drop competitor diseases already approved for this drug
+        fda_approved_lower: set[str] = set()
+        if diseases:
+            drug_names = await get_all_drug_names(chembl_id, svc.cache_dir)
+            if drug_names:
+                fda_approved = await get_fda_approved_diseases(
+                    drug_names=drug_names,
+                    candidate_diseases=diseases,
+                    cache_dir=svc.cache_dir,
+                )
+                if fda_approved:
+                    logger.warning(
+                        "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
+                        len(fda_approved), fda_approved,
+                    )
+                fda_approved_lower = {d.lower().strip() for d in fda_approved}
+
+        diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
+
         allowed_diseases.clear()
         for d in diseases:
             allowed_diseases[d.lower().strip()] = (d, "competitor")
@@ -192,6 +212,25 @@ def build_supervisor_tools(
                         len(fda_approved), fda_approved,
                     )
                 fda_approved_lower = {d.lower().strip() for d in fda_approved}
+
+        # Drop FDA-approved diseases from the mechanism artifact so they do not
+        # leak into the final SupervisorOutput.mechanism payload.
+        if fda_approved_lower:
+            output.associations = {
+                target: [
+                    a for a in assoc_list
+                    if a.disease_name.lower().strip() not in fda_approved_lower
+                ]
+                for target, assoc_list in output.associations.items()
+            }
+            output.shaped_associations = [
+                s for s in output.shaped_associations
+                if s.disease_name.lower().strip() not in fda_approved_lower
+            ]
+            # Blank the LLM-generated narrative — it was written pre-filter and
+            # may reference approved indications. Structured fields above are
+            # the source of truth.
+            output.summary = ""
 
         # Promote mechanism associations above the score threshold into the
         # investigation allowlist so the LLM can run literature / trials on them.
