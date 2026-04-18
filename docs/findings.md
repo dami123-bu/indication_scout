@@ -22,3 +22,15 @@ Each entry is dated and categorized.
 - `OpenTargetsClient.get_drug()` still calls `get_all_drug_names` for cache warming only (result not stored on the model)
 - `DRUG_QUERY` in `open_targets.py` trimmed to `id drugType` — name/synonyms/tradeNames dropped from the GraphQL request
 
+### Pipeline works best for focused-target drugs (2026-04-17)
+- The pipeline is designed for drugs with a small number of specific molecular targets (e.g., semaglutide→GLP1R, metformin→MT-ND1/GPD2, imatinib→BCR-ABL). For these drugs, mechanism analysis meaningfully narrows the candidate hypothesis space and `shaped_associations` produces actionable hypothesis/contraindication classifications.
+- **Known limitation — pleiotropic broad-spectrum drugs produce noisy output.** For drugs like aspirin (COX-1/COX-2 → systemic prostaglandin inhibition), NSAIDs, acetaminophen, corticosteroids, and broad-spectrum antibiotics, the target/mechanism is non-specific enough that (a) mechanism-sourced candidates span every organ system, (b) most literature searches find moderate-to-strong evidence regardless of candidate, and (c) `shaped_associations` falls back to mostly `neutral` or `confirms_known`. Output is not wrong, but the signal-to-noise is poor — the tool cannot distinguish real leads from "aspirin has been studied in everything."
+- Users running the pipeline on pleiotropic drugs should expect noisy output and treat findings as exploratory rather than prioritized.
+
+### FDA approval filter lives at two points in the supervisor (2026-04-17)
+- Filter is applied in `supervisor_tools.find_candidates` (drops competitor diseases approved for the drug) and in `supervisor_tools.analyze_mechanism` (drops mechanism-surfaced diseases approved for the drug, including mutating `MechanismOutput.associations` and `shaped_associations` so approvals don't leak into the final `SupervisorOutput.mechanism` payload).
+- Filter uses openFDA label text + LLM extraction via `get_fda_approved_diseases` → `extract_approved_from_labels`.
+- `extract_fda_approvals.txt` prompt is intentionally conservative: matches only exact synonyms/renames (NASH = MASH = non-alcoholic steatohepatitis), **not** parent categories (NAFLD is not filtered when MASH is approved, because most NAFLD patients have simple steatosis without fibrosis and remain an open repurposing population).
+- `MechanismOutput.summary` is LLM-generated pre-filter and may reference approved indications; when the FDA filter removes anything from the mechanism artifact, `output.summary` is blanked in `analyze_mechanism` to prevent approval leakage via narrative text. Structured fields are the source of truth.
+- `fda_approval_check` cache key hashes `{label_texts, candidate_diseases}` but **not** the prompt text — prompt changes require manually clearing cache entries to take effect.
+
