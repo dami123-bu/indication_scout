@@ -4,15 +4,26 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from indication_scout.models.model_open_targets import Association, MechanismOfAction, Pathway
+from indication_scout.models.model_open_targets import MechanismOfAction, Pathway
 
 
 class ShapedAssociation(BaseModel):
-    """A disease association annotated with mechanistic directionality."""
+    """A disease association annotated with mechanistic directionality.
+
+    This is the single per-(target, disease) record carried on MechanismOutput.
+    The underlying Open Targets Association carries extra fields — datatype_scores
+    (per-evidence-type scores) and therapeutic_areas — which are consumed during
+    shape computation and baked into `rationale`, but are NOT propagated here.
+    Downstream consumers read only the fields on this model.
+    """
 
     target_symbol: str = Field(description="Gene symbol of the target")
     disease_name: str = Field(description="Disease name from Open Targets")
     disease_id: str = Field(description="Disease ID from Open Targets")
+    overall_score: float | None = Field(
+        default=None,
+        description="Open Targets overall association score — used for threshold filtering",
+    )
     shape: Literal["hypothesis", "contraindication", "neutral", "confirms_known"] = Field(
         description=(
             "hypothesis: drug action direction matches disease mechanism; "
@@ -36,10 +47,6 @@ class MechanismOutput(BaseModel):
     mechanisms_of_action: list[MechanismOfAction] = Field(
         default_factory=list,
         description="Structured MoA entries from the drug entity: action type, mechanism string, and targets",
-    )
-    associations: dict[str, list[Association]] = Field(
-        default_factory=dict,
-        description="Top disease associations per target (symbol → associations)",
     )
     shaped_associations: list[ShapedAssociation] = Field(
         default_factory=list,

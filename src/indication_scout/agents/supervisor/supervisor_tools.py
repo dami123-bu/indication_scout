@@ -11,6 +11,7 @@ surface disease candidates for a drug.
 import logging
 import time
 from collections import Counter
+from pathlib import Path
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -38,8 +39,55 @@ from indication_scout.agents.mechanism.mechanism_agent import (
     build_mechanism_agent,
     run_mechanism_agent,
 )
-from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput, ShapedAssociation
 from indication_scout.services.retrieval import RetrievalService
+
+
+async def _filter_approved_mechanism_candidates(
+    drug_name: str,
+    shaped_associations: list[ShapedAssociation],
+    allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]],
+    cache_dir: Path,
+) -> list[ShapedAssociation]:
+    """Drop above-threshold shaped_associations whose disease is FDA-approved for the drug.
+
+    Below-threshold entries and already-allowed entries pass through untouched.
+    Returns the filtered list.
+    """
+    candidates = [
+        s.disease_name for s in shaped_associations
+        if (s.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE
+        and s.disease_name.lower().strip() not in allowed_diseases
+    ]
+    if not candidates:
+        return shaped_associations
+
+    chembl_id = await resolve_drug_name(drug_name, cache_dir)
+    drug_names = await get_all_drug_names(chembl_id, cache_dir)
+    if not drug_names:
+        return shaped_associations
+
+    survivors = await remove_approved_from_labels(
+        drug_names=drug_names,
+        candidate_diseases=candidates,
+        cache_dir=cache_dir,
+    )
+    dropped = set(candidates) - survivors
+    if dropped:
+        logger.warning(
+            "[TOOL] analyze_mechanism dropped %d mechanism diseases "
+            "(approval-covered or deduped): %s",
+            len(dropped), sorted(dropped),
+        )
+
+    survivors_lower = {s.lower().strip() for s in survivors}
+    allowed_lower = set(allowed_diseases.keys())
+    return [
+        s for s in shaped_associations
+        if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE
+        or s.disease_name.lower().strip() in allowed_lower
+        or s.disease_name.lower().strip() in survivors_lower
+    ]
 
 
 def build_supervisor_tools(
@@ -223,77 +271,31 @@ def build_supervisor_tools(
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
-        mechanism_candidates: list[str] = []
-        for assoc_list in output.associations.values():
-            for assoc in assoc_list:
-                if (assoc.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE:
-                    key = assoc.disease_name.lower().strip()
-                    if key not in allowed_diseases:
-                        mechanism_candidates.append(assoc.disease_name)
-
-        survivors: set[str] = set()
-        if mechanism_candidates:
-            chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
-            drug_names = await get_all_drug_names(chembl_id, svc.cache_dir)
-            if drug_names:
-                survivors = await remove_approved_from_labels(
-                    drug_names=drug_names,
-                    candidate_diseases=mechanism_candidates,
-                    cache_dir=svc.cache_dir,
-                )
-                dropped = set(mechanism_candidates) - survivors
-                if dropped:
-                    logger.warning(
-                        "[TOOL] analyze_mechanism dropped %d mechanism diseases "
-                        "(approval-covered or deduped): %s",
-                        len(dropped), sorted(dropped),
-                    )
-            else:
-                survivors = set(mechanism_candidates)
-
-        survivors_lower = {s.lower().strip() for s in survivors}
-
-        def _keep(assoc_disease_name: str, assoc_score: float | None) -> bool:
-            """Keep below-threshold associations untouched; above-threshold must have survived."""
-            if (assoc_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
-                return True
-            return assoc_disease_name.lower().strip() in survivors_lower
-
-        original_association_count = sum(len(v) for v in output.associations.values())
-
-        output.associations = {
-            target: [a for a in assoc_list if _keep(a.disease_name, a.overall_score)]
-            for target, assoc_list in output.associations.items()
-        }
-        # No overall_score on ShapedAssociation today — scrub by name only against
-        # the above-threshold drop-set (mechanism_candidates minus survivors).
-        dropped_lower = {c.lower().strip() for c in mechanism_candidates} - survivors_lower
-        output.shaped_associations = [
-            s for s in output.shaped_associations
-            if s.disease_name.lower().strip() not in dropped_lower
-        ]
-
-        new_association_count = sum(len(v) for v in output.associations.values())
-        scrubbed = original_association_count != new_association_count
-        if scrubbed:
+        original_count = len(output.shaped_associations)
+        output.shaped_associations = await _filter_approved_mechanism_candidates(
+            drug_name=drug_name,
+            shaped_associations=output.shaped_associations,
+            allowed_diseases=allowed_diseases,
+            cache_dir=svc.cache_dir,
+        )
+        if len(output.shaped_associations) != original_count:
             # The LLM narrative was written pre-filter and may reference approved
             # indications. Blank it — the structured fields are the source of truth.
             output.summary = ""
 
         # Promote surviving mechanism candidates into the investigation allowlist.
         mechanism_added = 0
-        for assoc_list in output.associations.values():
-            for assoc in assoc_list:
-                if (assoc.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
-                    continue
-                key = assoc.disease_name.lower().strip()
-                if key in allowed_diseases:
-                    name, source = allowed_diseases[key]
-                    if source == "competitor":
-                        allowed_diseases[key] = (name, "both")
-                else:
-                    allowed_diseases[key] = (assoc.disease_name, "mechanism")
-                    mechanism_added += 1
+        for s in output.shaped_associations:
+            if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
+                continue
+            key = s.disease_name.lower().strip()
+            if key in allowed_diseases:
+                name, source = allowed_diseases[key]
+                if source == "competitor":
+                    allowed_diseases[key] = (name, "both")
+            else:
+                allowed_diseases[key] = (s.disease_name, "mechanism")
+                mechanism_added += 1
 
         logger.info(
             "analyze_mechanism added %d mechanism-sourced diseases to allowlist",
@@ -307,7 +309,7 @@ def build_supervisor_tools(
         )
 
         n_targets = len(output.drug_targets)
-        n_top = sum(len(a) for a in output.associations.values())
+        n_top = len(output.shaped_associations)
         shape_counts = Counter(s.shape for s in output.shaped_associations)
         shaped_lines = "\n".join(
             f"  [{s.shape.upper()}] {s.target_symbol} / {s.disease_name} ({s.disease_id}): {s.rationale}"

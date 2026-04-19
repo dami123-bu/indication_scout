@@ -42,8 +42,8 @@ async def test_metformin_mechanism_agent():
 
     Verifies:
     - known kinase targets (ABL1, BCR, KIT, PDGFRB) are in drug_targets
-    - associations are fetched per target (dict keyed by symbol)
-    - top disease associations match expected values for key targets
+    - shaped_associations contains entries for each expected target
+    - top disease per key target (by overall_score) matches expected values
     - pathways are fetched per target (dict keyed by symbol)
     - Signal Transduction appears as a top-level pathway term across targets
     - narrative summary is non-empty and mentions relevant biology
@@ -61,13 +61,14 @@ async def test_metformin_mechanism_agent():
     for symbol, ensembl_id in output.drug_targets.items():
         assert ensembl_id.startswith("ENSG"), f"Expected Ensembl ID for {symbol}, got {ensembl_id!r}"
 
-    # --- associations ---
-    assert len(output.associations) >= 3
-    assert _EXPECTED_ASSOCIATION_SYMBOLS.issubset(set(output.associations.keys()))
-    for symbol, assocs in output.associations.items():
-        assert len(assocs) >= 1, f"Expected associations for {symbol}"
+    # --- shaped_associations ---
+    symbols_with_associations = {s.target_symbol for s in output.shaped_associations}
+    assert _EXPECTED_ASSOCIATION_SYMBOLS.issubset(symbols_with_associations)
+    # Verify top disease per key target — use highest overall_score entry per symbol
     for symbol, expected_disease in _EXPECTED_TOP_DISEASES.items():
-        top = output.associations[symbol][0].disease_name
+        per_symbol = [s for s in output.shaped_associations if s.target_symbol == symbol]
+        assert per_symbol, f"Expected shaped_associations for {symbol}"
+        top = max(per_symbol, key=lambda s: s.overall_score or 0.0).disease_name
         assert top == expected_disease, f"Expected top disease for {symbol} to be {expected_disease!r}, got {top!r}"
 
     # --- pathways ---

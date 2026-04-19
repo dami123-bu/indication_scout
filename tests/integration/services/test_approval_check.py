@@ -52,7 +52,7 @@ async def test_xeljanz_detects_ulcerative_colitis(test_cache_dir):
 
 async def test_semaglutide_NASH(test_cache_dir):
 
-    result = await get_fda_approved_diseases(
+    result = await get_all_fda_approved_diseases(
         drug_names=["semaglutide"],
         cache_dir=test_cache_dir,
     )

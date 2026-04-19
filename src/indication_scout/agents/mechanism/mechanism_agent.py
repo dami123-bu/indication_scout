@@ -89,6 +89,7 @@ def _compute_shaped_associations(
                     target_symbol=target_symbol,
                     disease_name=assoc.disease_name,
                     disease_id=assoc.disease_id,
+                    overall_score=assoc.overall_score,
                     shape="confirms_known",
                     rationale=(
                         f"Clinical evidence dominates (clinical={clinical:.2f}, "
@@ -106,6 +107,7 @@ def _compute_shaped_associations(
                     target_symbol=target_symbol,
                     disease_name=assoc.disease_name,
                     disease_id=assoc.disease_id,
+                    overall_score=assoc.overall_score,
                     shape="neutral",
                     rationale=(
                         f"Insufficient directional evidence "
@@ -131,6 +133,7 @@ def _compute_shaped_associations(
                 target_symbol=target_symbol,
                 disease_name=assoc.disease_name,
                 disease_id=assoc.disease_id,
+                overall_score=assoc.overall_score,
                 shape=shape,
                 rationale=(
                     f"{target_symbol} action_type={at_str}; disease direction={direction} "
@@ -204,7 +207,6 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     return MechanismOutput(
         drug_targets=drug_targets,
         mechanisms_of_action=mechanisms_of_action,
-        associations=associations,
         shaped_associations=shaped_associations,
         pathways=pathways,
         summary=summary,

@@ -94,16 +94,17 @@ async def test_run_mechanism_agent_assembles_all_fields():
     assert isinstance(output, MechanismOutput)
     assert output.mechanisms_of_action == MECHANISMS_OF_ACTION
     assert output.drug_targets == {"PRKAA1": "ENSG00000132356", "PRKAA2": "ENSG00000162409"}
-    assert output.associations == {"PRKAA1": ASSOCIATIONS_PRKAA1}
     assert output.summary == NARRATIVE
-    # shaped_associations are computed deterministically — at least one entry for PRKAA1
+    # shaped_associations are computed deterministically — one entry per input association
     assert len(output.shaped_associations) == 1
     assert output.shaped_associations[0].target_symbol == "PRKAA1"
     assert output.shaped_associations[0].disease_id == "EFO_0000400"
+    assert output.shaped_associations[0].disease_name == "type 2 diabetes mellitus"
+    assert output.shaped_associations[0].overall_score == 0.85
 
 
 async def test_run_mechanism_agent_multiple_targets_accumulate():
-    """associations from multiple per-target calls are merged into a single dict."""
+    """shaped_associations from multiple per-target calls are merged into a single list."""
     associations_prkaa2 = [
         Association(
             disease_id="EFO_0000270",
@@ -129,10 +130,10 @@ async def test_run_mechanism_agent_multiple_targets_accumulate():
     ):
         output = await run_mechanism_agent(agent, "metformin")
 
-    assert output.associations == {
-        "PRKAA1": ASSOCIATIONS_PRKAA1,
-        "PRKAA2": associations_prkaa2,
-    }
+    symbols_to_ids = {(s.target_symbol, s.disease_id) for s in output.shaped_associations}
+    assert ("PRKAA1", "EFO_0000400") in symbols_to_ids
+    assert ("PRKAA2", "EFO_0000270") in symbols_to_ids
+    assert len(output.shaped_associations) == 2
 
 
 async def test_run_mechanism_agent_ignores_non_tool_messages():
@@ -162,7 +163,7 @@ async def test_run_mechanism_agent_ignores_non_tool_messages():
     [
         ("get_drug", "mechanisms_of_action", []),
         ("get_drug", "drug_targets", {}),
-        ("get_target_associations", "associations", {}),
+        ("get_target_associations", "shaped_associations", []),
         ("finalize_analysis", "summary", ""),
     ],
 )

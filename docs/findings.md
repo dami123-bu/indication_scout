@@ -28,7 +28,7 @@ Each entry is dated and categorized.
 - Users running the pipeline on pleiotropic drugs should expect noisy output and treat findings as exploratory rather than prioritized.
 
 ### FDA approval filter lives at two points in the supervisor (2026-04-17)
-- Filter is applied in `supervisor_tools.find_candidates` (drops competitor diseases approved for the drug) and in `supervisor_tools.analyze_mechanism` (drops mechanism-surfaced diseases approved for the drug, including mutating `MechanismOutput.associations` and `shaped_associations` so approvals don't leak into the final `SupervisorOutput.mechanism` payload).
+- Filter is applied in `supervisor_tools.find_candidates` (drops competitor diseases approved for the drug) and in `supervisor_tools.analyze_mechanism` (drops mechanism-surfaced diseases approved for the drug by mutating `MechanismOutput.shaped_associations` so approvals don't leak into the final `SupervisorOutput.mechanism` payload).
 - Filter uses openFDA label text + LLM extraction via `get_fda_approved_diseases` → `extract_approved_from_labels`.
 - `extract_fda_approvals.txt` prompt is intentionally conservative: matches only exact synonyms/renames (NASH = MASH = non-alcoholic steatohepatitis), **not** parent categories (NAFLD is not filtered when MASH is approved, because most NAFLD patients have simple steatosis without fibrosis and remain an open repurposing population).
 - `MechanismOutput.summary` is LLM-generated pre-filter and may reference approved indications; when the FDA filter removes anything from the mechanism artifact, `output.summary` is blanked in `analyze_mechanism` to prevent approval leakage via narrative text. Structured fields are the source of truth.

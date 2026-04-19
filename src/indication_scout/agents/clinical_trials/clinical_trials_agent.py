@@ -14,6 +14,7 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
+from indication_scout.models.model_clinical_trials import TrialOutcomes
 
 SYSTEM_PROMPT = """\
 You are a clinical trials analyst assessing whether a drug could be
@@ -24,16 +25,21 @@ You have five tools:
 - detect_whitespace — checks if any trials exist for this drug-indication pair
 - search_trials — fetches details on trials matching the drug and indication
 - get_landscape — competitive landscape: total trials, top sponsors, phase distribution
-- get_terminated — terminated trials split into two groups: drug-wide safety/efficacy
-  failures (same count for every indication — reflects the drug's overall failure
-  history) and indication-specific terminations (trials that failed in this disease
-  space specifically). Report these separately — do not sum them into a single count.
+- get_terminated — trial-outcome evidence split into four scopes: drug_wide
+  (this drug in ANY indication, safety/efficacy only), indication_wide
+  (this indication with ANY drug), pair_specific (this drug in this
+  indication, TERMINATED — all stop_categories), and pair_completed
+  (this drug in this indication, COMPLETED — trials that ran to protocol
+  end). Report scopes separately. A pair_specific safety/efficacy
+  termination OR a completed pair Phase 3 without follow-on development
+  both indicate the exact hypothesis has been tested and did not
+  succeed.
 - finalize_analysis — signals completion; you MUST call this last
 
 Decide which tools to call based on what you learn. Typically start with
-detect_whitespace. If trials exist, get the details and landscape. If not,
-check for terminated trials and the broader landscape. If terminated trials
-reveal safety or efficacy failures, that's enough — you can skip landscape.
+detect_whitespace. ALWAYS call get_terminated alongside search_trials and
+get_landscape — terminated trials are evidence whether or not active trials
+exist. Do not skip get_terminated just because other trials were found.
 
 Batch independent tool calls into a single response when possible.
 
@@ -51,6 +57,24 @@ COMPETITIVE INTENSITY RULES — apply these when summarising the landscape:
   programmes. Distinguish trial count from investment scale.
 - When reporting competitive intensity, cite the highest-phase trials, their
   enrollment, and their status — not just the total count.
+
+TRIAL-OUTCOME RULES — apply these when weighing trial evidence:
+- pair_specific terminations with safety or efficacy stop_category mean
+  THIS drug has already been tested in THIS indication and stopped
+  early. Treat this as a closed hypothesis.
+- pair_completed Phase 3 trials mean THIS drug has run a full protocol
+  in THIS indication. A completed Phase 3 without subsequent regulatory
+  progression (no approval, no follow-on Phase 3) is strong evidence
+  the primary endpoint was missed. Treat as closed unless there is
+  direct evidence the readout was positive. Do not frame pair_completed
+  Phase 3 trials as "sustained clinical interest" — a completed trial
+  is a settled question, not an open one.
+- drug_wide safety/efficacy terminations reflect the drug's broader
+  failure history and should temper optimism across all candidates.
+- indication_wide terminations reflect how hard the disease area is
+  historically; weigh them as context, not as closure of this drug.
+- Business or enrollment terminations (in any scope) are neutral —
+  they reflect sponsor decisions, not drug performance.
 
 GROUNDING RULE: Your summary must reference ONLY information returned
 by the tools in this run. Do not introduce trial names, drug histories,
@@ -76,7 +100,7 @@ async def run_clinical_trials_agent(
         "whitespace": None,
         "landscape": None,
         "trials": [],
-        "terminated": [],
+        "terminated": TrialOutcomes(),
         "summary": None,
     }
 

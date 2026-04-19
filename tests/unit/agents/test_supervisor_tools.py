@@ -5,44 +5,45 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import ToolCall
 
-from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput, ShapedAssociation
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
-from indication_scout.models.model_open_targets import Association
 
 logger = logging.getLogger(__name__)
 
 # -- Fixtures --
 
-APPROVED_DISEASE = Association(
-    disease_id="EFO_0000400",
+APPROVED_SHAPED = ShapedAssociation(
+    target_symbol="PRKAA1",
     disease_name="type 2 diabetes mellitus",
+    disease_id="EFO_0000400",
     overall_score=0.85,
-    datatype_scores={"genetic_association": 0.9},
-    therapeutic_areas=["metabolism"],
+    shape="neutral",
+    rationale="test",
 )
 
-NON_APPROVED_DISEASE = Association(
-    disease_id="EFO_0001360",
+NON_APPROVED_SHAPED = ShapedAssociation(
+    target_symbol="PRKAA1",
     disease_name="colorectal cancer",
+    disease_id="EFO_0001360",
     overall_score=0.7,
-    datatype_scores={"genetic_association": 0.5},
-    therapeutic_areas=["oncology"],
+    shape="neutral",
+    rationale="test",
 )
 
-LOW_SCORE_DISEASE = Association(
-    disease_id="EFO_0009999",
+LOW_SCORE_SHAPED = ShapedAssociation(
+    target_symbol="PRKAA1",
     disease_name="rare disorder",
+    disease_id="EFO_0009999",
     overall_score=0.1,
-    datatype_scores={},
-    therapeutic_areas=[],
+    shape="neutral",
+    rationale="test",
 )
 
 
-def _mechanism_output(associations: dict[str, list[Association]]) -> MechanismOutput:
+def _mechanism_output(shaped: list[ShapedAssociation]) -> MechanismOutput:
     return MechanismOutput(
         drug_targets={"PRKAA1": "ENSG00000132356"},
-        associations=associations,
-        shaped_associations=[],
+        shaped_associations=shaped,
         pathways={},
         summary="test",
     )
@@ -65,9 +66,7 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
     """FDA-approved disease is excluded from the allowlist; non-approved is kept."""
     tool_map = _build_tools(tmp_path)
 
-    mechanism_output = _mechanism_output(
-        {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
-    )
+    mechanism_output = _mechanism_output([APPROVED_SHAPED, NON_APPROVED_SHAPED])
 
     with (
         patch(
@@ -83,8 +82,8 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
             new=AsyncMock(return_value=["metformin", "glucophage"]),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
-            new=AsyncMock(return_value={"type 2 diabetes mellitus"}),
+            "indication_scout.agents.supervisor.supervisor_tools.remove_approved_from_labels",
+            new=AsyncMock(return_value={"colorectal cancer"}),
         ),
     ):
         msg = await tool_map["analyze_mechanism"].ainvoke(
@@ -105,12 +104,10 @@ async def test_analyze_mechanism_filters_fda_approved_diseases(tmp_path):
 
 
 async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
-    """When FDA returns empty set, all qualifying diseases are added."""
+    """When FDA returns all candidates as survivors, all qualifying diseases are added."""
     tool_map = _build_tools(tmp_path)
 
-    mechanism_output = _mechanism_output(
-        {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
-    )
+    mechanism_output = _mechanism_output([APPROVED_SHAPED, NON_APPROVED_SHAPED])
 
     with (
         patch(
@@ -126,8 +123,8 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
             new=AsyncMock(return_value=["metformin", "glucophage"]),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
-            new=AsyncMock(return_value=set()),
+            "indication_scout.agents.supervisor.supervisor_tools.remove_approved_from_labels",
+            new=AsyncMock(return_value={"type 2 diabetes mellitus", "colorectal cancer"}),
         ),
     ):
         msg = await tool_map["analyze_mechanism"].ainvoke(
@@ -144,12 +141,10 @@ async def test_analyze_mechanism_keeps_non_approved_diseases(tmp_path):
 
 
 async def test_analyze_mechanism_skips_fda_check_when_no_drug_names(tmp_path):
-    """When get_all_drug_names returns [], get_fda_approved_diseases is not called."""
+    """When get_all_drug_names returns [], remove_approved_from_labels is not called."""
     tool_map = _build_tools(tmp_path)
 
-    mechanism_output = _mechanism_output(
-        {"PRKAA1": [APPROVED_DISEASE, NON_APPROVED_DISEASE]}
-    )
+    mechanism_output = _mechanism_output([APPROVED_SHAPED, NON_APPROVED_SHAPED])
 
     mock_fda = AsyncMock(return_value=set())
 
@@ -167,7 +162,7 @@ async def test_analyze_mechanism_skips_fda_check_when_no_drug_names(tmp_path):
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "indication_scout.agents.supervisor.supervisor_tools.get_fda_approved_diseases",
+            "indication_scout.agents.supervisor.supervisor_tools.remove_approved_from_labels",
             new=mock_fda,
         ),
     ):

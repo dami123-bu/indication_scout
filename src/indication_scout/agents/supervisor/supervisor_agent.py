@@ -196,33 +196,31 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     competitor_id_to_key: dict[str, str] = {}
     if mechanism:
         # We don't have disease_ids on the competitor list directly, but
-        # mechanism associations carry disease_id. If a mechanism association's
+        # shaped associations carry disease_id. If a shaped association's
         # disease_name already matches a competitor key, record its ID.
-        for assoc_list in mechanism.associations.values():
-            for assoc in assoc_list:
-                key = assoc.disease_name.lower().strip()
-                if key in allowed_lower and assoc.disease_id:
-                    competitor_id_to_key[assoc.disease_id] = key
+        for s in mechanism.shaped_associations:
+            key = s.disease_name.lower().strip()
+            if key in allowed_lower and s.disease_id:
+                competitor_id_to_key[s.disease_id] = key
 
         # Now add qualifying mechanism associations.
-        for assoc_list in mechanism.associations.values():
-            for assoc in assoc_list:
-                if (assoc.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
-                    continue
-                key = assoc.disease_name.lower().strip()
+        for s in mechanism.shaped_associations:
+            if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
+                continue
+            key = s.disease_name.lower().strip()
 
-                # Check by disease_id first (handles name mismatches for same disease)
-                existing_key = competitor_id_to_key.get(assoc.disease_id)
-                if existing_key:
-                    name, source = allowed_lower[existing_key]
-                    if source == "competitor":
-                        allowed_lower[existing_key] = (name, "both")
-                elif key in allowed_lower:
-                    name, source = allowed_lower[key]
-                    if source == "competitor":
-                        allowed_lower[key] = (name, "both")
-                else:
-                    allowed_lower[key] = (assoc.disease_name, "mechanism")
+            # Check by disease_id first (handles name mismatches for same disease)
+            existing_key = competitor_id_to_key.get(s.disease_id)
+            if existing_key:
+                name, source = allowed_lower[existing_key]
+                if source == "competitor":
+                    allowed_lower[existing_key] = (name, "both")
+            elif key in allowed_lower:
+                name, source = allowed_lower[key]
+                if source == "competitor":
+                    allowed_lower[key] = (name, "both")
+            else:
+                allowed_lower[key] = (s.disease_name, "mechanism")
 
     def _canonical(disease_raw: str) -> tuple[str, Literal["competitor", "mechanism", "both"]] | None:
         """Return (canonical_name, source) for disease_raw, or None if not allowed."""
