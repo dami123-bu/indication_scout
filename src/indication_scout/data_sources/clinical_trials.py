@@ -32,6 +32,7 @@ from indication_scout.models.model_clinical_trials import (
     IndicationDrug,
     IndicationLandscape,
     Intervention,
+    MeshTerm,
     PrimaryOutcome,
     RecentStart,
     TerminatedTrial,
@@ -476,6 +477,7 @@ class ClinicalTrialsClient(BaseClient):
 
     def _parse_trial(self, study: dict) -> Trial:
         proto = study.get("protocolSection", {})
+        derived = study.get("derivedSection", {})
         ident = proto.get("identificationModule", {})
         status = proto.get("statusModule", {})
         design = proto.get("designModule", {})
@@ -484,6 +486,13 @@ class ClinicalTrialsClient(BaseClient):
         arms = proto.get("armsInterventionsModule", {})
         outcomes = proto.get("outcomesModule", {})
         refs = proto.get("referencesModule", {})
+        cond_browse = derived.get("conditionBrowseModule", {})
+
+        # MeSH condition terms (derivedSection, not protocolSection)
+        mesh_conditions = [
+            MeshTerm(id=m.get("id", ""), term=m.get("term", ""))
+            for m in cond_browse.get("meshes", [])
+        ]
 
         # Interventions
         interventions = [
@@ -523,6 +532,7 @@ class ClinicalTrialsClient(BaseClient):
             overall_status=status.get("overallStatus", ""),
             why_stopped=status.get("whyStopped"),
             indications=proto.get("conditionsModule", {}).get("conditions", []),
+            mesh_conditions=mesh_conditions,
             interventions=interventions,
             sponsor=sponsor_mod.get("leadSponsor", {}).get("name", ""),
             enrollment=enrollment,
@@ -547,6 +557,7 @@ class ClinicalTrialsClient(BaseClient):
             title=trial.title,
             drug_name=drug_name,
             indication=trial.indications[0] if trial.indications else None,
+            mesh_conditions=trial.mesh_conditions,
             phase=trial.phase,
             why_stopped=trial.why_stopped,
             stop_category=_classify_stop_reason(trial.why_stopped),

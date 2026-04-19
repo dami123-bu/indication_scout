@@ -28,6 +28,21 @@ class Intervention(BaseModel):
         return values
 
 
+class MeshTerm(BaseModel):
+    """A MeSH term from ClinicalTrials.gov's derived conditionBrowseModule."""
+
+    id: str = ""  # e.g. "D003924"
+    term: str = ""  # e.g. "Diabetes Mellitus, Type 2"
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values: dict) -> dict:
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default is not None:
+                values[field_name] = field_info.default
+        return values
+
+
 class PrimaryOutcome(BaseModel):
     """A primary outcome measure for a trial."""
 
@@ -53,6 +68,7 @@ class Trial(BaseModel):
     overall_status: str = ""  # "Recruiting", "Completed", "Terminated", etc.
     why_stopped: str | None = None  # free text, only for Terminated/Withdrawn/Suspended
     indications: list[str] = []
+    mesh_conditions: list[MeshTerm] = []
     interventions: list[Intervention] = []
     sponsor: str = ""
     enrollment: int | None = None
@@ -195,6 +211,7 @@ class TerminatedTrial(BaseModel):
     title: str = ""
     drug_name: str | None = None
     indication: str | None = None
+    mesh_conditions: list[MeshTerm] = []
     phase: str | None = None
     why_stopped: str | None = None
     stop_category: str | None = (
