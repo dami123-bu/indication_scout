@@ -3,6 +3,19 @@
 ## Clinical Trials Query Quality
 
 ### 0. MeSH resolver — ambiguous term handling
+
+**!! HIGH PRIORITY — COMMON LAY TERMS SILENTLY ZERO-OUT THE TOOL LAYER !!**
+
+CONFIRMED 2026-04-19 VIA `tests/integration/data_sources/test_clinical_trials_mesh_filter.py`:
+THE BARE TERM `"diabetes"` RESOLVES TO `None` BECAUSE THE MESH PREFERRED
+DESCRIPTOR IS `"Diabetes Mellitus"` (D003920). EVERY OTHER COMMON ONE-WORD
+INDICATION WHOSE MESH PREFERRED FORM HAS A QUALIFIER (e.g. `"asthma"` vs.
+`"Asthma, Exercise-Induced"`, `"hypertension"` worked but `"depression"` will
+hit the symptom D003863 instead of the disorder D003866) IS LIABLE TO THE
+SAME FAILURE. WHEN THE RESOLVER RETURNS `None`, THE TOOL LAYER RETURNS THE
+EMPTY-RESULT SHAPE — NO TRIALS, NO ERROR, NO USER-VISIBLE WARNING. AGENTS
+WILL TREAT THIS AS GENUINE WHITESPACE.
+
 The basic `resolve_mesh_id` returns the first NCBI esearch hit. This will pick the
 wrong descriptor for genuinely ambiguous terms (e.g. `"depression"` → `D003863`
 symptom instead of `D003866` disorder). Add, in this order, only if the basic
