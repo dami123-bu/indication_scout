@@ -157,11 +157,15 @@ class ClinicalTrialsClient(BaseClient):
             date_before=date_before,
             max_results=_settings.clinical_trials_whitespace_exact_max,
         )
+        # Drug-only count is never MeSH-filtered (no indication to filter against).
         drug_count_task = self._count_trials(
             drug=drug, indication=None, date_before=date_before
         )
         indication_count_task = self._count_trials(
-            drug=None, indication=indication, date_before=date_before
+            drug=None,
+            indication=indication,
+            date_before=date_before,
+            target_mesh_id=target_mesh_id,
         )
 
         exact_trials, drug_count, indication_count = await asyncio.gather(
@@ -254,7 +258,10 @@ class ClinicalTrialsClient(BaseClient):
                 sort="StartDate:desc",
             ),
             self._count_trials(
-                drug=None, indication=indication, date_before=date_before
+                drug=None,
+                indication=indication,
+                date_before=date_before,
+                target_mesh_id=target_mesh_id,
             ),
         )
 
@@ -498,17 +505,32 @@ class ClinicalTrialsClient(BaseClient):
         drug: str | None,
         indication: str | None,
         date_before: date | None = None,
+        target_mesh_id: str | None = None,
     ) -> int:
-        """Quick count without fetching full records."""
-        params = self._build_search_params(
+        """Trial count for a drug/indication query.
+
+        Without target_mesh_id: short-circuits on the API's totalCount.
+        With target_mesh_id: paginates the full result set, applies
+        _filter_by_mesh, and returns the post-filter count. This is required
+        because CT.gov's totalCount reflects the unfiltered Essie query.
+        """
+        if target_mesh_id is None:
+            params = self._build_search_params(
+                drug=drug,
+                indication=indication,
+                date_before=date_before,
+            )
+            params["pageSize"] = 1  # we only need the count
+
+            data = await self._rest_get(self.BASE_URL, params)
+            return data.get("totalCount", 0)
+
+        trials = await self._paginated_search(
             drug=drug,
             indication=indication,
             date_before=date_before,
         )
-        params["pageSize"] = 1  # we only need the count
-
-        data = await self._rest_get(self.BASE_URL, params)
-        return data.get("totalCount", 0)
+        return len(self._filter_by_mesh(trials, target_mesh_id))
 
     # ------------------------------------------------------------------
     # Parsers: v2 API response → Pydantic models

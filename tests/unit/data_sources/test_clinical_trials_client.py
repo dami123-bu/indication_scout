@@ -270,3 +270,95 @@ def test_parse_terminated_trial_field_population():
     assert result.phase == "Phase 2"
     assert result.why_stopped == "Lack of efficacy in interim analysis"
     assert result.stop_category == "efficacy"
+
+
+# ------------------------------------------------------------------
+# _count_trials — post-filter counting (Phase 3)
+# ------------------------------------------------------------------
+
+
+def _make_study_with_mesh(
+    nct_id: str, mesh_ids: list[str], ancestor_ids: list[str] | None = None
+) -> dict:
+    """Minimal study dict with MeSH tags for filter-count testing."""
+    return {
+        "protocolSection": {
+            "identificationModule": {"nctId": nct_id, "briefTitle": f"Trial {nct_id}"},
+            "statusModule": {"overallStatus": "COMPLETED"},
+            "designModule": {"phases": ["PHASE2"]},
+            "conditionsModule": {"conditions": ["X"]},
+            "sponsorCollaboratorsModule": {"leadSponsor": {"name": "S"}},
+            "armsInterventionsModule": {
+                "interventions": [{"type": "DRUG", "name": "Drug A"}]
+            },
+            "outcomesModule": {},
+            "referencesModule": {},
+            "descriptionModule": {},
+        },
+        "derivedSection": {
+            "conditionBrowseModule": {
+                "meshes": [{"id": mid, "term": mid} for mid in mesh_ids],
+                "ancestors": [
+                    {"id": aid, "term": aid} for aid in (ancestor_ids or [])
+                ],
+            }
+        },
+    }
+
+
+async def test_count_trials_without_mesh_returns_total_count():
+    """Without target_mesh_id, _count_trials returns the API totalCount verbatim."""
+    client = ClinicalTrialsClient()
+    with patch.object(
+        client,
+        "_rest_get",
+        new=AsyncMock(return_value={"studies": [], "totalCount": 4200}),
+    ) as mock_get:
+        count = await client._count_trials(drug=None, indication="hypertension")
+
+    assert count == 4200
+    # Single request with pageSize=1 — not paginated
+    assert mock_get.await_count == 1
+    args, _ = mock_get.await_args
+    assert args[1]["pageSize"] == 1
+
+
+async def test_count_trials_with_mesh_returns_post_filter_count():
+    """With target_mesh_id, _count_trials paginates, filters, and returns filtered count."""
+    client = ClinicalTrialsClient()
+    studies = [
+        _make_study_with_mesh("NCT00000001", ["D006973"]),  # keep — exact
+        _make_study_with_mesh("NCT00000002", ["D059468"], ["D006973"]),  # keep — anc
+        _make_study_with_mesh("NCT00000003", ["D005901"], ["D005128"]),  # drop — unrelated
+        _make_study_with_mesh("NCT00000004", [], []),  # drop — empty mesh
+    ]
+    with patch.object(
+        client,
+        "_rest_get",
+        new=AsyncMock(return_value={"studies": studies, "totalCount": 9999}),
+    ):
+        count = await client._count_trials(
+            drug=None, indication="hypertension", target_mesh_id="D006973"
+        )
+
+    # totalCount (9999) is ignored; only the 2 trials matching D006973 are counted
+    assert count == 2
+
+
+async def test_count_trials_with_mesh_all_dropped_returns_zero():
+    """With target_mesh_id, when no trial's mesh matches, count is 0 even if totalCount is nonzero."""
+    client = ClinicalTrialsClient()
+    studies = [
+        _make_study_with_mesh("NCT00000010", ["D005901"]),
+        _make_study_with_mesh("NCT00000011", ["D059468"], ["D005128"]),
+    ]
+    with patch.object(
+        client,
+        "_rest_get",
+        new=AsyncMock(return_value={"studies": studies, "totalCount": 50}),
+    ):
+        count = await client._count_trials(
+            drug=None, indication="hypertension", target_mesh_id="D006973"
+        )
+
+    assert count == 0

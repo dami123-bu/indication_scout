@@ -618,6 +618,30 @@ async def test_search_trials_mesh_filter_keeps_ancestor_only_match(
     assert "D006973" in anc_ids
 
 
+async def test_count_trials_with_mesh_narrows_to_real_matches(clinical_trials_client):
+    """_count_trials with target_mesh_id returns post-filter count, not API totalCount.
+
+    "huntington disease" on CT.gov returns ~300 trials total — Essie sweeps in some
+    unrelated hits. D006816 ("Huntington Disease") post-filtering narrows the set
+    to trials genuinely tagged with that MeSH id in conditions or ancestors.
+    """
+    unfiltered = await clinical_trials_client._count_trials(
+        drug=None, indication="huntington disease"
+    )
+    filtered = await clinical_trials_client._count_trials(
+        drug=None,
+        indication="huntington disease",
+        target_mesh_id="D006816",
+    )
+
+    # Filter is strictly no-wider than the unfiltered total
+    assert filtered <= unfiltered
+    # And produces a meaningful number of matches for a real disease
+    assert filtered > 100
+    # Unfiltered totalCount includes Essie noise, so baseline must be large
+    assert unfiltered > 200
+
+
 async def test_get_trial_populates_mesh_ancestors(clinical_trials_client):
     """_parse_trial extracts conditionBrowseModule.ancestors into mesh_ancestors.
 
