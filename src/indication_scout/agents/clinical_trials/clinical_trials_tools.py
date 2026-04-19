@@ -6,7 +6,7 @@ from indication_scout.models.model_clinical_trials import (
     WhitespaceResult,
     IndicationLandscape,
     Trial,
-    TerminatedTrial,
+    TrialOutcomes,
 )
 
 
@@ -17,35 +17,53 @@ def build_clinical_trials_tools(
     @tool(response_format="content_and_artifact")
     async def get_terminated(
         drug: str, indication: str
-    ) -> tuple[str, list[TerminatedTrial]]:
-        """Get terminated trials for a drug and indication.
+    ) -> tuple[str, TrialOutcomes]:
+        """Get trial-outcome evidence for a drug and indication, split by scope.
 
-        Runs two queries and returns their union:
-        (1) Drug-wide safety/efficacy terminations — trials for this drug across
-            ALL indications where stop_category is 'safety' or 'efficacy'. This
-            count is the same regardless of which indication you pass. It reflects
-            the drug's overall safety/efficacy failure history, not failures
-            specific to this indication.
-        (2) Indication-specific terminations — all terminated trials in this
-            indication space, any drug.
+        Runs four queries and returns them in a TrialOutcomes with four
+        scope-labelled lists:
+        (1) drug_wide — this drug, ANY indication, safety/efficacy stop_category
+            only. Reflects the drug's overall failure history.
+        (2) indication_wide — this indication, ANY drug. Shows historical
+            attrition in the disease area.
+        (3) pair_specific — this drug AND this indication, TERMINATED. All
+            stop_categories retained. Safety/efficacy here means the exact
+            hypothesis has been directly tested and stopped early.
+        (4) pair_completed — this drug AND this indication, COMPLETED.
+            Catches trials that ran to protocol end (a Phase 3 that finishes
+            but misses its primary endpoint is COMPLETED, not TERMINATED).
+            Inspect these for likely outcome — a completed Phase 3 in a
+            disease area without subsequent regulatory progression is a
+            strong signal the endpoint was missed.
 
-        Each result includes a stop_category. When reporting counts, make clear
-        that drug-wide safety/efficacy failures apply across all indications, not
-        just this one.
+        When reporting, keep the scopes separate — do not sum them.
         """
         async with ClinicalTrialsClient() as client:
-            terminated = await client.get_terminated(
+            outcomes = await client.get_terminated(
                 drug, indication, date_before=date_before, sort="EnrollmentCount:desc"
             )
 
-        drug_wide = [t for t in terminated if t.stop_category in {"safety", "efficacy"}]
-        indication_specific = [t for t in terminated if t.stop_category not in {"safety", "efficacy"}]
+        pair_safety_efficacy = [
+            t for t in outcomes.pair_specific
+            if t.stop_category in {"safety", "efficacy"}
+        ]
+        pair_completed_phase3 = [
+            t for t in outcomes.pair_completed
+            if "3" in (t.phase or "")
+        ]
         content = (
-            f"Terminated trials for {drug} × {indication}: "
-            f"{len(drug_wide)} drug-wide safety/efficacy failures (across all indications), "
-            f"{len(indication_specific)} indication-specific terminations"
+            f"Trial outcomes for {drug} × {indication}: "
+            f"{len(outcomes.drug_wide)} drug-wide safety/efficacy failures "
+            f"(across all indications), "
+            f"{len(outcomes.indication_wide)} indication-specific terminations "
+            f"(any drug in this space), "
+            f"{len(outcomes.pair_specific)} pair-specific terminations "
+            f"(this drug in this indication; "
+            f"{len(pair_safety_efficacy)} safety/efficacy), "
+            f"{len(outcomes.pair_completed)} pair-specific completed trials "
+            f"({len(pair_completed_phase3)} Phase 3)"
         )
-        return content, terminated
+        return content, outcomes
 
     @tool(response_format="content_and_artifact")
     async def search_trials(drug: str, indication: str) -> tuple[str, list[Trial]]:

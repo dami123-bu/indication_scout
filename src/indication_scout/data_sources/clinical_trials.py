@@ -36,6 +36,7 @@ from indication_scout.models.model_clinical_trials import (
     RecentStart,
     TerminatedTrial,
     Trial,
+    TrialOutcomes,
     WhitespaceResult,
 )
 
@@ -250,16 +251,20 @@ class ClinicalTrialsClient(BaseClient):
         indication: str,
         date_before: date | None = None,
         sort: str | None = None,
-    ) -> list[TerminatedTrial]:
-        """Terminated trials for a drug and indication.
+    ) -> TrialOutcomes:
+        """Trial-outcome evidence for a drug and indication, split by scope.
 
-        Runs two concurrent queries:
+        Runs four concurrent queries:
           - Drug query: safety/efficacy terminations for this drug (any indication).
-            Filtered to stop_category in {safety, efficacy} only — enrollment,
-            business, and unknown terminations are dropped as noise.
+            Filtered to stop_category in {safety, efficacy} only.
           - Indication query: what has failed in this indication space (any drug),
             capped at clinical_trials_terminated_indication_max.
-        Returns the union, deduped by nct_id.
+          - Pair-terminated query: this drug AND this indication, status
+            TERMINATED. All stop_categories kept.
+          - Pair-completed query: this drug AND this indication, status
+            COMPLETED. Catches Phase 3 trials that ran to protocol end but
+            failed — ClinicalTrials.gov marks those COMPLETED, not TERMINATED.
+        Returns a TrialOutcomes with four scope-labelled lists.
         """
         drug_params = self._build_search_params(
             drug=drug,
@@ -274,9 +279,25 @@ class ClinicalTrialsClient(BaseClient):
             status_filter="TERMINATED",
             sort=sort,
         )
-        drug_data, indication_data = await asyncio.gather(
+        pair_terminated_params = self._build_search_params(
+            drug=drug,
+            indication=indication,
+            date_before=date_before,
+            status_filter="TERMINATED",
+            sort=sort,
+        )
+        pair_completed_params = self._build_search_params(
+            drug=drug,
+            indication=indication,
+            date_before=date_before,
+            status_filter="COMPLETED",
+            sort=sort,
+        )
+        drug_data, indication_data, pair_term_data, pair_comp_data = await asyncio.gather(
             self._rest_get(self.BASE_URL, drug_params),
             self._rest_get(self.BASE_URL, indication_params),
+            self._rest_get(self.BASE_URL, pair_terminated_params),
+            self._rest_get(self.BASE_URL, pair_completed_params),
         )
 
         # Drug query: only safety/efficacy terminations are meaningful signal
@@ -292,13 +313,22 @@ class ClinicalTrialsClient(BaseClient):
             self._parse_terminated_trial(s) for s in indication_data.get("studies", [])
         ][:_settings.clinical_trials_terminated_indication_max]
 
-        seen: set[str] = set()
-        results: list[TerminatedTrial] = []
-        for trial in drug_results + indication_results:
-            if trial.nct_id not in seen:
-                seen.add(trial.nct_id)
-                results.append(trial)
-        return results
+        # Pair-terminated: all stop_categories retained
+        pair_terminated_results = [
+            self._parse_terminated_trial(s) for s in pair_term_data.get("studies", [])
+        ]
+
+        # Pair-completed: trials that ran to protocol end
+        pair_completed_results = [
+            self._parse_trial(s) for s in pair_comp_data.get("studies", [])
+        ]
+
+        return TrialOutcomes(
+            drug_wide=drug_results,
+            indication_wide=indication_results,
+            pair_specific=pair_terminated_results,
+            pair_completed=pair_completed_results,
+        )
 
     # ------------------------------------------------------------------
     # Private: indication-level fetching (no drug filter)

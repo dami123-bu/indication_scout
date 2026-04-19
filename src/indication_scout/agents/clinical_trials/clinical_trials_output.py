@@ -4,7 +4,7 @@ from indication_scout.models.model_clinical_trials import (
     WhitespaceResult,
     Trial,
     IndicationLandscape,
-    TerminatedTrial,
+    TrialOutcomes,
 )
 
 
@@ -28,9 +28,12 @@ class ClinicalTrialsOutput(BaseModel):
         description=("Trials matching the drug-indication pair."),
     )
 
-    terminated: list[TerminatedTrial] = Field(
-        default_factory=list,
-        description=("Terminated, withdrawn, or suspended trials."),
+    terminated: TrialOutcomes = Field(
+        default_factory=TrialOutcomes,
+        description=(
+            "Trial-outcome evidence split by scope: drug_wide, indication_wide, "
+            "pair_specific (terminated), pair_completed."
+        ),
     )
 
     summary: str = Field(

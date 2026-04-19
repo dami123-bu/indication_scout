@@ -213,3 +213,36 @@ class TerminatedTrial(BaseModel):
             if values.get(field_name) is None and field_info.default is not None:
                 values[field_name] = field_info.default
         return values
+
+
+class TrialOutcomes(BaseModel):
+    """Trial-outcome evidence split by scope, for repurposing analysis.
+
+    Three termination scopes (trials stopped early):
+    - drug_wide: this drug, any indication; safety/efficacy stop_categories only
+      (the drug's overall failure history).
+    - indication_wide: this indication, any drug (historical attrition in the
+      disease area).
+    - pair_specific: this drug AND this indication (the hypothesis has been
+      directly tested and stopped); all stop_categories retained so the agent
+      can distinguish efficacy/safety closures from business/enrollment ones.
+
+    Plus one completed-trial scope (trials that ran to protocol end):
+    - pair_completed: this drug AND this indication, status COMPLETED. Catches
+      the common case where a Phase 3 trial finishes but misses its primary
+      endpoint (ClinicalTrials.gov marks these COMPLETED, not TERMINATED).
+      The agent should inspect these for likely outcome.
+    """
+
+    drug_wide: list[TerminatedTrial] = []
+    indication_wide: list[TerminatedTrial] = []
+    pair_specific: list[TerminatedTrial] = []
+    pair_completed: list[Trial] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values: dict) -> dict:
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default is not None:
+                values[field_name] = field_info.default
+        return values
