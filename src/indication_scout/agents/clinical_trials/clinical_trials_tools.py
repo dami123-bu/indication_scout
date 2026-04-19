@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from langchain_core.tools import tool
@@ -8,6 +9,9 @@ from indication_scout.models.model_clinical_trials import (
     Trial,
     TrialOutcomes,
 )
+from indication_scout.services.disease_helper import resolve_mesh_id
+
+logger = logging.getLogger(__name__)
 
 
 def build_clinical_trials_tools(
@@ -38,9 +42,25 @@ def build_clinical_trials_tools(
 
         When reporting, keep the scopes separate — do not sum them.
         """
+        mesh_id = await resolve_mesh_id(indication)
+        if mesh_id is None:
+            logger.warning(
+                "get_terminated: could not resolve MeSH id for indication '%s'; "
+                "returning empty TrialOutcomes",
+                indication,
+            )
+            return (
+                f"Trial outcomes for {drug} × {indication}: MeSH unresolved, skipped.",
+                TrialOutcomes(),
+            )
+
         async with ClinicalTrialsClient() as client:
             outcomes = await client.get_terminated(
-                drug, indication, date_before=date_before, sort="EnrollmentCount:desc"
+                drug,
+                indication,
+                date_before=date_before,
+                sort="EnrollmentCount:desc",
+                target_mesh_id=mesh_id,
             )
 
         pair_safety_efficacy = [
@@ -75,6 +95,17 @@ def build_clinical_trials_tools(
 
         Only trials with a start date before the session cutoff are returned.
         """
+        mesh_id = await resolve_mesh_id(indication)
+        if mesh_id is None:
+            logger.warning(
+                "search_trials: could not resolve MeSH id for indication '%s'; "
+                "returning empty list",
+                indication,
+            )
+            return (
+                f"Searched on {drug}-{indication}: MeSH unresolved, skipped.",
+                [],
+            )
 
         async with ClinicalTrialsClient() as client:
             trials = await client.search_trials(
@@ -82,6 +113,7 @@ def build_clinical_trials_tools(
                 indication,
                 date_before=date_before,
                 sort="EnrollmentCount:desc",
+                target_mesh_id=mesh_id,
             )
 
         return f"Searched on {drug}-{indication} and found {len(trials)} trials", trials
@@ -96,10 +128,24 @@ def build_clinical_trials_tools(
         (when whitespace exists) other drugs being tested for the same indication.
         This should almost always be the first tool called.
         """
+        mesh_id = await resolve_mesh_id(indication)
+        if mesh_id is None:
+            logger.warning(
+                "detect_whitespace: could not resolve MeSH id for indication '%s'; "
+                "returning empty WhitespaceResult",
+                indication,
+            )
+            return (
+                f"Whitespace check for {drug} × {indication}: MeSH unresolved, skipped.",
+                WhitespaceResult(),
+            )
 
         async with ClinicalTrialsClient() as client:
             whitespace = await client.detect_whitespace(
-                drug, indication, date_before=date_before
+                drug,
+                indication,
+                date_before=date_before,
+                target_mesh_id=mesh_id,
             )
 
         return (
@@ -115,10 +161,24 @@ def build_clinical_trials_tools(
         phase then enrollment, plus phase distribution and recent starts.
         Use to understand how crowded the space is.
         """
+        mesh_id = await resolve_mesh_id(indication)
+        if mesh_id is None:
+            logger.warning(
+                "get_landscape: could not resolve MeSH id for indication '%s'; "
+                "returning empty IndicationLandscape",
+                indication,
+            )
+            return (
+                f"Landscape for {indication}: MeSH unresolved, skipped.",
+                IndicationLandscape(),
+            )
 
         async with ClinicalTrialsClient() as client:
             landscape = await client.get_landscape(
-                indication, date_before=date_before, top_n=10
+                indication,
+                date_before=date_before,
+                top_n=10,
+                target_mesh_id=mesh_id,
             )
         return (
             f"Landscape for {indication}: {len(landscape.competitors)} competitors",
