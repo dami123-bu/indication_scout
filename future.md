@@ -2,6 +2,16 @@
 
 ## Clinical Trials Query Quality
 
+### 0. MeSH resolver — ambiguous term handling
+The basic `resolve_mesh_id` returns the first NCBI esearch hit. This will pick the
+wrong descriptor for genuinely ambiguous terms (e.g. `"depression"` → `D003863`
+symptom instead of `D003866` disorder). Add, in this order, only if the basic
+resolver proves insufficient:
+- Broader-name fallback when `[MeSH Terms]` returns zero hits.
+- Confidence check on the top hit (edit-distance or LLM) to detect mismatches.
+- LLM fallback via `query_small_llm` + a new `prompts/resolve_mesh.txt` for
+  disambiguation, biased toward the disorder form for repurposing context.
+
 ### 1. Expand drug synonyms before querying
 ChEMBL/DrugBank already have synonym lists. Pass the top N synonyms as an OR query
 (e.g. `metformin OR glucophage OR dimethylbiguanide`) to `query.intr`.
@@ -59,3 +69,30 @@ The phase/maturity dimension is not captured in `WhitespaceResult`. Consider add
 ## Disease Name Canonicalisation
 
 The supervisor may investigate mechanism-surfaced diseases under names that differ from their find_candidates equivalents (e.g. "non-alcoholic steatohepatitis" vs "fatty liver disease"). Both are valid but the report does not collapse them. Cross-reference against Open Targets disease IDs if exact matching is needed.
+
+---
+
+## Clinical Trials — Trials Dropped by MeSH Post-Filter
+
+Once the MeSH-resolver + post-filter refactor lands (see `plan_trial_refactor.md`), three classes
+of trials (or entire queries) will be silently dropped:
+
+1. **Trials with empty `conditionBrowseModule.meshes`.** CT.gov's MTI auto-tagger occasionally
+   produces no MeSH tags for a trial — we saw this for NCT06972992 ("Chronic Weight Management")
+   and NCT06354101 ("Metabolic Health"). With no MeSH terms, they cannot match a target MeSH ID
+   and get dropped even if their free-text condition is a legitimate match.
+2. **Trials whose MeSH tags are siblings, not descendants, of the target.** Example:
+   "Depression" (D003863, a symptom) vs "Depressive Disorder" (D003866, the disease) are
+   different MeSH branches. A resolver that picks D003863 will drop all MDD trials tagged
+   D003866. Mitigated by a smarter resolver, but residual siblings-not-descendants edge cases
+   will remain.
+3. **Unresolvable indications drop the entire query.** If the MeSH resolver returns `None` for
+   an indication string (neither NCBI nor the LLM fallback produces a confident ID), the whole
+   trial search short-circuits to an empty result. No string-based fallback runs. This is a
+   deliberate choice for correctness — better no result than a noisy one — but it means rare
+   diseases, novel indication phrasings, or typos will return nothing rather than a best-effort
+   string match. Consider surfacing these failures to the agent layer so the orchestrator can
+   retry with a normalized/synonymous indication before giving up.
+
+Consider a fallback bucket: keep these trials in a separate `unfiltered` list on the result
+so agents can decide whether to inspect them manually, rather than losing them entirely.

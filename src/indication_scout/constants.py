@@ -39,6 +39,11 @@ PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
 PUBMED_SUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
 
+# -- MeSH resolver ----------------------------------------------------------
+NCBI_ESEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
+NCBI_ESUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
+MESH_RESOLVER_TTL_SECONDS: int = 60 * 60 * 24 * 30  # 30 days
+
 # -- Clinical stage ranking (Open Targets) ----------------------------------
 # Maps maximumClinicalStage / maxClinicalStage string values to numeric ranks
 # for comparison. Higher rank = further in pipeline.

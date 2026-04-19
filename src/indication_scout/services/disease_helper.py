@@ -11,12 +11,17 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
+
+import aiohttp
 
 from indication_scout.config import get_settings
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     DEFAULT_CACHE_DIR,
+    MESH_RESOLVER_TTL_SECONDS,
+    NCBI_ESEARCH_URL,
+    NCBI_ESUMMARY_URL,
 )
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.pubmed import PubMedClient
@@ -248,3 +253,79 @@ async def normalize_batch(
         await asyncio.sleep(0.35)  # Stay under NCBI rate limit
 
     return results
+
+
+# ── MeSH Resolver ────────────────────────────────────────────────────────────
+
+
+async def resolve_mesh_id(indication: str) -> str | None:
+    """Resolve an indication string to its canonical MeSH descriptor ID.
+
+    Basic strategy: NCBI esearch on MeSH db with `"{indication}"[MeSH Terms]`,
+    then esummary on the first hit to get the D-number (`ds_meshui`). Returns
+    None if nothing resolves. Does NOT cache None results.
+
+    """
+    cache_params = {"indication": indication.strip().lower()}
+    cached = cache_get("mesh_resolver", cache_params, DEFAULT_CACHE_DIR)
+    if cached is not None:
+        return cached
+
+    api_key = get_settings().ncbi_api_key
+
+    esearch_params: dict[str, Any] = {
+        "db": "mesh",
+        "term": f'"{indication}"[MeSH Terms]',
+        "retmode": "json",
+        "retmax": 1,
+    }
+    if api_key:
+        esearch_params["api_key"] = api_key
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(NCBI_ESEARCH_URL, params=esearch_params) as resp:
+                resp.raise_for_status()
+                esearch_data = await resp.json()
+
+            uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+            if not uids:
+                logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
+                return None
+
+            esummary_params: dict[str, Any] = {
+                "db": "mesh",
+                "id": uids[0],
+                "retmode": "json",
+            }
+            if api_key:
+                esummary_params["api_key"] = api_key
+
+            async with session.get(NCBI_ESUMMARY_URL, params=esummary_params) as resp:
+                resp.raise_for_status()
+                esummary_data = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.warning("MeSH resolver: NCBI request failed for '%s': %s", indication, e)
+        return None
+
+    result = esummary_data.get("result", {})
+    uid = uids[0]
+    record = result.get(uid, {})
+    mesh_id = record.get("ds_meshui")
+
+    if not mesh_id:
+        logger.warning(
+            "MeSH resolver: esummary returned no ds_meshui for '%s' (uid=%s)",
+            indication,
+            uid,
+        )
+        return None
+
+    cache_set(
+        "mesh_resolver",
+        cache_params,
+        mesh_id,
+        DEFAULT_CACHE_DIR,
+        ttl=MESH_RESOLVER_TTL_SECONDS,
+    )
+    return mesh_id

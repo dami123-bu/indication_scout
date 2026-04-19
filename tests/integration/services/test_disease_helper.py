@@ -12,6 +12,7 @@ from indication_scout.services.disease_helper import (
     merge_duplicate_diseases,
     normalize_batch,
     normalize_for_pubmed,
+    resolve_mesh_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,3 +180,19 @@ async def test_normalize_batch_returns_pubmed_friendly_term(test_cache_dir):
 
     count = await pubmed_count(f"metformin AND ({normalized})")
     assert count >= MIN_RESULTS
+
+
+# ── resolve_mesh_id integration tests ───────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "indication, expected_mesh_id",
+    [
+        ("hypertension", "D006973"),
+        ("type 2 diabetes", "D003924"),
+    ],
+)
+async def test_resolve_mesh_id_real_ncbi(indication, expected_mesh_id):
+    """Real NCBI esearch+esummary resolves common indications to their MeSH D-numbers."""
+    result = await resolve_mesh_id(indication)
+    assert result == expected_mesh_id
