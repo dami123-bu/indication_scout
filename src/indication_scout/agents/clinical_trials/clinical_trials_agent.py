@@ -57,6 +57,11 @@ COMPETITIVE INTENSITY RULES — apply these when summarising the landscape:
   programmes. Distinguish trial count from investment scale.
 - When reporting competitive intensity, cite the highest-phase trials, their
   enrollment, and their status — not just the total count.
+- When reporting Phase 3 trial counts, check enrollment and primary outcome
+  measure for each trial. A Phase 3 with enrollment under ~50 or a primary
+  outcome that is a biomarker, gene expression, PK parameter, or imaging/CSF
+  measurement is a mechanistic substudy, not a pivotal efficacy trial —
+  report it separately or exclude it from the pivotal count.
 
 TRIAL-OUTCOME RULES — apply these when weighing trial evidence:
 - pair_specific terminations with safety or efficacy stop_category mean
