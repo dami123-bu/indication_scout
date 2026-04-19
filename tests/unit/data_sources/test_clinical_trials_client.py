@@ -38,8 +38,8 @@ def _make_study(
 # ------------------------------------------------------------------
 
 
-async def test_get_terminated_drug_query_filters_to_safety_efficacy_only(tmp_path):
-    """Drug query results are filtered to stop_category in {safety, efficacy}.
+async def test_get_terminated_drug_wide_filters_to_safety_efficacy_only(tmp_path):
+    """drug_wide results are filtered to stop_category in {safety, efficacy}.
 
     Business and enrollment terminations from the drug query are dropped as noise.
     """
@@ -51,7 +51,6 @@ async def test_get_terminated_drug_query_filters_to_safety_efficacy_only(tmp_pat
         ),  # business — dropped
         _make_study("NCT00000004", "Insufficient enrollment"),  # enrollment — dropped
     ]
-    indication_studies = []
 
     client = ClinicalTrialsClient()
     with patch.object(
@@ -59,23 +58,24 @@ async def test_get_terminated_drug_query_filters_to_safety_efficacy_only(tmp_pat
         "_rest_get",
         new=AsyncMock(
             side_effect=[
-                {"studies": drug_studies},
-                {"studies": indication_studies},
+                {"studies": drug_studies},  # drug query
+                {"studies": []},  # indication query
+                {"studies": []},  # pair-terminated query
+                {"studies": []},  # pair-completed query
             ]
         ),
     ):
-        results = await client.get_terminated("testdrug", "testindication")
+        outcomes = await client.get_terminated("testdrug", "testindication")
 
-    nct_ids = {t.nct_id for t in results}
-    assert "NCT00000001" in nct_ids  # safety — kept
-    assert "NCT00000002" in nct_ids  # efficacy — kept
-    assert "NCT00000003" not in nct_ids  # business — dropped
-    assert "NCT00000004" not in nct_ids  # enrollment — dropped
+    drug_wide_ids = {t.nct_id for t in outcomes.drug_wide}
+    assert "NCT00000001" in drug_wide_ids  # safety — kept
+    assert "NCT00000002" in drug_wide_ids  # efficacy — kept
+    assert "NCT00000003" not in drug_wide_ids  # business — dropped
+    assert "NCT00000004" not in drug_wide_ids  # enrollment — dropped
 
 
-async def test_get_terminated_indication_query_not_filtered(tmp_path):
-    """Indication query results are not filtered — all stop categories pass through."""
-    drug_studies = []
+async def test_get_terminated_indication_wide_not_filtered(tmp_path):
+    """indication_wide results are not filtered — all stop categories pass through."""
     indication_studies = [
         _make_study("NCT00000010", "Serious adverse events observed"),  # safety
         _make_study("NCT00000011", "Strategic decision by sponsor"),  # business
@@ -89,23 +89,29 @@ async def test_get_terminated_indication_query_not_filtered(tmp_path):
         "_rest_get",
         new=AsyncMock(
             side_effect=[
-                {"studies": drug_studies},
-                {"studies": indication_studies},
+                {"studies": []},  # drug query
+                {"studies": indication_studies},  # indication query
+                {"studies": []},  # pair-terminated query
+                {"studies": []},  # pair-completed query
             ]
         ),
     ):
-        results = await client.get_terminated("testdrug", "testindication")
+        outcomes = await client.get_terminated("testdrug", "testindication")
 
-    nct_ids = {t.nct_id for t in results}
-    assert "NCT00000010" in nct_ids
-    assert "NCT00000011" in nct_ids
-    assert "NCT00000012" in nct_ids
-    assert "NCT00000013" in nct_ids
+    indication_wide_ids = {t.nct_id for t in outcomes.indication_wide}
+    assert "NCT00000010" in indication_wide_ids
+    assert "NCT00000011" in indication_wide_ids
+    assert "NCT00000012" in indication_wide_ids
+    assert "NCT00000013" in indication_wide_ids
 
 
-async def test_get_terminated_deduplicates_by_nct_id(tmp_path):
-    """A trial appearing in both drug and indication queries appears only once."""
-    shared_study = _make_study("NCT00000020", "Lack of efficacy")
+async def test_get_terminated_pair_specific_retains_all_stop_categories(tmp_path):
+    """pair_specific retains all stop_categories (safety, efficacy, business, enrollment)."""
+    pair_terminated_studies = [
+        _make_study("NCT00000020", "Serious adverse events observed"),  # safety
+        _make_study("NCT00000021", "Strategic decision by sponsor"),  # business
+        _make_study("NCT00000022", "Insufficient enrollment"),  # enrollment
+    ]
 
     client = ClinicalTrialsClient()
     with patch.object(
@@ -113,18 +119,21 @@ async def test_get_terminated_deduplicates_by_nct_id(tmp_path):
         "_rest_get",
         new=AsyncMock(
             side_effect=[
-                {"studies": [shared_study]},  # drug query
-                {"studies": [shared_study]},  # indication query
+                {"studies": []},  # drug query
+                {"studies": []},  # indication query
+                {"studies": pair_terminated_studies},  # pair-terminated query
+                {"studies": []},  # pair-completed query
             ]
         ),
     ):
-        results = await client.get_terminated("testdrug", "testindication")
+        outcomes = await client.get_terminated("testdrug", "testindication")
 
-    assert len([t for t in results if t.nct_id == "NCT00000020"]) == 1
+    pair_ids = {t.nct_id for t in outcomes.pair_specific}
+    assert pair_ids == {"NCT00000020", "NCT00000021", "NCT00000022"}
 
 
-async def test_get_terminated_max_results_caps_indication_not_drug(tmp_path):
-    """Settings cap limits indication results; drug safety/efficacy results are not capped."""
+async def test_get_terminated_cap_applies_to_indication_wide_not_drug_wide(tmp_path):
+    """Settings cap limits indication_wide; drug_wide safety/efficacy results are not capped."""
     drug_studies = [
         _make_study(f"NCT9000{i:04d}", "Serious adverse events observed")
         for i in range(5)
@@ -141,8 +150,10 @@ async def test_get_terminated_max_results_caps_indication_not_drug(tmp_path):
             "_rest_get",
             new=AsyncMock(
                 side_effect=[
-                    {"studies": drug_studies},
-                    {"studies": indication_studies},
+                    {"studies": drug_studies},  # drug query
+                    {"studies": indication_studies},  # indication query
+                    {"studies": []},  # pair-terminated query
+                    {"studies": []},  # pair-completed query
                 ]
             ),
         ),
@@ -152,15 +163,12 @@ async def test_get_terminated_max_results_caps_indication_not_drug(tmp_path):
     ):
         mock_settings.clinical_trials_terminated_drug_page_size = 50
         mock_settings.clinical_trials_terminated_indication_max = 3
-        results = await client.get_terminated("testdrug", "testindication")
+        outcomes = await client.get_terminated("testdrug", "testindication")
 
-    drug_ids = {t.nct_id for t in results if t.nct_id.startswith("NCT9")}
-    indication_ids = {t.nct_id for t in results if t.nct_id.startswith("NCT8")}
-
-    # All 5 drug safety results included
-    assert len(drug_ids) == 5
-    # Indication results capped at settings value (3)
-    assert len(indication_ids) == 3
+    # All 5 drug safety results included — drug_wide is not capped
+    assert len(outcomes.drug_wide) == 5
+    # indication_wide is capped at settings value (3)
+    assert len(outcomes.indication_wide) == 3
 
 
 # ------------------------------------------------------------------

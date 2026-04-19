@@ -26,6 +26,7 @@ from indication_scout.models.model_clinical_trials import (
     RecentStart,
     TerminatedTrial,
     Trial,
+    TrialOutcomes,
     WhitespaceResult,
 )
 
@@ -101,21 +102,23 @@ TRIALS = [
     )
 ]
 
-TERMINATED = [
-    TerminatedTrial(
-        nct_id="NCT01234567",
-        title="Failed Trial",
-        drug_name="SomeDrug",
-        indication="Huntington's Disease",
-        phase="Phase 2",
-        why_stopped="Lack of efficacy",
-        stop_category="efficacy",
-        enrollment=50,
-        sponsor="Sponsor Inc",
-        start_date="2010-01-01",
-        termination_date="2012-06-01",
-    )
-]
+TERMINATED = TrialOutcomes(
+    indication_wide=[
+        TerminatedTrial(
+            nct_id="NCT01234567",
+            title="Failed Trial",
+            drug_name="SomeDrug",
+            indication="Huntington's Disease",
+            phase="Phase 2",
+            why_stopped="Lack of efficacy",
+            stop_category="efficacy",
+            enrollment=50,
+            sponsor="Sponsor Inc",
+            start_date="2010-01-01",
+            termination_date="2012-06-01",
+        )
+    ]
+)
 
 NARRATIVE = (
     "No trials exist for this drug-disease pair. One prior efficacy failure found."
@@ -172,15 +175,20 @@ async def test_run_clinical_trials_agent_whitespace_path():
     assert output.whitespace.indication_drugs[0].status == "COMPLETED"
 
     # terminated
-    assert len(output.terminated) == 1
-    assert output.terminated[0].nct_id == "NCT01234567"
-    assert output.terminated[0].drug_name == "SomeDrug"
-    assert output.terminated[0].indication == "Huntington's Disease"
-    assert output.terminated[0].phase == "Phase 2"
-    assert output.terminated[0].why_stopped == "Lack of efficacy"
-    assert output.terminated[0].stop_category == "efficacy"
-    assert output.terminated[0].enrollment == 50
-    assert output.terminated[0].sponsor == "Sponsor Inc"
+    assert isinstance(output.terminated, TrialOutcomes)
+    assert output.terminated.drug_wide == []
+    assert output.terminated.pair_specific == []
+    assert output.terminated.pair_completed == []
+    assert len(output.terminated.indication_wide) == 1
+    t = output.terminated.indication_wide[0]
+    assert t.nct_id == "NCT01234567"
+    assert t.drug_name == "SomeDrug"
+    assert t.indication == "Huntington's Disease"
+    assert t.phase == "Phase 2"
+    assert t.why_stopped == "Lack of efficacy"
+    assert t.stop_category == "efficacy"
+    assert t.enrollment == 50
+    assert t.sponsor == "Sponsor Inc"
 
     # landscape
     assert output.landscape is not None
@@ -256,7 +264,7 @@ async def test_run_clinical_trials_agent_active_trials_path():
     assert output.landscape is not None
     assert output.landscape.total_trial_count == 30
 
-    assert output.terminated == []
+    assert output.terminated == TrialOutcomes()
     assert output.summary == "5 trials found. ALS space is moderately active."
 
 
@@ -292,7 +300,11 @@ async def test_run_clinical_trials_agent_summary_from_finalize_analysis():
         (["search_trials", "get_landscape", "get_terminated"], "whitespace", None),
         (["detect_whitespace", "get_landscape", "get_terminated"], "trials", []),
         (["detect_whitespace", "search_trials", "get_terminated"], "landscape", None),
-        (["detect_whitespace", "search_trials", "get_landscape"], "terminated", []),
+        (
+            ["detect_whitespace", "search_trials", "get_landscape"],
+            "terminated",
+            TrialOutcomes(),
+        ),
     ],
 )
 async def test_run_clinical_trials_agent_missing_tool_leaves_default(

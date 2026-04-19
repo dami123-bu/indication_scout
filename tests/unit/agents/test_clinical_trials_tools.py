@@ -434,7 +434,7 @@ async def test_get_landscape_passes_date_before():
 
 
 async def test_get_terminated_returns_terminated_trial_artifact():
-    """get_terminated returns list[TerminatedTrial] artifact with all fields intact."""
+    """get_terminated returns TrialOutcomes artifact with all fields intact."""
     terminated = TerminatedTrial(
         nct_id="NCT04012255",
         title="Semaglutide Overweight Trial",
@@ -448,8 +448,9 @@ async def test_get_terminated_returns_terminated_trial_artifact():
         start_date="2019-01-01",
         termination_date="2020-06-01",
     )
+    outcomes = TrialOutcomes(indication_wide=[terminated])
 
-    mock_client = _mock_client(get_terminated=[terminated])
+    mock_client = _mock_client(get_terminated=outcomes)
     tools = build_clinical_trials_tools(date_before=None)
 
     with (
@@ -478,8 +479,12 @@ async def test_get_terminated_returns_terminated_trial_artifact():
         sort="EnrollmentCount:desc",
         target_mesh_id="D050177",
     )
-    assert len(msg.artifact) == 1
-    t = msg.artifact[0]
+    assert isinstance(msg.artifact, TrialOutcomes)
+    assert msg.artifact.drug_wide == []
+    assert msg.artifact.pair_specific == []
+    assert msg.artifact.pair_completed == []
+    assert len(msg.artifact.indication_wide) == 1
+    t = msg.artifact.indication_wide[0]
     assert t.nct_id == "NCT04012255"
     assert t.title == "Semaglutide Overweight Trial"
     assert t.drug_name == "Semaglutide"
@@ -497,7 +502,7 @@ async def test_get_terminated_returns_terminated_trial_artifact():
 async def test_get_terminated_passes_date_before():
     """get_terminated forwards date_before from closure to the client."""
     cutoff = date(2018, 1, 1)
-    mock_client = _mock_client(get_terminated=[])
+    mock_client = _mock_client(get_terminated=TrialOutcomes())
     tools = build_clinical_trials_tools(date_before=cutoff)
 
     with (
