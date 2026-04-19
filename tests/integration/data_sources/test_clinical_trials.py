@@ -6,7 +6,7 @@ import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.markers import no_review
-from indication_scout.models.model_clinical_trials import MeshTerm
+from indication_scout.models.model_clinical_trials import MeshTerm, TrialOutcomes
 
 logger = logging.getLogger(__name__)
 
@@ -307,21 +307,18 @@ async def test_search_trials_phase_filter(clinical_trials_client):
 
 
 async def test_get_terminated(clinical_trials_client):
-    """Test get_terminated returns terminated trials for a drug and indication.
+    """get_terminated returns terminated trials split into scope-labelled lists.
 
-    Runs two queries:
-      - Drug query (semaglutide): only safety/efficacy terminations
-      - Indication query (overweight): all terminations in this space
-    Returns union deduped by nct_id.
+    Verifies indication_wide retains business terminations (only drug_wide applies
+    the safety/efficacy stop_category filter).
     """
-    trials = await clinical_trials_client.get_terminated(
+    outcomes = await clinical_trials_client.get_terminated(
         "semaglutide", "overweight"
     )
 
-    assert len(trials) >= 1
-
-
-    [business_trial] = [t for t in trials if t.nct_id == "NCT05735600"]
+    [business_trial] = [
+        t for t in outcomes.indication_wide if t.nct_id == "NCT00394212"
+    ]
     assert business_trial.stop_category == "business"
 
 
@@ -455,30 +452,30 @@ async def test_get_landscape_nonexistent_indication_returns_empty(
 
 
 async def test_get_terminated_nonexistent_query_returns_empty(clinical_trials_client):
-    """Test that nonexistent drug and indication returns empty list."""
-    trials = await clinical_trials_client.get_terminated(
+    """Test that nonexistent drug and indication returns empty TrialOutcomes."""
+    outcomes = await clinical_trials_client.get_terminated(
         "xyzzy_not_a_real_term_12345",
         "xyzzy_not_a_real_indication_12345",
     )
 
-    assert trials == []
+    assert outcomes == TrialOutcomes()
 
 
 async def test_get_terminated_business_trial_excluded_from_drug_query(
     clinical_trials_client,
 ):
-    """Drug-side safety/efficacy filter excludes business-terminated trials end-to-end.
+    """drug_wide applies a safety/efficacy filter that drops business terminations.
 
     NCT04012255 (semaglutide, Overweight, Phase 1) was terminated for strategic/business
-    reasons. It must not appear in results: the drug query drops it (wrong stop_category),
-    and the indication query ("type 2 diabetes") never includes an overweight trial.
+    reasons. It must not appear in drug_wide (wrong stop_category), but it is retained
+    in pair_specific by design (that scope keeps all stop_categories).
     """
-    trials = await clinical_trials_client.get_terminated(
+    outcomes = await clinical_trials_client.get_terminated(
         "semaglutide", "type 2 diabetes"
     )
 
-    nct_ids = {t.nct_id for t in trials}
-    assert "NCT04012255" not in nct_ids
+    drug_wide_ids = {t.nct_id for t in outcomes.drug_wide}
+    assert "NCT04012255" not in drug_wide_ids
 
 
 @pytest.mark.parametrize(
