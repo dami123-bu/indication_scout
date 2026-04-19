@@ -6,6 +6,7 @@ from indication_scout.data_sources.clinical_trials import (
     ClinicalTrialsClient,
     _classify_stop_reason,
 )
+from indication_scout.models.model_clinical_trials import MeshTerm, Trial
 
 # --- _classify_stop_reason keyword-based classification ---
 
@@ -142,3 +143,164 @@ def test_phase_rank_ordering():
 def test_extract_date(date_struct, expected):
     """_extract_date should extract date string from v2 date struct."""
     assert ClinicalTrialsClient._extract_date(date_struct) == expected
+
+
+# --- _filter_by_mesh ---
+
+
+def _trial_with_mesh(
+    nct_id: str,
+    conditions: list[tuple[str, str]],
+    ancestors: list[tuple[str, str]],
+) -> Trial:
+    """Build a Trial with the given MeSH conditions and ancestors."""
+    return Trial(
+        nct_id=nct_id,
+        title=f"Trial {nct_id}",
+        phase="Phase 2",
+        overall_status="COMPLETED",
+        mesh_conditions=[MeshTerm(id=mid, term=term) for mid, term in conditions],
+        mesh_ancestors=[MeshTerm(id=mid, term=term) for mid, term in ancestors],
+    )
+
+
+def test_filter_by_mesh_target_in_conditions_kept():
+    """Trial is kept when target_mesh_id matches a mesh_conditions id."""
+    trial = _trial_with_mesh(
+        "NCT00000001",
+        conditions=[("D006973", "Hypertension")],
+        ancestors=[],
+    )
+    result = ClinicalTrialsClient._filter_by_mesh([trial], "D006973")
+    assert len(result) == 1
+    assert result[0].nct_id == "NCT00000001"
+
+
+def test_filter_by_mesh_target_in_ancestors_kept():
+    """Trial is kept when target_mesh_id matches a mesh_ancestors id."""
+    trial = _trial_with_mesh(
+        "NCT00000002",
+        conditions=[("D003924", "Diabetes Mellitus, Type 2")],
+        ancestors=[("D008659", "Metabolic Diseases")],
+    )
+    result = ClinicalTrialsClient._filter_by_mesh([trial], "D008659")
+    assert len(result) == 1
+    assert result[0].nct_id == "NCT00000002"
+
+
+def test_filter_by_mesh_unrelated_dropped():
+    """Trial is dropped when target_mesh_id matches neither conditions nor ancestors."""
+    trial = _trial_with_mesh(
+        "NCT00000003",
+        conditions=[("D005901", "Glaucoma")],
+        ancestors=[("D005128", "Eye Diseases")],
+    )
+    result = ClinicalTrialsClient._filter_by_mesh([trial], "D006973")
+    assert result == []
+
+
+def test_filter_by_mesh_empty_mesh_dropped():
+    """Trial is dropped when both mesh_conditions and mesh_ancestors are empty."""
+    trial = _trial_with_mesh("NCT00000004", conditions=[], ancestors=[])
+    result = ClinicalTrialsClient._filter_by_mesh([trial], "D006973")
+    assert result == []
+
+
+def test_filter_by_mesh_mixed_list():
+    """Across a mixed list, only trials matching target are kept."""
+    kept_cond = _trial_with_mesh(
+        "NCT_KEEP_COND",
+        conditions=[("D006973", "Hypertension")],
+        ancestors=[],
+    )
+    kept_anc = _trial_with_mesh(
+        "NCT_KEEP_ANC",
+        conditions=[("D003924", "Diabetes Mellitus, Type 2")],
+        ancestors=[("D006973", "Hypertension")],
+    )
+    dropped_unrelated = _trial_with_mesh(
+        "NCT_DROP_UNREL",
+        conditions=[("D005901", "Glaucoma")],
+        ancestors=[("D005128", "Eye Diseases")],
+    )
+    dropped_empty = _trial_with_mesh("NCT_DROP_EMPTY", conditions=[], ancestors=[])
+
+    result = ClinicalTrialsClient._filter_by_mesh(
+        [kept_cond, kept_anc, dropped_unrelated, dropped_empty], "D006973"
+    )
+    nct_ids = [t.nct_id for t in result]
+    assert nct_ids == ["NCT_KEEP_COND", "NCT_KEEP_ANC"]
+
+
+# --- _parse_trial populates mesh_ancestors ---
+
+
+def test_parse_trial_populates_mesh_ancestors():
+    """_parse_trial extracts ancestors from derivedSection.conditionBrowseModule."""
+    study = {
+        "protocolSection": {
+            "identificationModule": {
+                "nctId": "NCT77777777",
+                "briefTitle": "Ancestor fixture trial",
+            },
+            "statusModule": {"overallStatus": "COMPLETED"},
+            "designModule": {"phases": ["PHASE2"]},
+            "conditionsModule": {"conditions": ["Type 2 Diabetes Mellitus"]},
+            "sponsorCollaboratorsModule": {"leadSponsor": {"name": "Sponsor"}},
+            "armsInterventionsModule": {
+                "interventions": [{"type": "DRUG", "name": "DrugY"}]
+            },
+            "outcomesModule": {},
+            "referencesModule": {},
+            "descriptionModule": {},
+        },
+        "derivedSection": {
+            "conditionBrowseModule": {
+                "meshes": [{"id": "D003924", "term": "Diabetes Mellitus, Type 2"}],
+                "ancestors": [
+                    {"id": "D003920", "term": "Diabetes Mellitus"},
+                    {"id": "D044882", "term": "Glucose Metabolism Disorders"},
+                ],
+            }
+        },
+    }
+
+    client = ClinicalTrialsClient()
+    trial = client._parse_trial(study)
+
+    assert len(trial.mesh_conditions) == 1
+    assert trial.mesh_conditions[0].id == "D003924"
+    assert trial.mesh_conditions[0].term == "Diabetes Mellitus, Type 2"
+
+    assert len(trial.mesh_ancestors) == 2
+    assert trial.mesh_ancestors[0].id == "D003920"
+    assert trial.mesh_ancestors[0].term == "Diabetes Mellitus"
+    assert trial.mesh_ancestors[1].id == "D044882"
+    assert trial.mesh_ancestors[1].term == "Glucose Metabolism Disorders"
+
+
+def test_parse_trial_missing_ancestors_defaults_empty():
+    """_parse_trial returns empty mesh_ancestors when derivedSection lacks ancestors."""
+    study = {
+        "protocolSection": {
+            "identificationModule": {
+                "nctId": "NCT88888888",
+                "briefTitle": "No ancestors fixture",
+            },
+            "statusModule": {"overallStatus": "COMPLETED"},
+            "designModule": {"phases": ["PHASE1"]},
+            "conditionsModule": {"conditions": ["Condition X"]},
+            "sponsorCollaboratorsModule": {"leadSponsor": {"name": "Sponsor"}},
+            "armsInterventionsModule": {
+                "interventions": [{"type": "DRUG", "name": "DrugZ"}]
+            },
+            "outcomesModule": {},
+            "referencesModule": {},
+            "descriptionModule": {},
+        },
+    }
+
+    client = ClinicalTrialsClient()
+    trial = client._parse_trial(study)
+
+    assert trial.mesh_ancestors == []

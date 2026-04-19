@@ -103,9 +103,14 @@ class ClinicalTrialsClient(BaseClient):
         date_before: date | None = None,
         phase_filter: str | None = None,
         sort: str | None = None,
+        target_mesh_id: str | None = None,
     ) -> list[Trial]:
-        """Search for trials matching drug and optional indication."""
-        return await self._paginated_search(
+        """Search for trials matching drug and optional indication.
+
+        If target_mesh_id is provided, results are post-filtered to trials
+        whose mesh_conditions or mesh_ancestors contain that D-number.
+        """
+        trials = await self._paginated_search(
             drug=drug,
             indication=indication,
             date_before=date_before,
@@ -113,6 +118,9 @@ class ClinicalTrialsClient(BaseClient):
             max_results=_settings.clinical_trials_search_max,
             sort=sort,
         )
+        if target_mesh_id:
+            trials = self._filter_by_mesh(trials, target_mesh_id)
+        return trials
 
     # ------------------------------------------------------------------
     # Public: detect_whitespace
@@ -123,6 +131,7 @@ class ClinicalTrialsClient(BaseClient):
         drug: str,
         indication: str,
         date_before: date | None = None,
+        target_mesh_id: str | None = None,
     ) -> WhitespaceResult:
         """Is this drug-indication pair being explored in clinical trials?
 
@@ -159,6 +168,9 @@ class ClinicalTrialsClient(BaseClient):
             exact_task, drug_count_task, indication_count_task
         )
 
+        if target_mesh_id:
+            exact_trials = self._filter_by_mesh(exact_trials, target_mesh_id)
+
         # Indication drugs: only populated when whitespace exists
         # Restrict to Phase 2+ for meaningful efficacy signal
         indication_drugs: list[IndicationDrug] = []
@@ -169,6 +181,11 @@ class ClinicalTrialsClient(BaseClient):
                 max_results=_settings.clinical_trials_whitespace_indication_max,
                 phase_filter=CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
             )
+
+            if target_mesh_id:
+                indication_trials = self._filter_by_mesh(
+                    indication_trials, target_mesh_id
+                )
 
             # Collect drug/biologic trials as candidates
             candidates: list[IndicationDrug] = []
@@ -219,6 +236,7 @@ class ClinicalTrialsClient(BaseClient):
         indication: str,
         date_before: date | None = None,
         top_n: int = 50,
+        target_mesh_id: str | None = None,
     ) -> IndicationLandscape:
         """Competitive landscape for an indication — drug/biologic trials, grouped by sponsor + drug.
 
@@ -240,6 +258,9 @@ class ClinicalTrialsClient(BaseClient):
             ),
         )
 
+        if target_mesh_id:
+            trials = self._filter_by_mesh(trials, target_mesh_id)
+
         return self._aggregate_landscape(trials, total_count=total_count, top_n=top_n)
 
     # ------------------------------------------------------------------
@@ -252,6 +273,7 @@ class ClinicalTrialsClient(BaseClient):
         indication: str,
         date_before: date | None = None,
         sort: str | None = None,
+        target_mesh_id: str | None = None,
     ) -> TrialOutcomes:
         """Trial-outcome evidence for a drug and indication, split by scope.
 
@@ -301,7 +323,8 @@ class ClinicalTrialsClient(BaseClient):
             self._rest_get(self.BASE_URL, pair_completed_params),
         )
 
-        # Drug query: only safety/efficacy terminations are meaningful signal
+        # Drug query: only safety/efficacy terminations are meaningful signal.
+        # Drug-only query is not MeSH-filtered (no indication to filter against).
         drug_results = [
             self._parse_terminated_trial(s) for s in drug_data.get("studies", [])
         ]
@@ -309,20 +332,36 @@ class ClinicalTrialsClient(BaseClient):
             t for t in drug_results if t.stop_category in {"safety", "efficacy"}
         ]
 
-        # Indication query: all terminations up to configured cap
+        # Indication query: parse to Trial, MeSH-filter, then wrap. Cap after.
+        indication_trials = [
+            self._parse_trial(s) for s in indication_data.get("studies", [])
+        ]
+        if target_mesh_id:
+            indication_trials = self._filter_by_mesh(indication_trials, target_mesh_id)
         indication_results = [
-            self._parse_terminated_trial(s) for s in indication_data.get("studies", [])
+            self._terminated_from_trial(t) for t in indication_trials
         ][:_settings.clinical_trials_terminated_indication_max]
 
-        # Pair-terminated: all stop_categories retained
+        # Pair-terminated: all stop_categories retained; MeSH-filter before wrapping
+        pair_terminated_trials = [
+            self._parse_trial(s) for s in pair_term_data.get("studies", [])
+        ]
+        if target_mesh_id:
+            pair_terminated_trials = self._filter_by_mesh(
+                pair_terminated_trials, target_mesh_id
+            )
         pair_terminated_results = [
-            self._parse_terminated_trial(s) for s in pair_term_data.get("studies", [])
+            self._terminated_from_trial(t) for t in pair_terminated_trials
         ]
 
-        # Pair-completed: trials that ran to protocol end
+        # Pair-completed: trials that ran to protocol end; MeSH-filter before returning
         pair_completed_results = [
             self._parse_trial(s) for s in pair_comp_data.get("studies", [])
         ]
+        if target_mesh_id:
+            pair_completed_results = self._filter_by_mesh(
+                pair_completed_results, target_mesh_id
+            )
 
         return TrialOutcomes(
             drug_wide=drug_results,
@@ -494,6 +533,12 @@ class ClinicalTrialsClient(BaseClient):
             for m in cond_browse.get("meshes", [])
         ]
 
+        # MeSH ancestors (broader terms up the MeSH tree)
+        mesh_ancestors = [
+            MeshTerm(id=m.get("id", ""), term=m.get("term", ""))
+            for m in cond_browse.get("ancestors", [])
+        ]
+
         # Interventions
         interventions = [
             Intervention(
@@ -533,6 +578,7 @@ class ClinicalTrialsClient(BaseClient):
             why_stopped=status.get("whyStopped"),
             indications=proto.get("conditionsModule", {}).get("conditions", []),
             mesh_conditions=mesh_conditions,
+            mesh_ancestors=mesh_ancestors,
             interventions=interventions,
             sponsor=sponsor_mod.get("leadSponsor", {}).get("name", ""),
             enrollment=enrollment,
@@ -546,8 +592,10 @@ class ClinicalTrialsClient(BaseClient):
 
     def _parse_terminated_trial(self, study: dict) -> TerminatedTrial:
         """Parse a study into a TerminatedTrial with stop classification."""
-        trial = self._parse_trial(study)
+        return self._terminated_from_trial(self._parse_trial(study))
 
+    def _terminated_from_trial(self, trial: Trial) -> TerminatedTrial:
+        """Wrap an already-parsed Trial as a TerminatedTrial with stop classification."""
         drug_name, _ = self._primary_drug(trial)
         if drug_name == "Unknown":
             drug_name = None
@@ -661,6 +709,22 @@ class ClinicalTrialsClient(BaseClient):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _filter_by_mesh(trials: list[Trial], target_mesh_id: str) -> list[Trial]:
+        """Keep trials whose mesh_conditions or mesh_ancestors contain target_mesh_id.
+
+        Comparison is on the MeSH D-number `id` field, not `term`. Trials with
+        both lists empty are dropped (cannot be verified against the MeSH tree).
+        """
+        filtered: list[Trial] = []
+        for t in trials:
+            if not t.mesh_conditions and not t.mesh_ancestors:
+                continue
+            ids = {m.id for m in t.mesh_conditions} | {m.id for m in t.mesh_ancestors}
+            if target_mesh_id in ids:
+                filtered.append(t)
+        return filtered
 
     @staticmethod
     def _normalize_phase(phases: list[str]) -> str:

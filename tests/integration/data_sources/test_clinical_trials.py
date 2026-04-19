@@ -6,6 +6,7 @@ import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.markers import no_review
+from indication_scout.models.model_clinical_trials import MeshTerm
 
 logger = logging.getLogger(__name__)
 
@@ -553,3 +554,86 @@ async def test_detect_whitespace_nonexistent_indication_is_whitespace(
     assert result.drug_only_trials > 0
     assert result.indication_only_trials == 0
     assert result.indication_drugs == []
+
+
+# --- MeSH post-filter (Phase 2) ---
+
+
+async def test_search_trials_mesh_filter_drops_noise(clinical_trials_client):
+    """target_mesh_id drops trials whose MeSH tags don't include the target.
+
+    A loose CT.gov search for metformin + "hypertension" returns Essie noise:
+    pre-eclampsia, pulmonary hypertension, prehypertension, masked hypertension.
+    Post-filtering by D006973 ("Hypertension") keeps only trials whose
+    mesh_conditions OR mesh_ancestors contain D006973.
+    """
+    unfiltered = await clinical_trials_client.search_trials(
+        drug="metformin", indication="hypertension"
+    )
+    filtered = await clinical_trials_client.search_trials(
+        drug="metformin", indication="hypertension", target_mesh_id="D006973"
+    )
+
+    # Filter must be strictly narrowing on this known-noisy query
+    assert len(filtered) < len(unfiltered)
+    assert len(filtered) > 0
+
+    # Every kept trial contains D006973 in mesh_conditions or mesh_ancestors
+    for t in filtered:
+        cond_ids = {m.id for m in t.mesh_conditions}
+        anc_ids = {m.id for m in t.mesh_ancestors}
+        assert "D006973" in cond_ids | anc_ids, (
+            f"{t.nct_id} passed filter but has no D006973 tag"
+        )
+
+    # Every dropped trial lacks D006973 (or has no MeSH tags at all)
+    kept_ids = {t.nct_id for t in filtered}
+    dropped = [t for t in unfiltered if t.nct_id not in kept_ids]
+    assert len(dropped) > 0  # must be noise to drop
+    for t in dropped:
+        cond_ids = {m.id for m in t.mesh_conditions}
+        anc_ids = {m.id for m in t.mesh_ancestors}
+        assert "D006973" not in cond_ids | anc_ids, (
+            f"{t.nct_id} was dropped but has D006973 — filter bug"
+        )
+
+
+async def test_search_trials_mesh_filter_keeps_ancestor_only_match(
+    clinical_trials_client,
+):
+    """A trial whose mesh_ancestors (not mesh_conditions) contain the target is kept.
+
+    NCT02503943 has mesh_conditions = [Masked Hypertension (D059468), ...] and
+    mesh_ancestors includes Hypertension (D006973). The post-filter must keep it.
+    """
+    filtered = await clinical_trials_client.search_trials(
+        drug="metformin", indication="hypertension", target_mesh_id="D006973"
+    )
+
+    [trial] = [t for t in filtered if t.nct_id == "NCT02503943"]
+
+    cond_ids = {m.id for m in trial.mesh_conditions}
+    anc_ids = {m.id for m in trial.mesh_ancestors}
+    assert "D006973" not in cond_ids
+    assert "D006973" in anc_ids
+
+
+async def test_get_trial_populates_mesh_ancestors(clinical_trials_client):
+    """_parse_trial extracts conditionBrowseModule.ancestors into mesh_ancestors.
+
+    NCT04971785 (NASH/semaglutide) has condition "Non-alcoholic Fatty Liver
+    Disease" (D065626) with ancestors Fatty Liver → Liver Diseases →
+    Digestive System Diseases.
+    """
+    trial = await clinical_trials_client.get_trial("NCT04971785")
+
+    assert trial.mesh_conditions == [
+        MeshTerm(id="D065626", term="Non-alcoholic Fatty Liver Disease"),
+    ]
+
+    ancestor_pairs = [(m.id, m.term) for m in trial.mesh_ancestors]
+    assert ancestor_pairs == [
+        ("D005234", "Fatty Liver"),
+        ("D008107", "Liver Diseases"),
+        ("D004066", "Digestive System Diseases"),
+    ]

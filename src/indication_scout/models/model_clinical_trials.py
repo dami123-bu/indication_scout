@@ -69,6 +69,7 @@ class Trial(BaseModel):
     why_stopped: str | None = None  # free text, only for Terminated/Withdrawn/Suspended
     indications: list[str] = []
     mesh_conditions: list[MeshTerm] = []
+    mesh_ancestors: list[MeshTerm] = []
     interventions: list[Intervention] = []
     sponsor: str = ""
     enrollment: int | None = None
