@@ -10,9 +10,12 @@ narrowing too aggressively.
 `is_whitespace` is `exact_match_count == 0`, so there is no numeric threshold
 to recalibrate against. The assertions instead check filter sanity:
 
-  - post <= pre   (the filter only narrows; never invents trials)
-  - at least 2/3  pairs retain >0 trials (filter isn't catastrophically
-                  over-dropping known-active pairs)
+  - post <= pre              (the filter only narrows; never invents trials)
+  - at least len(_PAIRS) - 1 pairs retain >0 trials (the filter isn't
+                             catastrophically over-dropping known-active
+                             pairs). Threshold scales with len(_PAIRS) so
+                             pairs can be commented out for local debugging
+                             without the assertion breaking; minimum of 1.
 
 A `date_before=2025-01-01` cutoff is used to keep counts roughly stable across
 runs; counts may still drift as CT.gov re-tags trials.
@@ -72,10 +75,11 @@ async def test_mesh_filter_pre_vs_post_counts(clinical_trials_client: ClinicalTr
             f"{drug} x {indication}: post-filter count {post} exceeds pre-filter {pre}"
         )
 
-    # Most pairs should retain trials. If they all collapse to zero, the
-    # filter is over-aggressive (or the resolver picked the wrong MeSH
-    # branch). Threshold scales with the active pair list so commenting
-    # pairs in/out doesn't break the assertion.
+    # Allow at most one pair to collapse to zero post-filter (e.g. a
+    # resolver mis-pick on a single ambiguous indication). If more than
+    # one collapses, the filter is over-aggressive across the board and
+    # needs investigation. Threshold scales with len(_PAIRS) so pairs can
+    # be commented out locally without breaking the assertion.
     nonempty = sum(1 for *_, post in results if post > 0)
     min_nonempty = max(1, len(results) - 1)
     assert nonempty >= min_nonempty, (

@@ -9,7 +9,7 @@ IndicationScout is an agentic drug repurposing system. A drug name goes in; coor
 A **Supervisor** agent orchestrates three specialist sub-agents:
 
 - **Literature agent** — Queries PubMed via EUtils, then runs a RAG pipeline: fetch abstracts, embed with BioLORD-2023, semantic search, and LLM-based synthesis of evidence for each candidate disease.
-- **Clinical Trials agent** — Queries ClinicalTrials.gov v2 (REST) to detect whitespace (indications with no active trials), search for relevant trials, map the competitive landscape, and surface terminated trials.
+- **Clinical Trials agent** — Queries ClinicalTrials.gov v2 (REST) to detect whitespace (indications with no active trials), search for relevant trials, map the competitive landscape, and surface terminated trials. Indications are resolved to a MeSH descriptor ID via NCBI E-utilities and used to post-filter Essie's recall-first results so e.g. "hypertension" trials aren't mixed in with glaucoma/portal/pulmonary hypertension.
 - **Mechanism agent** — Queries Open Targets target-level data (GraphQL) to retrieve disease associations with evidence scores and Reactome pathway annotations.
 
 The Supervisor first calls `find_candidates` (Open Targets competitor analysis) and `analyze_mechanism` in parallel, then delegates to the Literature and Clinical Trials agents per candidate disease.
@@ -19,7 +19,9 @@ Data sources:
 - Open Targets (GraphQL) — drug targets, disease associations, competitor drugs
 - ClinicalTrials.gov (REST v2) — trial search, whitespace detection, competitive landscape
 - PubMed (NCBI EUtils) — literature retrieval and abstract indexing
+- NCBI MeSH (E-utilities) — indication → MeSH D-number resolution for clinical-trials post-filtering
 - ChEMBL — molecule metadata and ATC classifications
+- openFDA — drug labels for FDA-approval extraction
 
 ## Installation
 
@@ -127,20 +129,21 @@ mypy src/                           # type checking
 ```
 src/indication_scout/
 ├── agents/          # AI agents
+│   ├── base.py          # BaseAgent abstract class
 │   ├── supervisor/      # Supervisor agent (orchestrates sub-agents) — supervisor_agent.py, supervisor_tools.py, supervisor_output.py
 │   ├── literature/      # Literature agent (PubMed RAG) — literature_agent.py, literature_tools.py, literature_output.py
-│   ├── clinical_trials/ # Clinical Trials agent (ClinicalTrials.gov) — clinical_trials_agent.py, clinical_trials_tools.py, clinical_trials_output.py
-│   ├── mechanism/       # Mechanism agent (Open Targets targets) — mechanism_agent.py, mechanism_tools.py, mechanism_output.py
-│   └── orchestrator.py  # Stub (not yet implemented)
+│   ├── clinical_trials/ # Clinical Trials agent (ClinicalTrials.gov + MeSH post-filter) — clinical_trials_agent.py, clinical_trials_tools.py, clinical_trials_output.py
+│   └── mechanism/       # Mechanism agent (Open Targets targets) — mechanism_agent.py, mechanism_tools.py, mechanism_output.py
 ├── api/             # FastAPI application (main.py, routes/, schemas/) -- /health endpoint only
-├── data_sources/    # Async API clients (OpenTargets, ClinicalTrials.gov, PubMed, ChEMBL, DrugBank stub)
+├── data_sources/    # Async API clients (OpenTargets, ClinicalTrials.gov, PubMed, ChEMBL, FDA, DrugBank stub)
 ├── db/              # SQLAlchemy session factory and declarative base
 ├── helpers/         # Utility functions (drug name normalization)
 ├── markers.py       # Code review exclusion markers (@no_review decorator)
 ├── models/          # Pydantic data contracts (model_open_targets, model_clinical_trials, model_pubmed_abstract, model_chembl, model_drug_profile, model_evidence_summary)
-├── prompts/         # LLM prompt templates (extract_organ_term, expand_search_terms, disease_synonyms, synthesize)
+├── prompts/         # LLM prompt templates (dedup_diseases, disease_synonyms, expand_search_terms, extract_fda_approvals, extract_organ_term, merge_diseases, normalize_disease, normalize_disease_batch, remove_fda_approvals, synthesize, synthesize2)
+├── report/          # Report formatting (format_report.py) — turns SupervisorOutput into the final markdown report
 ├── runners/         # Pipeline runners (rag_runner.py) and exploration scripts (pubmed_runner.py)
-├── services/        # Business logic -- LLM calls (llm.py, parse_llm_response), embeddings (embeddings.py), disease normalization (disease_helper.py), PubMed query building (pubmed_query.py), RAG pipeline (retrieval.py -- fetch_and_cache, semantic_search, synthesize)
+├── services/        # Business logic -- LLM calls (llm.py, including parse_llm_response), embeddings (embeddings.py), disease normalization + MeSH resolver (disease_helper.py: llm_normalize_disease, normalize_for_pubmed, resolve_mesh_id), PubMed query building (pubmed_query.py), FDA approval extraction (approval_check.py), RAG pipeline (retrieval.py -- fetch_and_cache, semantic_search, synthesize)
 ├── sqlalchemy/      # SQLAlchemy ORM models (pubmed_abstracts with pgvector embedding)
 ├── utils/           # Shared file-based cache utility (cache_key, cache_get, cache_set)
 ├── config.py        # Settings via pydantic-settings, loaded from .env

@@ -34,3 +34,14 @@ Each entry is dated and categorized.
 - `MechanismOutput.summary` is LLM-generated pre-filter and may reference approved indications; when the FDA filter removes anything from the mechanism artifact, `output.summary` is blanked in `analyze_mechanism` to prevent approval leakage via narrative text. Structured fields are the source of truth.
 - `fda_approval_check` cache key hashes `{label_texts, candidate_diseases}` but **not** the prompt text — prompt changes require manually clearing cache entries to take effect.
 
+### ClinicalTrials.gov is Essie-backed and recall-first; analytical queries need MeSH post-filtering (2026-04-19)
+- CT.gov's search engine (Essie) is tuned for patient-facing recall, not analytical precision: `query.cond=hypertension` returns trials for glaucoma, portal hypertension, pulmonary hypertension, and intracranial hypertension because Essie matches any trial mentioning "hypertension" in ConditionSearch metadata, eligibility criteria, or MeSH cross-references.
+- Essie operator tuning (`AREA[Condition]EXPANSION[Term]`) was tested and rejected — it drops legitimate trials whose conditions are phrased slightly differently (e.g. "Diabetes Mellitus, Type 2" does not match `EXPANSION[Term]"type 2 diabetes"`).
+- Solution is a two-stage pipeline: query CT.gov loosely (accept noise), then post-filter trials whose `derivedSection.conditionBrowseModule.meshes` or `ancestors` include the target MeSH D-number resolved from the indication string. Lives in `ClinicalTrialsClient._filter_by_mesh` and is wired through every indication-filtered method via the `target_mesh_id` kwarg.
+- Indication → MeSH D-number resolution is a separate utility (`services.disease_helper.resolve_mesh_id`) that hits NCBI E-utilities. It is **independent** of the PubMed normalization path (`llm_normalize_disease` / `normalize_for_pubmed`) — the two do not chain.
+- Trials with empty `meshes` AND empty `ancestors` are dropped (cannot be verified against the MeSH tree). Unresolvable indications cause the tool layer to short-circuit to an empty result. Both classes of silent loss are documented in `future.md`.
+- Live regression baseline (date_before=2025-01-01, run 2026-04-19) — `tests/integration/data_sources/test_clinical_trials_mesh_filter.py`:
+  - metformin × hypertension (D006973): 44 → 31
+  - aspirin × diabetes mellitus (D003920): 50 → 43
+  - semaglutide × hypertension (D006973): 5 → 2
+

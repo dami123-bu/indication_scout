@@ -89,16 +89,17 @@ The `OpenTargetsClient` provides three primary entry points: `get_drug()` for dr
 
 ### DrugData
 
+Drug names (pref_name, synonyms, trade names) are not on `DrugData` — they are
+fetched separately via `helpers.drug_names.get_all_drug_names(chembl_id)` so a
+single source of truth (ChEMBL) handles them and the result can be cached per
+ChEMBL ID. See `docs/findings.md` → "ChEMBL ID is the sole drug identifier".
+
 ```
 DrugData
  |-- chembl_id: str = ""
- |-- name: str = ""
- |-- synonyms: list[str] = []
- |-- trade_names: list[str] = []
- |-- drug_type: str = ""
- |-- is_approved: bool | None = None
- |-- max_clinical_phase: float | None = None
- |-- year_first_approved: int | None = None
+ |-- drug_type: str | None = None
+ |-- maximum_clinical_stage: str | None = None  # APPROVAL, PHASE_3, PHASE_2, etc.
+ |-- mechanisms_of_action: list[MechanismOfAction] = []
  |-- warnings: list[DrugWarning] = []
  |        |-- warning_type: str = ""
  |        |-- description: str | None = None
@@ -107,10 +108,10 @@ DrugData
  |        |-- year: int | None = None
  |        +-- efo_id: str | None = None
  |-- indications: list[Indication] = []
+ |        |-- id: str = ""
  |        |-- disease_id: str = ""
  |        |-- disease_name: str = ""
- |        |-- max_phase: float | None = None
- |        +-- references: list[dict] = []
+ |        +-- max_clinical_stage: str | None = None
  |-- targets: list[DrugTarget] = []
  |        |-- target_id: str = ""  ──────────> use with get_target_data()
  |        |-- target_symbol: str = ""
@@ -233,7 +234,7 @@ DiseaseSynonyms
 ## Helper Properties on DrugData
 
 ```python
-drug.approved_disease_ids      # set[str] - Disease IDs with phase 4+
+drug.approved_disease_ids      # set[str] - Disease IDs with max_clinical_stage == "APPROVAL"
 drug.investigated_disease_ids  # set[str] - All disease IDs being pursued
 ```
 
@@ -378,17 +379,22 @@ if len(target_data.associations) >= 500:
 
 ```python
 async with OpenTargetsClient() as client:
+    # All drug accessors take a ChEMBL ID, not a drug name.
+    # Resolve a name → ChEMBL ID via helpers.drug_names.get_chembl_id_for_name(name).
+
     # Fetch drug + all target data in one call
-    rich = await client.get_rich_drug_data("semaglutide")
+    rich = await client.get_rich_drug_data("CHEMBL1201496")
 
     # Or fetch drug data alone (cached)
-    drug = await client.get_drug("semaglutide")
+    drug = await client.get_drug("CHEMBL1201496")
 
     # Fetch target data separately (cached independently)
     target = await client.get_target_data("ENSG00000112164")
 
-    # Accessor methods for specific target data
-    associations = await client.get_target_data_associations(target_id, min_score=0.1)
+    # Accessor methods for specific target data.
+    # `get_target_data_associations` filters by `open_targets_association_min_score`
+    # from settings — no per-call min_score kwarg.
+    associations = await client.get_target_data_associations(target_id)
     pathways = await client.get_target_data_pathways(target_id)
     interactions = await client.get_target_data_interactions(target_id)
     known_drugs = await client.get_target_data_drug_summaries(target_id)
@@ -398,9 +404,9 @@ async with OpenTargetsClient() as client:
     constraints = await client.get_target_data_genetic_constraints(target_id)
 
     # Drug-specific accessors
-    indications = await client.get_drug_indications("semaglutide")
-    competitors = await client.get_drug_competitors("semaglutide")
-    target_competitors = await client.get_drug_target_competitors("semaglutide")
+    indications = await client.get_drug_indications("CHEMBL1201496")
+    competitors = await client.get_drug_competitors("CHEMBL1201496")
+    target_competitors = await client.get_drug_target_competitors("CHEMBL1201496")
 
     # Disease-specific accessors
     disease_drugs = await client.get_disease_drugs("EFO_0003847")
@@ -411,18 +417,32 @@ async with OpenTargetsClient() as client:
 
 ## ClinicalTrials.gov Data Structure
 
-The `ClinicalTrialsClient` provides four public methods for clinical trial data:
+The `ClinicalTrialsClient` provides five public methods for clinical trial data:
 
 | Method | Purpose | Returns |
 |--------|---------|---------|
-| `search_trials(drug, condition)` | Find trials for a drug-condition pair | `list[Trial]` |
-| `detect_whitespace(drug, condition)` | Is this pair unexplored? | `WhitespaceResult` |
-| `get_landscape(condition)` | Competitive landscape for a condition | `ConditionLandscape` |
-| `get_terminated(query)` | Failed trials for a drug/condition | `list[TerminatedTrial]` |
+| `get_trial(nct_id)` | Fetch a single trial by NCT ID | `Trial` |
+| `search_trials(drug, indication, target_mesh_id=None)` | Find trials for a drug-indication pair | `list[Trial]` |
+| `detect_whitespace(drug, indication, target_mesh_id=None)` | Is this pair unexplored? | `WhitespaceResult` |
+| `get_landscape(indication, target_mesh_id=None)` | Competitive landscape for an indication | `IndicationLandscape` |
+| `get_terminated(drug, indication, target_mesh_id=None)` | Trial-outcome evidence split by scope | `TrialOutcomes` |
+
+### MeSH post-filtering
+
+Every indication-filtered method accepts an optional `target_mesh_id` (a MeSH
+D-number, e.g. `D006973` for hypertension). When supplied, results are
+post-filtered via `_filter_by_mesh` to trials whose `mesh_conditions` or
+`mesh_ancestors` include that ID. This compensates for ClinicalTrials.gov's
+Essie engine being recall-first — `query.cond=hypertension` returns trials
+for glaucoma, portal hypertension, and pulmonary hypertension. The agent
+tool layer (`agents/clinical_trials/clinical_trials_tools.py`) resolves the
+indication → MeSH ID via `services.disease_helper.resolve_mesh_id` and
+forwards it on every call. See `docs/findings.md` for the full rationale.
 
 ### Trial
 
-Core trial record parsed from ClinicalTrials.gov API `protocolSection`:
+Core trial record parsed from ClinicalTrials.gov API `protocolSection` (plus
+`derivedSection.conditionBrowseModule` for MeSH terms):
 
 ```
 Trial
@@ -432,50 +452,54 @@ Trial
  |-- phase: str                     # "Phase 1", "Phase 2", "Phase 1/Phase 2", etc.
  |-- overall_status: str            # "Recruiting", "Completed", "Terminated", etc.
  |-- why_stopped: str | None        # Free text reason (only for Terminated/Withdrawn/Suspended)
- |-- conditions: list[str]          # Disease/conditions being studied
+ |-- indications: list[str]         # Conditions being studied (from conditionsModule)
+ |-- mesh_conditions: list[MeshTerm] = []   # MeSH descriptors from conditionBrowseModule.meshes
+ |-- mesh_ancestors: list[MeshTerm] = []    # MeSH ancestors from conditionBrowseModule.ancestors
+ |        |-- id: str = ""              # MeSH D-number (e.g. "D006973")
+ |        +-- term: str = ""            # MeSH term (e.g. "Hypertension")
  |-- interventions: list[Intervention]
  |        |-- intervention_type: str    # "Drug", "Biological", "Device", "Procedure", etc.
  |        |-- intervention_name: str    # e.g. "Semaglutide"
  |        +-- description: str | None   # Dosing, administration details
  |-- sponsor: str                   # Lead sponsor organization (e.g. "Novo Nordisk")
- |-- collaborators: list[str]       # Partner organizations
  |-- enrollment: int | None         # Number of participants
  |-- start_date: str | None         # Study start date
  |-- completion_date: str | None    # Primary completion date
- |-- study_type: str                # "Interventional" or "Observational"
  |-- primary_outcomes: list[PrimaryOutcome]
  |        |-- measure: str              # What's being measured
  |        +-- time_frame: str | None    # e.g. "72 weeks"
- |-- results_posted: bool | None    # Whether results are available (None if unknown)
  +-- references: list[str]          # PubMed IDs (PMIDs)
 ```
 
 ### WhitespaceResult
 
-Result of whitespace detection — is this drug-condition pair unexplored?
+Result of whitespace detection — is this drug-indication pair unexplored?
 
 ```
 WhitespaceResult
  |-- is_whitespace: bool | None     # True if no exact matches found
- |-- exact_match_count: int | None  # Trials with both drug AND condition
- |-- drug_only_trials: int | None   # Trials with drug (any condition)
- |-- condition_only_trials: int | None  # Trials with condition (any drug)
- +-- condition_drugs: list[ConditionDrug]  # Other drugs tested for this condition (up to 20)
-          |-- nct_id: str
-          |-- drug_name: str
-          |-- condition: str
-          |-- phase: str
-          +-- status: str
+ |-- no_data: bool | None           # True if drug AND indication both have zero trials anywhere
+ |-- exact_match_count: int | None  # Trials with both drug AND indication
+ |-- drug_only_trials: int | None   # Trials with drug (any indication)
+ |-- indication_only_trials: int | None  # Trials with indication (any drug)
+ +-- indication_drugs: list[IndicationDrug]  # Other drugs tested for this indication (whitespace case only)
+          |-- nct_id: str = ""
+          |-- drug_name: str = ""
+          |-- indication: str = ""
+          |-- phase: str = ""
+          +-- status: str = ""
 ```
 
-### ConditionLandscape
+### IndicationLandscape
 
-Competitive landscape for a condition — all drug/biologic trials grouped by sponsor + drug:
+Competitive landscape for an indication — all drug/biologic trials grouped by
+sponsor + drug. Vaccines are excluded (matched by name keyword) since they are
+not mechanism competitors:
 
 ```
-ConditionLandscape
- |-- total_trial_count: int | None  # All trials fetched for condition
- |-- competitors: list[CompetitorEntry]   # Ranked by phase, then enrollment (top_n)
+IndicationLandscape
+ |-- total_trial_count: int | None        # Total trials fetched for the indication
+ |-- competitors: list[CompetitorEntry]   # Ranked by max_phase desc, then most_recent_start desc (top_n)
  |        |-- sponsor: str              # Lead sponsor organization
  |        |-- drug_name: str            # Primary drug intervention
  |        |-- drug_type: str | None     # "Drug" or "Biological"
@@ -484,8 +508,8 @@ ConditionLandscape
  |        |-- statuses: set[str]        # All statuses seen (Recruiting, Completed, etc.)
  |        |-- total_enrollment: int | None  # Sum of enrollment across trials
  |        +-- most_recent_start: str | None  # Latest start date
- |-- phase_distribution: dict[str, int]  # Count of trials per phase
- +-- recent_starts: list[RecentStart]  # Trials started in last 2 years
+ |-- phase_distribution: dict[str, int]   # Count of trials per phase
+ +-- recent_starts: list[RecentStart]     # Trials starting >= CLINICAL_TRIALS_RECENT_START_YEAR
           |-- nct_id: str = ""
           |-- sponsor: str = ""
           |-- drug: str = ""
@@ -498,18 +522,35 @@ A terminated, withdrawn, or suspended trial with stop classification:
 
 ```
 TerminatedTrial
- |-- nct_id: str
- |-- title: str
+ |-- nct_id: str = ""
+ |-- title: str = ""
  |-- drug_name: str | None          # Primary drug intervention
- |-- condition: str | None          # First condition listed
+ |-- indication: str | None         # First condition listed
+ |-- mesh_conditions: list[MeshTerm] = []  # MeSH descriptors carried over from the parsed Trial
  |-- phase: str | None
  |-- why_stopped: str | None        # Free text reason from sponsor
  |-- stop_category: str | None      # Classified: safety, efficacy, business, enrollment, other, unknown
  |-- enrollment: int | None
  |-- sponsor: str | None
  |-- start_date: str | None
- |-- termination_date: str | None
- +-- references: list[str]          # PMIDs
+ +-- termination_date: str | None
+```
+
+### TrialOutcomes
+
+Returned by `get_terminated`. Splits trial-outcome evidence by query scope:
+
+```
+TrialOutcomes
+ |-- drug_wide: list[TerminatedTrial]       # This drug, any indication, status TERMINATED.
+ |                                          # Filtered to stop_category in {safety, efficacy} only.
+ |-- indication_wide: list[TerminatedTrial] # Any drug in this indication, status TERMINATED.
+ |                                          # Capped at clinical_trials_terminated_indication_max.
+ |-- pair_specific: list[TerminatedTrial]   # This drug AND this indication, status TERMINATED.
+ |                                          # All stop_categories retained.
+ +-- pair_completed: list[Trial]            # This drug AND this indication, status COMPLETED.
+                                            # Catches Phase 3 trials that ran to protocol end but failed
+                                            # (CT.gov marks those COMPLETED, not TERMINATED).
 ```
 
 ### Stop Category Classification
@@ -528,11 +569,12 @@ The `stop_category` is derived from `why_stopped` using keyword matching:
 ### Filtering
 
 `get_landscape` filters to drug/biologic interventions only:
-1. Fetches all trials for the condition (no API-level filter)
+1. Fetches up to `clinical_trials_landscape_max_trials` trials for the indication, sorted by start date descending
 2. Skips trials without Drug or Biological intervention type
-3. Groups remaining by sponsor + drug
-4. Ranks by phase (descending), then enrollment (descending)
-5. Returns top N competitors (default 50)
+3. Excludes biologics whose name matches `VACCINE_NAME_KEYWORDS` (vaccines are not mechanism competitors)
+4. Groups remaining by sponsor + drug
+5. Ranks by `max_phase` (descending), then `most_recent_start` (descending) as tiebreaker
+6. Returns top N competitors
 
 ---
 

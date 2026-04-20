@@ -104,24 +104,29 @@ A raw PubMed search for *bupropion + obesity* returns mostly depression papers t
 
 ### ClinicalTrialsAgent
 
-**File:** [src/indication_scout/agents/clinical_trials.py](../src/indication_scout/agents/clinical_trials.py)
+**File:** [src/indication_scout/agents/clinical_trials/clinical_trials_agent.py](../src/indication_scout/agents/clinical_trials/clinical_trials_agent.py)
 
-Searches ClinicalTrials.gov for drug–disease trial evidence.
+Searches ClinicalTrials.gov for drug–disease trial evidence. See
+[clinical_trials_agent.md](clinical_trials_agent.md) for the full design.
 
 **Responsibilities:**
 - Call `ClinicalTrialsClient.search_trials()` for each candidate
 - Detect whitespace opportunities via `detect_whitespace()`
-- Classify terminated trials via `get_terminated_trials()`
+- Classify terminated trials via `get_terminated()` (returns a `TrialOutcomes` with four scope-labelled lists: `drug_wide`, `indication_wide`, `pair_specific`, `pair_completed`)
 - Summarise trial landscape: phase distribution, active vs. completed, enrolment size
 - Return structured evidence per candidate indication
 
-**Data source:** `ClinicalTrialsClient` → `Trial`, `WhitespaceResult`, `ConditionLandscape`, `TerminatedTrial` models
+Indications are resolved to a MeSH descriptor ID via
+`services.disease_helper.resolve_mesh_id` and forwarded to every client
+call as `target_mesh_id`, post-filtering Essie's recall-first results.
+
+**Data source:** `ClinicalTrialsClient` → `Trial`, `WhitespaceResult`, `IndicationLandscape`, `TerminatedTrial`, `TrialOutcomes` models
 
 ---
 
 ### MechanismAgent
 
-**File:** [src/indication_scout/agents/mechanism.py](../src/indication_scout/agents/mechanism.py)
+**File:** [src/indication_scout/agents/mechanism/mechanism_agent.py](../src/indication_scout/agents/mechanism/mechanism_agent.py)
 
 Analyses the drug's mechanism of action to assess biological plausibility for candidate indications.
 
@@ -131,22 +136,6 @@ Analyses the drug's mechanism of action to assess biological plausibility for ca
 - Score mechanistic plausibility per candidate
 
 **Data source:** `OpenTargetsClient` → `TargetData`, `Association` models
-
----
-
-### SafetyAgent
-
-**File:** [src/indication_scout/agents/safety.py](../src/indication_scout/agents/safety.py)
-
-Analyses the drug's safety profile to flag risks for candidate indications.
-
-**Planned responsibilities:**
-- Query openFDA FAERS for adverse event counts and reaction profiles
-- Flag adverse reactions that would be contraindicated for the candidate population
-- Surface serious adverse events (SAEs) from clinical trial data
-- Return a structured safety summary per candidate
-
-**Data source:** `FDAClient` → `FAERSEvent`, `FAERSReactionCount` models
 
 ---
 
@@ -198,11 +187,8 @@ Orchestrator
     ├── PubMedClient ───────────→ PubMedArticle
     │   (literature evidence)
     │
-    ├── ClinicalTrialsClient ───→ Trial, WhitespaceResult, ConditionLandscape, TerminatedTrial
-    │   (trial evidence)
-    │
-    └── FDAClient ─────────────→ FAERSEvent, FAERSReactionCount
-        (safety evidence)
+    └── ClinicalTrialsClient ───→ Trial, WhitespaceResult, IndicationLandscape, TrialOutcomes
+        (trial evidence; indications post-filtered by MeSH D-number)
               │
               ▼
         Pydantic models (models/)

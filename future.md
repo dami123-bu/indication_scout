@@ -31,11 +31,6 @@ ChEMBL/DrugBank already have synonym lists. Pass the top N synonyms as an OR que
 This addresses false whitespace signals caused by trials registered under brand names
 or salt forms rather than the INN.
 
-### 2. Use MeSH terms for indications
-ClinicalTrials.gov indexes conditions against MeSH. Resolving the indication to its
-MeSH preferred term before querying gives much better recall. The NLM has a free
-MeSH lookup API.
-
 ## Literature Agent — Adaptive Search
 
 The MVP uses a fixed call sequence with no retry logic. Once time allows, add:

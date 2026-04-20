@@ -2,139 +2,152 @@
 
 This document describes the agent layer of IndicationScout: how agents are structured, how they call tools, and how to add new ones.
 
-For the overall system architecture see [ARCHITECTURE.md](../ARCHITECTURE.md).
+For the overall system architecture see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## BaseAgent
 
-**File**: `src/indication_scout/agents/base.py`
+**File**: [src/indication_scout/agents/base.py](../src/indication_scout/agents/base.py)
 
-All agents extend `BaseAgent`, which defines a single async interface:
+`BaseAgent` defines a single async interface used by class-style agents:
 
-```
-python
+```python
 class BaseAgent(ABC):
     @abstractmethod
     async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
         ...
 ```
 
-- Input and output are both plain dicts. The output dict contains a single key whose value is a typed Pydantic model.
-- Agents are stateless -- instantiate and call `run()`.
+Some current agents (e.g. `ClinicalTrialsAgent`) are not class-based — they are
+exposed as `build_*_agent(llm, ...)` + `run_*_agent(agent, ...)` function pairs
+that return a compiled LangGraph `create_react_agent` graph.
 
 ## File Layout
 
-Each agent is split across three files:
+Each agent lives in its own subpackage with three files:
 
 | File | Purpose |
 |------|---------|
-| `agents/<name>.py` | Agent class, system prompt, `run()` method, `_parse_result()` |
-| `agents/<name>_tools.py` | `@tool` wrappers around data source client methods |
-| `agents/<name>_model.py` | Agent-specific output Pydantic model |
+| `agents/<name>/<name>_agent.py` | `build_<name>_agent` (compiles ReAct graph) and `run_<name>_agent` (invokes + assembles output). System prompt lives here. |
+| `agents/<name>/<name>_tools.py` | `build_<name>_tools(...)` returning a list of `@tool(response_format="content_and_artifact")` functions wrapping data source client methods. |
+| `agents/<name>/<name>_output.py` | Agent-specific output Pydantic model. |
 
-Data source models (e.g. `Trial`, `WhitespaceResult`, `IndicationLandscape`) live in `models/` and are referenced by the agent output model -- never duplicated.
+Data source models (e.g. `Trial`, `WhitespaceResult`, `IndicationLandscape`,
+`TrialOutcomes`) live in `models/` and are referenced by the agent output model
+— never duplicated.
 
 ## ClinicalTrialsAgent
 
-### Agent class
+### Agent module
 
-**File**: `src/indication_scout/agents/clinical_trials.py`
+**File**: [src/indication_scout/agents/clinical_trials/clinical_trials_agent.py](../src/indication_scout/agents/clinical_trials/clinical_trials_agent.py)
 
-```
-python
-class ClinicalTrialsAgent(BaseAgent):
-    async def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
-```
+Two functions:
 
-**Input** (`input_data` dict):
+```python
+def build_clinical_trials_agent(llm, date_before: date | None = None):
+    """Compile a LangGraph ReAct agent."""
 
-| Key | Type | Required | Description |
-|-----|------|----------|-------------|
-| `drug_name` | `str` | Yes | Drug to investigate |
-| `disease_name` | `str` | Yes | Target indication |
-| `date_before` | `date` | No | Temporal holdout cutoff |
-
-**Output**: `{"clinical_trials_output": ClinicalTrialsOutput}`
-
-**LLM**: `settings.big_llm_model` via `ChatAnthropic` from `langchain_anthropic`. Temperature 0, max_tokens 4096.
-
-**Agent creation**:
-
-```
-python
-agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
+async def run_clinical_trials_agent(
+    agent, drug_name: str, disease_name: str
+) -> ClinicalTrialsOutput:
+    """Invoke the agent and assemble a ClinicalTrialsOutput from the run."""
 ```
 
-Uses `langchain.agents.create_agent` to build a ReAct agent. The agent is invoked with:
+**LLM**: provided by the caller (the supervisor passes
+`settings.llm_model` via `ChatAnthropic`).
 
+**Agent creation** (uses LangGraph's prebuilt `create_react_agent`):
+
+```python
+return create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
 ```
-python
+
+The agent is invoked with:
+
+```python
 result = await agent.ainvoke(
-    {"messages": [{"role": "user", "content": user_message}]},
-    config={"recursion_limit": MAX_TOOL_ROUNDS},  # MAX_TOOL_ROUNDS = 10
+    {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
 )
 ```
 
-**System prompt branching strategy** -- the LLM decides tool order:
+**System prompt branching strategy** — the LLM decides tool order:
 
-1. Always start with `detect_whitespace`
-2. If trials exist: `search_trials` then `get_landscape`
-3. If whitespace (no trials): `get_terminated` then `get_landscape`
-4. If terminated trials show safety/efficacy failures: may skip `get_landscape`
+1. Typically start with `detect_whitespace`
+2. Always call `get_terminated` alongside `search_trials` and `get_landscape`
+3. Finish with `finalize_analysis`, passing a 2–3 sentence plain-text summary
 
-The LLM ends with a 2-3 sentence natural language assessment.
+`finalize_analysis` is a tool whose only job is to terminate the loop and
+carry the summary back as the artifact for the `summary` field.
 
-**Result parsing and collation**: The static method `_parse_result()` walks the full message history from `agent.ainvoke()` and collates multi-tool results into a single typed output:
+**Result assembly**: `run_clinical_trials_agent` walks the message history
+from `agent.ainvoke()` and reads the typed artifact off each `ToolMessage`:
 
-- Iterates all messages, identifying `ToolMessage` objects by checking for a `.name` attribute
-- Each tool's response is matched by name to a dedicated slot on `ClinicalTrialsOutput`: `detect_whitespace` → `whitespace`, `search_trials` → `trials`, `get_landscape` → `landscape`, `get_terminated` → `terminated`
-- There is no merging across tools — each tool populates its own field. If a tool wasn't called, its field stays at the default (empty list or `None`)
-- If the same tool is called twice, the second response overwrites the first (the loop doesn't accumulate). This is acceptable because the system prompt guides the LLM to call each tool once
-- The last `AIMessage` (no `.name` attribute) is extracted as the summary. Handles both string content and list-of-blocks content formats
-- Returns a `ClinicalTrialsOutput` instance with all pieces assembled
+- Tools use `@tool(response_format="content_and_artifact")` so each tool
+  returns `(text_for_LLM, typed_pydantic_artifact)`. The artifact rides
+  alongside the message; no `model_dump()` round-trip is needed.
+- A `field_map` maps tool name → output field
+  (`detect_whitespace → whitespace`, `search_trials → trials`,
+  `get_landscape → landscape`, `get_terminated → terminated`,
+  `finalize_analysis → summary`).
+- For each `ToolMessage`, the artifact is assigned to its mapped field.
+- If the same tool is called twice, the later artifact overwrites the
+  earlier one. The system prompt guides the LLM to call each tool once.
+- A `ClinicalTrialsOutput` is constructed from the assembled artifacts.
 
 ### Tools
 
-**File**: `src/indication_scout/agents/clinical_trials_tools.py`
+**File**: [src/indication_scout/agents/clinical_trials/clinical_trials_tools.py](../src/indication_scout/agents/clinical_trials/clinical_trials_tools.py)
 
-Entry point: `build_clinical_trials_tools(date_before: date | None = None) -> list`
+Entry point:
+`build_clinical_trials_tools(date_before: date | None = None) -> list`
 
-Returns four LangChain `@tool` functions. The `date_before` parameter is captured via closure so it flows to every client call without being exposed as a tool parameter to the LLM.
+Returns five LangChain `@tool` functions. The `date_before` parameter is
+captured via closure so it flows to every client call without being exposed
+as a tool parameter to the LLM.
 
-| Tool | Arguments | Client Method | Returns |
-|------|-----------|--------------|---------|
-| `detect_whitespace` | `drug: str, indication: str` | `ClinicalTrialsClient.detect_whitespace()` | `WhitespaceResult.model_dump()` |
-| `search_trials` | `drug: str, indication: str` | `ClinicalTrialsClient.search_trials()` | `[Trial.model_dump(), ...]` |
-| `get_landscape` | `indication: str` | `ClinicalTrialsClient.get_landscape(top_n=10)` | `IndicationLandscape.model_dump()` |
-| `get_terminated` | `query: str` | `ClinicalTrialsClient.get_terminated()` | `[TerminatedTrial.model_dump(), ...]` |
+| Tool | Arguments | Client Method | Artifact |
+|------|-----------|---------------|----------|
+| `detect_whitespace` | `drug: str, indication: str` | `ClinicalTrialsClient.detect_whitespace()` | `WhitespaceResult` |
+| `search_trials` | `drug: str, indication: str` | `ClinicalTrialsClient.search_trials()` | `list[Trial]` |
+| `get_landscape` | `indication: str` | `ClinicalTrialsClient.get_landscape(top_n=10)` | `IndicationLandscape` |
+| `get_terminated` | `drug: str, indication: str` | `ClinicalTrialsClient.get_terminated()` | `TrialOutcomes` |
+| `finalize_analysis` | `summary: str` | — (loop terminator) | `str` |
 
 Design rules:
 
 - Tools accept primitive types (strings) so the LLM can provide arguments directly.
-- Tools return dicts via `model_dump()` because LangChain serializes tool return values into the message history as JSON for the LLM to read — Pydantic objects aren't directly serializable in that context. The `_parse_result()` method then reconstructs typed Pydantic models from those dicts on the other side: `Client returns Pydantic → tool calls .model_dump() → LLM sees dict → _parse_result reconstructs Pydantic`.
+- Tools use `response_format="content_and_artifact"`: they return a
+  `(content_str, artifact)` tuple. The string goes into the LLM's message
+  context; the typed Pydantic artifact is assembled into the final output.
 - Each tool creates its own client session: `async with ClinicalTrialsClient() as client:`.
 - `get_landscape` passes `top_n=10` to keep the response within manageable LLM context.
+- Every tool that touches an indication first calls
+  `services.disease_helper.resolve_mesh_id(indication)`. If the resolver
+  returns `None`, the tool logs a warning and returns an empty artifact —
+  the agent still receives a valid (empty) shape and continues. The
+  resolved D-number is forwarded as `target_mesh_id` so the client
+  post-filters Essie's recall-first results.
 
 ### Output model
 
-**File**: `src/indication_scout/agents/clinical_trials_model.py`
+**File**: [src/indication_scout/agents/clinical_trials/clinical_trials_output.py](../src/indication_scout/agents/clinical_trials/clinical_trials_output.py)
 
-```
-python
+```python
 class ClinicalTrialsOutput(BaseModel):
-    trials: list[Trial] = []
     whitespace: WhitespaceResult | None = None
     landscape: IndicationLandscape | None = None
-    terminated: list[TerminatedTrial] = []
+    trials: list[Trial] = []
+    terminated: TrialOutcomes = Field(default_factory=TrialOutcomes)
     summary: str = ""
 ```
 
 - References models from `models/model_clinical_trials.py`.
-- Has the `coerce_nones` model validator.
 - Fields are None/empty when the agent chose not to call the corresponding tool. This is expected behavior, not an error.
+- `terminated` is always a `TrialOutcomes` (never `None`) — empty scopes are empty lists.
 
 ### Data source models
 
-**File**: `src/indication_scout/models/model_clinical_trials.py`
+**File**: [src/indication_scout/models/model_clinical_trials.py](../src/indication_scout/models/model_clinical_trials.py)
 
 These are the contracts between `ClinicalTrialsClient` and the agents. All have the `coerce_nones` validator.
 
@@ -144,7 +157,8 @@ These are the contracts between `ClinicalTrialsClient` and the agents. All have 
 |-------|------------|
 | `Intervention` | `intervention_type`, `intervention_name`, `description` |
 | `PrimaryOutcome` | `measure`, `time_frame` |
-| `Trial` | `nct_id`, `title`, `brief_summary`, `phase`, `overall_status`, `why_stopped`, `indications`, `interventions` (list[Intervention]), `sponsor`, `enrollment`, `start_date`, `completion_date`, `primary_outcomes` (list[PrimaryOutcome]), `references` |
+| `MeshTerm` | `id` (D-number), `term` |
+| `Trial` | `nct_id`, `title`, `brief_summary`, `phase`, `overall_status`, `why_stopped`, `indications`, `mesh_conditions` (list[MeshTerm]), `mesh_ancestors` (list[MeshTerm]), `interventions` (list[Intervention]), `sponsor`, `enrollment`, `start_date`, `completion_date`, `primary_outcomes` (list[PrimaryOutcome]) |
 
 **Whitespace models**:
 
@@ -157,80 +171,73 @@ These are the contracts between `ClinicalTrialsClient` and the agents. All have 
 
 | Model | Key fields |
 |-------|------------|
-| `CompetitorEntry` | `sponsor`, `drug_name`, `drug_type`, `max_phase`, `trial_count` (int), `statuses` (set[str]), `total_enrollment` (int) |
+| `CompetitorEntry` | `sponsor`, `drug_name`, `drug_type`, `max_phase`, `trial_count` (int), `statuses` (set[str]), `total_enrollment` (int), `most_recent_start` (date \| None) |
 | `RecentStart` | `nct_id`, `sponsor`, `drug`, `phase` |
 | `IndicationLandscape` | `total_trial_count`, `competitors` (list[CompetitorEntry]), `phase_distribution` (dict[str, int]), `recent_starts` (list[RecentStart]) |
 
-**Terminated trial models**:
+**Trial-outcome models**:
 
 | Model | Key fields |
 |-------|------------|
-| `TerminatedTrial` | `nct_id`, `title`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category` (safety/efficacy/business/enrollment/other/unknown), `enrollment`, `sponsor`, `start_date`, `termination_date`, `references` |
+| `TerminatedTrial` | `nct_id`, `title`, `drug_name`, `indication`, `phase`, `why_stopped`, `stop_category` (safety/efficacy/business/enrollment/other/unknown), `enrollment`, `sponsor`, `start_date`, `termination_date`, `mesh_conditions` (list[MeshTerm]) |
+| `TrialOutcomes` | `drug_wide`, `indication_wide`, `pair_specific`, `pair_completed` — each `list[TerminatedTrial]` |
 
 ## Data Flow
 
 ```
-ClinicalTrialsAgent.run(input_data)
+build_clinical_trials_agent(llm, date_before)
     |
-    +-- build_clinical_trials_tools(date_before)   # creates 4 @tool functions
-    +-- ChatAnthropic(model=big_llm_model)           # LLM for tool-calling decisions
-    +-- create_agent(model, tools, system_prompt)   # LangChain ReAct agent
+    +-- build_clinical_trials_tools(date_before)   # 5 @tool functions
+    +-- create_react_agent(model, tools, prompt)   # LangGraph ReAct agent
+                       |
+run_clinical_trials_agent(agent, drug, disease)
     |
-    +-- agent.ainvoke(messages)                     # ReAct loop begins
+    +-- agent.ainvoke({"messages": [HumanMessage(...)]})  # ReAct loop begins
     |       |
-    |       +-- LLM decides: call detect_whitespace
-    |       |       +-- ClinicalTrialsClient.detect_whitespace()
-    |       |       +-- returns WhitespaceResult.model_dump()
+    |       +-- LLM calls detect_whitespace
+    |       |       +-- resolve_mesh_id(indication)
+    |       |       +-- ClinicalTrialsClient.detect_whitespace(target_mesh_id=...)
+    |       |       +-- artifact: WhitespaceResult
     |       |
-    |       +-- LLM decides: call search_trials or get_terminated
-    |       |       +-- ClinicalTrialsClient method
-    |       |       +-- returns list of model_dump() dicts
+    |       +-- LLM calls search_trials, get_landscape, get_terminated
+    |       |       +-- each resolves MeSH, hits client, returns typed artifact
     |       |
-    |       +-- LLM decides: call get_landscape (or skip)
-    |       |       +-- ClinicalTrialsClient.get_landscape(top_n=10)
-    |       |       +-- returns IndicationLandscape.model_dump()
-    |       |
-    |       +-- LLM produces final text summary
-    |       +-- stop_reason: end_turn
+    |       +-- LLM calls finalize_analysis(summary="...")
+    |               +-- artifact: summary string; terminates the loop
     |
-    +-- _parse_result(result)
-    |       +-- walks message history
-    |       +-- ToolMessages -> reconstructs Pydantic models from dicts
-    |       +-- last AIMessage -> summary text
-    |       +-- returns ClinicalTrialsOutput
-    |
-    +-- returns {"clinical_trials_output": ClinicalTrialsOutput}
+    +-- walk message history, read .artifact off each ToolMessage
+    +-- assemble ClinicalTrialsOutput (whitespace, landscape, trials, terminated, summary)
+    +-- return ClinicalTrialsOutput
 ```
 
 ## How to Call
 
 ```python
-from for_me.clinical_trials.v3_langgraph.clinical_trials_agent import ClinicalTrialsAgent
+from indication_scout.agents.clinical_trials.clinical_trials_agent import (
+    build_clinical_trials_agent,
+    run_clinical_trials_agent,
+)
+from langchain_anthropic import ChatAnthropic
 from datetime import date
 
-agent = ClinicalTrialsAgent()
-result = await agent.run({
-    "drug_name": "semaglutide",
-    "disease_name": "NASH",
-    "date_before": date(2023, 1, 1),  # optional
-})
-output = result["clinical_trials_output"]  # ClinicalTrialsOutput
+llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0)
+agent = build_clinical_trials_agent(llm, date_before=date(2023, 1, 1))
+output = await run_clinical_trials_agent(agent, "semaglutide", "NASH")
 
 # Access structured data
-output.trials  # list[Trial]
-output.whitespace  # WhitespaceResult | None
-output.landscape  # IndicationLandscape | None
-output.terminated  # list[TerminatedTrial]
-output.summary  # str -- natural language assessment
+output.whitespace   # WhitespaceResult | None
+output.landscape    # IndicationLandscape | None
+output.trials       # list[Trial]
+output.terminated   # TrialOutcomes (drug_wide / indication_wide / pair_specific / pair_completed)
+output.summary      # str — natural language assessment
 ```
 
 ## Dependencies
 
-```
-toml
-"langchain-core>=1.2.23"
-"langchain>=1.2.13"
-"langchain-anthropic>=0.3.0"
+```toml
+"langchain-core"
+"langgraph"
+"langchain-anthropic"
 ```
 
 ## Test Layout
@@ -238,8 +245,8 @@ toml
 ```
 tests/
 +-- unit/agents/
-|   +-- test_clinical_trials_tools.py    # mocked client, verifies each tool returns correct dicts
-|   +-- test_clinical_trials_agent.py    # tests _parse_result with fake message histories
+|   +-- test_clinical_trials_tools.py    # mocked client, verifies each tool returns correct artifacts
+|   +-- test_clinical_trials_agent.py    # tests result assembly with fake message histories
 +-- integration/agents/
     +-- test_clinical_trials_tools.py    # hits real ClinicalTrials.gov API
     +-- test_clinical_trials_agent.py    # hits real ClinicalTrials.gov + Anthropic APIs
@@ -247,9 +254,9 @@ tests/
 
 **Unit tests** mock `ClinicalTrialsClient` and verify:
 
-- Each tool returns `model_dump()` dicts with correct structure
+- Each tool returns a `(content, artifact)` tuple with the correct types
 - `date_before` flows through the closure to client calls
-- `_parse_result` correctly reconstructs Pydantic models from message history
+- Result assembly correctly reads artifacts off `ToolMessage` objects
 
 **Integration tests** verify end-to-end:
 
@@ -261,27 +268,26 @@ tests/
 
 To add a new agent (e.g. `MechanismAgent`):
 
-1. **Create `agents/mechanism_model.py`** -- output Pydantic model referencing models from `models/`. Include `coerce_nones` validator.
-2. **Create `agents/mechanism_tools.py`** -- `build_mechanism_tools()` returning a list of `@tool` functions wrapping data source client methods. Tools accept primitives, return dicts via `model_dump()`. Each tool manages its own client session.
-3. **Create `agents/mechanism.py`** -- agent class extending `BaseAgent`. Includes system prompt, `run()` method using `create_agent` and `ainvoke`, and a `_parse_result` static method that walks message history to reconstruct the typed output model.
+1. **Create `agents/mechanism/mechanism_output.py`** — output Pydantic model referencing models from `models/`. Include `coerce_nones` validator.
+2. **Create `agents/mechanism/mechanism_tools.py`** — `build_mechanism_tools(...)` returning a list of `@tool(response_format="content_and_artifact")` functions wrapping data source client methods. Tools accept primitives, return `(content, artifact)`. Each tool manages its own client session.
+3. **Create `agents/mechanism/mechanism_agent.py`** — `build_mechanism_agent(llm, ...)` that compiles a `create_react_agent`, plus `run_mechanism_agent(agent, ...)` that invokes the graph and walks the message history to assemble the typed output. Include a `finalize_analysis` tool to carry the summary.
 4. **Add unit tests** in `tests/unit/agents/test_mechanism_*.py`.
 5. **Add integration tests** in `tests/integration/agents/test_mechanism_*.py`.
 
 Key patterns to follow:
 
-- Tools accept primitive types, return dicts via `model_dump()`
+- Tools accept primitive types, return `(content, artifact)` via `response_format="content_and_artifact"`
 - Tools create their own client sessions (`async with Client() as c:`)
 - Use closures to capture config that the LLM should not see (e.g. `date_before`)
-- `_parse_result` walks message history to reconstruct typed output from `ToolMessage` objects
+- Result assembly walks message history and reads `.artifact` off `ToolMessage` objects
 - Output model fields default to None/empty for tools that were not called
 - All Pydantic models that ingest external data include the `coerce_nones` validator
 
 ## Agent Catalogue
 
-| Agent | File | Status | LLM | Data Source |
-|-------|------|--------|-----|-------------|
-| ClinicalTrialsAgent | `agents/clinical_trials.py` | Implemented | big_llm_model | ClinicalTrialsClient |
-| LiteratureAgent | `agents/literature_agent.py` | Implemented | DEFAULT_LLM_MODEL | RetrievalService (PubMed + pgvector) |
-| MechanismAgent | `agents/mechanism.py` | Planned | TBD | OpenTargetsClient |
-| SafetyAgent | `agents/safety.py` | Planned | TBD | FDAClient |
-| Orchestrator | `agents/orchestrator.py` | Planned | Sonnet | Coordinates all agents |
+| Agent | File | Status | Data Source |
+|-------|------|--------|-------------|
+| ClinicalTrialsAgent | `agents/clinical_trials/clinical_trials_agent.py` | Implemented | ClinicalTrialsClient |
+| LiteratureAgent | `agents/literature/literature_agent.py` | Implemented | RetrievalService (PubMed + pgvector) |
+| MechanismAgent | `agents/mechanism/mechanism_agent.py` | Implemented | OpenTargetsClient |
+| SupervisorAgent | `agents/supervisor/supervisor_agent.py` | Implemented | Coordinates all sub-agents |
