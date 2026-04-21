@@ -84,7 +84,6 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
             lines.append(f"\n**Trial outcomes ({total}):**")
             for label, bucket in [
                 ("Pair-specific terminated", term.pair_specific),
-                ("Pair-specific completed", term.pair_completed),
                 ("Drug-wide terminations (safety/efficacy)", term.drug_wide),
                 ("Indication-wide terminations", term.indication_wide),
             ]:
@@ -96,6 +95,14 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
                     category = f" [{t.stop_category}]" if t.stop_category else ""
                     title = f" {t.title}" if t.title else ""
                     lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({t.phase}){category}{reason}")
+
+            if term.pair_completed:
+                lines.append(f"\n_Pair-specific completed ({len(term.pair_completed)}):_")
+                for t in term.pair_completed[:10]:
+                    phase = t.phase or "Unknown phase"
+                    status = t.overall_status or ""
+                    title = f" {t.title}" if t.title else ""
+                    lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}{', ' + status if status else ''})")
 
     if not lines:
         lines.append("_No clinical trials data available._")

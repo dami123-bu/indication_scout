@@ -104,3 +104,24 @@ of trials (or entire queries) will be silently dropped:
 
 Consider a fallback bucket: keep these trials in a separate `unfiltered` list on the result
 so agents can decide whether to inspect them manually, rather than losing them entirely.
+
+---
+
+## Report — `pair_completed` Rendering
+
+`format_report._fmt_clinical_trials` currently skips `stop_category` for the
+`pair_completed` bucket because `TrialOutcomes.pair_completed` is `list[Trial]`,
+and `Trial` has no `stop_category` field (only the three `TerminatedTrial`
+buckets do). Completed trials are rendered with phase + `overall_status` only.
+
+This loses signal: the interesting question for a completed pair-specific trial
+is whether it *met its primary endpoint*. ClinicalTrials.gov marks endpoint
+failures as COMPLETED, not TERMINATED, so the report currently cannot
+distinguish "ran and succeeded" from "ran and missed endpoint."
+
+Options when time allows:
+- Surface `primary_outcomes` text in the rendered line for `pair_completed`.
+- Add an `outcome_category` (e.g. met / missed / unclear) to `Trial` or a new
+  `CompletedTrial` model, populated from results-section parsing or LLM
+  classification of the primary-outcomes text.
+- Pull results data via the CT.gov results endpoint for these specific NCT IDs.

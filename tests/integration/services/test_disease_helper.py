@@ -196,3 +196,18 @@ async def test_resolve_mesh_id_real_ncbi(indication, expected_mesh_id):
     """Real NCBI esearch+esummary resolves common indications to their MeSH D-numbers."""
     result = await resolve_mesh_id(indication)
     assert result == expected_mesh_id
+
+
+@pytest.mark.parametrize(
+    "indication, expected_mesh_id",
+    [
+        # "skin melanoma" is not itself a MeSH heading; NCBI ATM translates it
+        # to "cutaneous malignant melanoma"[MeSH Terms] (D000096142).
+        ("skin melanoma", "D000096142"),
+    ],
+)
+async def test_resolve_mesh_id_atm_fallback(tmp_path, indication, expected_mesh_id):
+    """Descriptive phrases with no exact MeSH heading resolve via NCBI ATM fallback."""
+    with patch("indication_scout.services.disease_helper.DEFAULT_CACHE_DIR", tmp_path):
+        result = await resolve_mesh_id(indication)
+    assert result == expected_mesh_id
