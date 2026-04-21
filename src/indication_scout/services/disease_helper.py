@@ -284,11 +284,35 @@ async def resolve_mesh_id(indication: str) -> str | None:
 
     try:
         async with aiohttp.ClientSession() as session:
+            await asyncio.sleep(0.1)  # Stay under NCBI rate limit
             async with session.get(NCBI_ESEARCH_URL, params=esearch_params) as resp:
                 resp.raise_for_status()
                 esearch_data = await resp.json()
 
             uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+            if not uids:
+                # Fallback: retry without the [MeSH Terms] field tag so NCBI's
+                # Automatic Term Mapping can resolve descriptive phrases
+                # (e.g. "skin melanoma" → "cutaneous malignant melanoma"). Only
+                # accept the hit if ATM actually translated into a MeSH Terms
+                # query — otherwise it's a non-MeSH match we don't want.
+                retry_params = dict(esearch_params)
+                retry_params["term"] = indication
+                await asyncio.sleep(0.1)  # Stay under NCBI rate limit
+                async with session.get(NCBI_ESEARCH_URL, params=retry_params) as resp:
+                    resp.raise_for_status()
+                    esearch_data = await resp.json()
+                translation = esearch_data.get("esearchresult", {}).get(
+                    "querytranslation", ""
+                )
+                if "[MeSH Terms]" in translation:
+                    uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+                    logger.info(
+                        "MeSH resolver: ATM translated '%s' → %s",
+                        indication,
+                        translation,
+                    )
+
             if not uids:
                 logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
                 return None
@@ -301,6 +325,7 @@ async def resolve_mesh_id(indication: str) -> str | None:
             if api_key:
                 esummary_params["api_key"] = api_key
 
+            await asyncio.sleep(0.1)  # Stay under NCBI rate limit
             async with session.get(NCBI_ESUMMARY_URL, params=esummary_params) as resp:
                 resp.raise_for_status()
                 esummary_data = await resp.json()

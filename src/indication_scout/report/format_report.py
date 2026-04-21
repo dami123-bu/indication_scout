@@ -73,12 +73,29 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
             lines.append(f"- [{trial.nct_id}](https://clinicaltrials.gov/study/{trial.nct_id}) — {trial.title} ({phase}{', ' + status if status else ''})")
 
     if ct.terminated:
-        lines.append(f"\n**Terminated / withdrawn trials ({len(ct.terminated)}):**")
-        for t in ct.terminated[:10]:
-            reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
-            category = f" [{t.stop_category}]" if t.stop_category else ""
-            title = f" {t.title}" if t.title else ""
-            lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({t.phase}){category}{reason}")
+        term = ct.terminated
+        total = (
+            len(term.drug_wide)
+            + len(term.indication_wide)
+            + len(term.pair_specific)
+            + len(term.pair_completed)
+        )
+        if total:
+            lines.append(f"\n**Trial outcomes ({total}):**")
+            for label, bucket in [
+                ("Pair-specific terminated", term.pair_specific),
+                ("Pair-specific completed", term.pair_completed),
+                ("Drug-wide terminations (safety/efficacy)", term.drug_wide),
+                ("Indication-wide terminations", term.indication_wide),
+            ]:
+                if not bucket:
+                    continue
+                lines.append(f"\n_{label} ({len(bucket)}):_")
+                for t in bucket[:10]:
+                    reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
+                    category = f" [{t.stop_category}]" if t.stop_category else ""
+                    title = f" {t.title}" if t.title else ""
+                    lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({t.phase}){category}{reason}")
 
     if not lines:
         lines.append("_No clinical trials data available._")
