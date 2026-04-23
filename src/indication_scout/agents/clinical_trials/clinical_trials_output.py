@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 
 from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
     WhitespaceResult,
     Trial,
     IndicationLandscape,
@@ -33,6 +34,14 @@ class ClinicalTrialsOutput(BaseModel):
         description=(
             "Trial-outcome evidence split by scope: drug_wide, indication_wide, "
             "pair_specific (terminated), pair_completed."
+        ),
+    )
+
+    approval: ApprovalCheck | None = Field(
+        default=None,
+        description=(
+            "FDA-label approval status for the drug × indication pair. Populated "
+            "when the agent calls check_fda_approval."
         ),
     )
 

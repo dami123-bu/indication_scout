@@ -45,3 +45,10 @@ Each entry is dated and categorized.
   - aspirin × diabetes mellitus (D003920): 50 → 43
   - semaglutide × hypertension (D006973): 5 → 2
 
+### Agent prompt methodology — five-section template (2026-04-22)
+- All agent system prompts should follow the structure documented in `prompt_plan.md`: TOOLS / SCHEMA / REPORTING / EMPTY RESULTS / INFERENCE / GROUNDING. Mixing schema facts, reasoning heuristics, and style rules in one block hides tool/prompt mismatches.
+- Every INFERENCE rule must pass the **audit test**: "if I delete every tool's output except the exact fields this rule names, can it still be applied, and does it correctly state what it CAN'T conclude?" If not, weaken / re-route through a new tool / move / delete.
+- "Unless X" clauses where no tool returns X are the canonical bug shape. The clinical_trials prompt used to say "treat a completed Phase 3 as closed unless there is direct evidence the readout was positive" — no tool returned readout evidence, so every completed Phase 3 collapsed to "failed." This is what missed semaglutide × NASH (FDA-approved for MASH Aug 2025).
+- Fix for clinical_trials: added `check_fda_approval` tool (`ApprovalCheck` artifact) that wraps `services.approval_check.get_fda_approved_diseases`, routed the `pair_completed` inference rule through it. When `is_approved=True`, a short-circuit rule forces a one-sentence summary and skips the rest of the report — approved drugs are not repurposing candidates.
+- User-facing summaries must not leak internal field or tool names. Models parrot schema identifiers (`pair_completed`, `is_approved`, `drug_names_checked`, `check_fda_approval`, `stop_category`, `is_whitespace`, MeSH, etc.) unless the REPORTING section explicitly bans them with plain-English translations.
+

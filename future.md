@@ -125,3 +125,35 @@ Options when time allows:
   `CompletedTrial` model, populated from results-section parsing or LLM
   classification of the primary-outcomes text.
 - Pull results data via the CT.gov results endpoint for these specific NCT IDs.
+
+## FDA approval check — fallback when no label is found (added 2026-04-22)
+
+`check_fda_approval` currently relies on `FDAClient.get_all_label_indications`,
+which queries openFDA's SPL (Structured Product Labeling) dataset. When a drug
+is withdrawn from the US market, its label is pulled from active distribution
+and openFDA returns zero labels — even if the FDA originally granted approval.
+Aducanumab (Aduhelm) is the canonical case: accelerated approval in June 2021
+for Alzheimer's disease, voluntarily withdrawn by Biogen in January 2024, now
+returns `label_found=False` from our tool.
+
+We handle this correctly in the prompt (the `is_approved=false AND
+label_found=false` INFERENCE rule forces the agent to report approval status
+as UNKNOWN and not treat it as negative evidence), but UNKNOWN is strictly
+less useful than the truth. A withdrawn-but-originally-approved drug is
+*still not a repurposing opportunity* in the conventional sense — it passed
+regulatory review once, even if it's no longer sold.
+
+Fallback options, in rough order of effort:
+- Query openFDA's drugsfda endpoint instead of (or in addition to) SPL —
+  drugsfda carries approval history and retains withdrawn products with a
+  status marker. A hit there with status "Discontinued" or similar would let
+  us distinguish "withdrawn after approval" from "never approved."
+- Query the FDA orange/purple book datasets directly for historical approval
+  records.
+- LLM fallback on a curated drug name list: when SPL returns nothing, ask a
+  small LLM whether the drug was ever FDA-approved and for what indication.
+  Cheaper than a new data source but less auditable.
+- At minimum, add a third `approval_history_unknown` state (or a separate
+  `ever_approved: bool | None` field) so the agent can distinguish "drug has
+  current label, indication not on it" from "drug has no current label,
+  historical approval unchecked."

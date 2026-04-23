@@ -190,6 +190,14 @@ async def test_normalize_batch_returns_pubmed_friendly_term(test_cache_dir):
     [
         ("hypertension", "D006973"),
         ("type 2 diabetes", "D003924"),
+        ("asthma", "D001249"),
+        ("parkinson disease", "D010300"),
+        ("rheumatoid arthritis", "D001172"),
+        ("alzheimer disease", "D000544"),
+        ("breast neoplasms", "D001943"),
+        ("multiple sclerosis", "D009103"),
+        ("psoriasis", "D011565"),
+        ("epilepsy", "D004827"),
     ],
 )
 async def test_resolve_mesh_id_real_ncbi(indication, expected_mesh_id):
@@ -204,6 +212,11 @@ async def test_resolve_mesh_id_real_ncbi(indication, expected_mesh_id):
         # "skin melanoma" is not itself a MeSH heading; NCBI ATM translates it
         # to "cutaneous malignant melanoma"[MeSH Terms] (D000096142).
         ("skin melanoma", "D000096142"),
+        ("high blood pressure", "D006973"),
+        ("heart attack", "D009203"),
+        ("stroke", "D020521"),
+        ("lou gehrig disease", "D000690"),
+        ("sugar diabetes", "D003920"),
     ],
 )
 async def test_resolve_mesh_id_atm_fallback(tmp_path, indication, expected_mesh_id):

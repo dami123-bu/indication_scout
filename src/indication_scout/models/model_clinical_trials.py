@@ -264,3 +264,36 @@ class TrialOutcomes(BaseModel):
             if values.get(field_name) is None and field_info.default is not None:
                 values[field_name] = field_info.default
         return values
+
+
+# ------------------------------------------------------------------
+# FDA approval check
+# ------------------------------------------------------------------
+
+
+class ApprovalCheck(BaseModel):
+    """Result of an FDA-label lookup for a drug × indication pair.
+
+    `is_approved` is True when the indication appears on a current
+    FDA label for any known name of the drug. When False it means
+    "not found on FDA labels" — it does not distinguish trial failure
+    from approval pending from approval outside the US.
+
+    `label_found` is True when FDA returned at least one label for any
+    of the drug names checked. When False, no label exists in openFDA
+    for this drug (e.g. withdrawn drugs like aducanumab after 2024) —
+    approval status cannot be determined from available data.
+    """
+
+    is_approved: bool = False
+    label_found: bool = False
+    matched_indication: str | None = None
+    drug_names_checked: list[str] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values: dict) -> dict:
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default is not None:
+                values[field_name] = field_info.default
+        return values

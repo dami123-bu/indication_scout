@@ -2,13 +2,18 @@ import logging
 from datetime import date
 
 from langchain_core.tools import tool
+from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
     WhitespaceResult,
     IndicationLandscape,
     Trial,
     TrialOutcomes,
 )
+from indication_scout.data_sources.fda import FDAClient
+from indication_scout.services.approval_check import extract_approved_from_labels
 from indication_scout.services.disease_helper import resolve_mesh_id
 
 logger = logging.getLogger(__name__)
@@ -186,6 +191,80 @@ def build_clinical_trials_tools(
         )
 
     @tool(response_format="content_and_artifact")
+    async def check_fda_approval(
+        drug: str, indication: str
+    ) -> tuple[str, ApprovalCheck]:
+        """Check whether the drug is FDA-approved for this indication.
+
+        Resolves all known trade/generic names for the drug via ChEMBL, then
+        checks current FDA labels for any label whose approved indications
+        cover the given indication. Use this whenever pair_completed contains
+        any trial — it is the only tool that can tell you whether a completed
+        trial led to approval.
+
+        When is_approved is True, the drug IS approved for this indication —
+        this is NOT a repurposing opportunity. When False, the indication was
+        not found on FDA labels (which does not distinguish trial failure
+        from approval pending from approval outside the US).
+        """
+        chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
+        if not chembl_id:
+            logger.warning(
+                "check_fda_approval: could not resolve '%s' to ChEMBL id", drug
+            )
+            return (
+                f"FDA approval check for {drug} × {indication}: drug not resolved.",
+                ApprovalCheck(),
+            )
+
+        drug_names = await get_all_drug_names(chembl_id, DEFAULT_CACHE_DIR)
+        if not drug_names:
+            logger.warning(
+                "check_fda_approval: no drug names for ChEMBL id '%s'", chembl_id
+            )
+            return (
+                f"FDA approval check for {drug} × {indication}: no drug names.",
+                ApprovalCheck(),
+            )
+
+        async with FDAClient(cache_dir=DEFAULT_CACHE_DIR) as client:
+            label_texts = await client.get_all_label_indications(drug_names)
+
+        if not label_texts:
+            logger.warning(
+                "check_fda_approval: no FDA labels found for any of %s", drug_names
+            )
+            return (
+                f"FDA approval check for {drug} × {indication}: "
+                f"no FDA label found (checked {len(drug_names)} drug names)",
+                ApprovalCheck(
+                    is_approved=False,
+                    label_found=False,
+                    drug_names_checked=drug_names,
+                ),
+            )
+
+        approved = await extract_approved_from_labels(
+            label_texts, [indication], DEFAULT_CACHE_DIR
+        )
+        approved_lower = {d.lower().strip() for d in approved}
+        is_approved = indication.lower().strip() in approved_lower
+        matched = indication if is_approved else None
+
+        result = ApprovalCheck(
+            is_approved=is_approved,
+            label_found=True,
+            matched_indication=matched,
+            drug_names_checked=drug_names,
+        )
+        content = (
+            f"FDA approval check for {drug} × {indication}: "
+            f"{'APPROVED' if is_approved else 'not on FDA label'} "
+            f"(checked {len(drug_names)} drug names)"
+        )
+        return content, result
+
+    @tool(response_format="content_and_artifact")
     async def finalize_analysis(summary: str) -> tuple[str, str]:
         """Signal that the analysis is complete.
 
@@ -194,4 +273,11 @@ def build_clinical_trials_tools(
         """
         return "Analysis complete.", summary
 
-    return [detect_whitespace, search_trials, get_landscape, get_terminated, finalize_analysis]
+    return [
+        detect_whitespace,
+        search_trials,
+        get_landscape,
+        get_terminated,
+        check_fda_approval,
+        finalize_analysis,
+    ]
