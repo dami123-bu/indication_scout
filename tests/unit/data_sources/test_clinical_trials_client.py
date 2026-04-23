@@ -215,7 +215,7 @@ async def test_get_landscape_calls_fetch_and_count():
         patch.object(
             client,
             "_fetch_all_indication_trials",
-            new=AsyncMock(return_value=fake_trials),
+            new=AsyncMock(return_value=(fake_trials, False)),
         ) as mock_fetch,
         patch.object(
             client,

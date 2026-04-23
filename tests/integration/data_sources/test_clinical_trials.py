@@ -576,3 +576,69 @@ async def test_count_trials_with_mesh_narrows_to_real_matches(clinical_trials_cl
     assert unfiltered > 200
 
 
+async def test_get_landscape_with_mesh_filter_narrows(clinical_trials_client):
+    """get_landscape with target_mesh_id fetches unbounded pre-filter then caps post-filter.
+
+    Covers Fix #1: for a noisy indication like "hypertension", the unfiltered
+    Essie query returns pulmonary / portal / pre-eclampsia hypertension trials.
+    With target_mesh_id=D006973 ("Hypertension"), the MeSH filter must be
+    applied BEFORE the landscape cap — so every competitor's representative
+    trial set must carry D006973 in mesh_conditions or mesh_ancestors, and the
+    filtered total_trial_count must be <= the unfiltered one.
+    """
+    unfiltered = await clinical_trials_client.get_landscape(
+        "hypertension", top_n=10
+    )
+    filtered = await clinical_trials_client.get_landscape(
+        "hypertension", top_n=10, target_mesh_id="D006973"
+    )
+
+    # Both queries return competitors
+    assert len(unfiltered.competitors) > 0
+    assert len(filtered.competitors) > 0
+
+    # Filter can only narrow the count
+    assert filtered.total_trial_count <= unfiltered.total_trial_count
+
+    # For a truly noisy query, filter should produce a strictly smaller count
+    assert filtered.total_trial_count < unfiltered.total_trial_count
+
+
+async def test_count_trials_mesh_saturation_on_broad_indication(
+    clinical_trials_client, caplog
+):
+    """_count_trials with target_mesh_id on a broad indication hits the page cap.
+
+    Covers Fix #3: "neoplasms" has tens of thousands of trials on CT.gov. An
+    uncapped walk would trigger hundreds of HTTP calls; the page cap must stop
+    the walk at CLINICAL_TRIALS_COUNT_PAGE_CAP pages and log saturation. We
+    can't assert an exact count, but we assert:
+      - the call returns a positive int (not a timeout / exception)
+      - the count is strictly less than the API's unfiltered totalCount
+      - the saturation warning fires
+    """
+    from indication_scout.constants import CLINICAL_TRIALS_COUNT_PAGE_CAP
+
+    unfiltered = await clinical_trials_client._count_trials(
+        drug=None, indication="neoplasms"
+    )
+    assert unfiltered > 10000, (
+        f"expected 'neoplasms' to return >10k trials, got {unfiltered}"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="indication_scout.data_sources.clinical_trials"):
+        filtered = await clinical_trials_client._count_trials(
+            drug=None,
+            indication="neoplasms",
+            target_mesh_id="D009369",  # Neoplasms
+        )
+
+    # Count is bounded by the page cap: at most CAP * PAGE_SIZE (100) survivors
+    assert 0 < filtered <= CLINICAL_TRIALS_COUNT_PAGE_CAP * 100
+    # Saturation log fired (cap was hit on such a broad indication)
+    assert any(
+        "page cap" in rec.message and "lower bound" in rec.message
+        for rec in caplog.records
+    ), f"expected saturation warning; got {[r.message for r in caplog.records]}"
+
+

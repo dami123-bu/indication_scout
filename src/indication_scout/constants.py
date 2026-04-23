@@ -32,6 +32,14 @@ CHEMBL_BASE_URL: str = "https://www.ebi.ac.uk/chembl/api/data"
 CLINICAL_TRIALS_BASE_URL: str = "https://clinicaltrials.gov/api/v2/studies"
 CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER: str = "(PHASE2 OR PHASE3 OR PHASE4)"
 CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
+# Safety ceilings for MeSH-filtered paths. CT.gov pages are 100 studies each.
+# _count_trials walks the unfiltered result set to count post-MeSH survivors;
+# cap at 10 pages (≈1000 studies) to avoid unbounded walks on broad indications.
+CLINICAL_TRIALS_COUNT_PAGE_CAP: int = 10
+# get_landscape fetches unbounded when MeSH-filtering, then caps post-filter to
+# max_results. Cap the pre-filter fetch at 20 pages (≈2000 studies) to bound
+# latency while giving room for narrow MeSH subsets of broad Essie results.
+CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP: int = 20
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
