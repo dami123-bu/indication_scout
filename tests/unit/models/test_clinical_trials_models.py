@@ -2,6 +2,7 @@
 
 import pytest
 from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
     CompetitorEntry,
     IndicationDrug,
     IndicationLandscape,
@@ -474,3 +475,43 @@ def test_terminated_trial_stop_categories(stop_category, why_stopped):
     )
     assert trial.stop_category == stop_category
     assert trial.why_stopped == why_stopped
+
+
+# --- ApprovalCheck ---
+
+
+def test_approval_check_defaults():
+    """ApprovalCheck() has documented default field values."""
+    result = ApprovalCheck()
+    assert result.is_approved is False
+    assert result.label_found is False
+    assert result.matched_indication is None
+    assert result.drug_names_checked == []
+
+
+def test_approval_check_all_fields():
+    """ApprovalCheck stores all fields correctly."""
+    result = ApprovalCheck(
+        is_approved=True,
+        label_found=True,
+        matched_indication="type 2 diabetes mellitus",
+        drug_names_checked=["semaglutide", "ozempic", "wegovy", "rybelsus"],
+    )
+    assert result.is_approved is True
+    assert result.label_found is True
+    assert result.matched_indication == "type 2 diabetes mellitus"
+    assert result.drug_names_checked == ["semaglutide", "ozempic", "wegovy", "rybelsus"]
+
+
+def test_approval_check_coerce_nones():
+    """ApprovalCheck coerces None values for fields with non-None defaults."""
+    result = ApprovalCheck(
+        is_approved=None,
+        label_found=None,
+        matched_indication=None,
+        drug_names_checked=None,
+    )
+    assert result.is_approved is False
+    assert result.label_found is False
+    assert result.matched_indication is None
+    assert result.drug_names_checked == []

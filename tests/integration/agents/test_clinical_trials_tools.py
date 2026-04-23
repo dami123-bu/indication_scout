@@ -14,9 +14,12 @@ Expected values verified by a live run on 2026-04-19 with:
 import logging
 from datetime import date
 
+import pytest
+
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
+from indication_scout.models.model_clinical_trials import ApprovalCheck
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +82,49 @@ async def test_search_trials_tool_forwards_resolved_mesh_id():
     assert ancestor_only.start_date == "2024-01-29"
     assert _HYPERTENSION_MESH_ID not in {m.id for m in ancestor_only.mesh_conditions}
     assert _HYPERTENSION_MESH_ID in {m.id for m in ancestor_only.mesh_ancestors}
+
+
+# ------------------------------------------------------------------
+# check_fda_approval — hits real ChEMBL, openFDA, and Anthropic
+# ------------------------------------------------------------------
+
+
+_SEMAGLUTIDE_EXPECTED_NAMES = {"semaglutide", "ozempic", "wegovy", "rybelsus"}
+
+
+@pytest.mark.parametrize(
+    "indication,is_approved,matched_indication,content_substring",
+    [
+        ("NASH", True, "NASH", "APPROVED"),
+        ("alzheimer disease", False, None, "not on FDA label"),
+    ],
+)
+async def test_check_fda_approval_semaglutide(
+    indication, is_approved, matched_indication, content_substring
+):
+    """End-to-end: ChEMBL resolution, openFDA label fetch, and LLM approval
+    extraction for semaglutide.
+
+    - NASH: semaglutide IS FDA-approved → is_approved=True.
+    - alzheimer disease: label exists, indication not on it → is_approved=False.
+    matched_indication is the caller's input verbatim when is_approved is True,
+    otherwise None.
+    """
+    tools = build_clinical_trials_tools(date_before=None)
+    check_fda_approval = next(t for t in tools if t.name == "check_fda_approval")
+
+    msg = await check_fda_approval.ainvoke(
+        {
+            "name": "check_fda_approval",
+            "args": {"drug": "semaglutide", "indication": indication},
+            "id": f"it-fda-{indication}",
+            "type": "tool_call",
+        }
+    )
+
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is is_approved
+    assert msg.artifact.label_found is True
+    assert msg.artifact.matched_indication == matched_indication
+    assert _SEMAGLUTIDE_EXPECTED_NAMES.issubset(set(msg.artifact.drug_names_checked))
+    assert content_substring in msg.content

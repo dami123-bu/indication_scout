@@ -3,6 +3,7 @@ from datetime import date
 
 from langchain_core.tools import tool
 from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 from indication_scout.models.model_clinical_trials import (
@@ -207,8 +208,9 @@ def build_clinical_trials_tools(
         not found on FDA labels (which does not distinguish trial failure
         from approval pending from approval outside the US).
         """
-        chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
-        if not chembl_id:
+        try:
+            chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
+        except DataSourceError:
             logger.warning(
                 "check_fda_approval: could not resolve '%s' to ChEMBL id", drug
             )

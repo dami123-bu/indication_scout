@@ -5,7 +5,6 @@ import logging
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.markers import no_review
 from indication_scout.models.model_clinical_trials import MeshTerm, TrialOutcomes
 
 logger = logging.getLogger(__name__)
@@ -80,15 +79,6 @@ async def test_get_landscape(clinical_trials_client):
     assert tradipitant_comp.most_recent_start == "2024-01-09"
 
 
-# TODO remove
-@no_review
-async def test_get_trial_flow(clinical_trials_client):
-    """Test get_trial returns a single trial by NCT ID."""
-    # Fetch NCT03819153
-    trial = await clinical_trials_client.get_trial("NCT03819153")
-    logger.info(trial)
-
-
 async def test_get_trial(clinical_trials_client):
     """Test get_trial returns a single trial by NCT ID."""
     # Fetch NCT00127933 - XeNA Study (Roche breast cancer trial)
@@ -131,56 +121,6 @@ async def test_get_trial(clinical_trials_client):
     )
 
 
-async def test_search_trials(clinical_trials_client):
-    """Test search_trials returns trials for a drug-indication pair."""
-    # Search for trastuzumab + breast cancer, find a specific known trial
-    trials = await clinical_trials_client.search_trials(
-        drug="trastuzumab",
-        indication="breast cancer",
-
-        phase_filter="PHASE4",
-    )
-
-    # Find NCT00127933 - XeNA Study (Roche, includes Herceptin)
-    [xena] = [t for t in trials if t.nct_id == "NCT00127933"]
-
-    # Verify all Trial fields with exact values
-    assert xena.nct_id == "NCT00127933"
-    assert (
-        xena.title
-        == "XeNA Study - A Study of Xeloda (Capecitabine) in Patients With Invasive Breast Cancer"
-    )
-    assert xena.phase == "Phase 4"
-    assert xena.overall_status == "COMPLETED"
-    assert xena.why_stopped is None
-    assert xena.indications == ["Breast Cancer"]
-    assert xena.sponsor == "Hoffmann-La Roche"
-    assert xena.enrollment == 157
-    assert xena.start_date == "2005-08"
-    assert xena.completion_date == "2009-04"
-    assert xena.references == []
-
-    # Verify interventions - trial has 5 interventions including Herceptin
-    assert len(xena.interventions) == 5
-    [herceptin] = [
-        i
-        for i in xena.interventions
-        if i.intervention_name == "Herceptin (HER2-neu positive patients only)"
-    ]
-    assert herceptin.intervention_type == "Drug"
-
-    # Verify primary_outcomes
-    assert len(xena.primary_outcomes) == 1
-    assert (
-        xena.primary_outcomes[0].measure
-        == "Percentage of Participants Assessed for Pathological Complete Response (pCR) Plus Near Complete (npCR) in Primary Breast Tumor at Time of Definitive Surgery"
-    )
-    assert (
-        xena.primary_outcomes[0].time_frame
-        == "at the time of definitive surgery; after four 3-week cycles (3-4 months)"
-    )
-
-
 async def test_search_trials_drug_only(clinical_trials_client):
     """Test search_trials returns trials for a drug without specifying indication."""
     trials = await clinical_trials_client.search_trials(
@@ -199,7 +139,11 @@ async def test_search_trials_drug_only(clinical_trials_client):
 
 
 async def test_search_trials_nash_trial_fields(clinical_trials_client):
-    """Verify all Trial fields for NCT04971785 (Gilead NASH/semaglutide trial)."""
+    """Verify all Trial fields (including MeSH ancestors) for NCT04971785.
+
+    Covers both full-field parsing and conditionBrowseModule.ancestors
+    extraction in a single live call.
+    """
     trials = await clinical_trials_client.search_trials(
         drug="semaglutide",
         indication="nonalcoholic steatohepatitis",
@@ -235,6 +179,17 @@ async def test_search_trials_nash_trial_fields(clinical_trials_client):
     assert nash_trial.primary_outcomes[0].measure.startswith(
         "Percentage of Participants Who Achieved"
     )
+
+    # MeSH conditions + ancestors from conditionBrowseModule
+    assert nash_trial.mesh_conditions == [
+        MeshTerm(id="D065626", term="Non-alcoholic Fatty Liver Disease"),
+    ]
+    ancestor_pairs = [(m.id, m.term) for m in nash_trial.mesh_ancestors]
+    assert ancestor_pairs == [
+        ("D005234", "Fatty Liver"),
+        ("D008107", "Liver Diseases"),
+        ("D004066", "Digestive System Diseases"),
+    ]
 
 
 async def test_search_trials_indication_only(clinical_trials_client):
@@ -311,9 +266,14 @@ async def test_get_terminated(clinical_trials_client):
 
     Verifies indication_wide retains business terminations (only drug_wide applies
     the safety/efficacy stop_category filter).
+
+    Uses "dilated gastrojejunostomy" — a narrow condition whose only terminated
+    trial on CT.gov is NCT00394212 (stopped "For business reasons"). This keeps
+    the trial in the top-N indication cap regardless of overall terminated volume.
+    The drug arg is irrelevant for indication_wide (no drug filter is applied there).
     """
     outcomes = await clinical_trials_client.get_terminated(
-        "semaglutide", "overweight"
+        "semaglutide", "dilated gastrojejunostomy"
     )
 
     [business_trial] = [
@@ -401,41 +361,27 @@ async def test_get_trial_nonexistent_nct_id_raises_error(clinical_trials_client)
     assert "NCT99999999" in str(exc_info.value)
 
 
-async def test_search_trials_nonexistent_drug_returns_empty(clinical_trials_client):
-    """Test that a nonexistent drug returns empty list (not an error)."""
-    trials = await clinical_trials_client.search_trials(
-        drug="xyzzy_not_a_real_drug_12345",
-        indication="diabetes",
-
-    )
-
-    assert trials == []
-
-
-async def test_search_trials_nonexistent_indication_returns_empty(
-    clinical_trials_client,
+@pytest.mark.parametrize(
+    "drug, indication, expect_empty",
+    [
+        ("xyzzy_not_a_real_drug_12345", "diabetes", True),
+        ("semaglutide", "xyzzy_fake_disease_99999", True),
+        # Empty drug acts as no filter — may return results; just verify no error.
+        ("", "diabetes", False),
+    ],
+    ids=["nonexistent_drug", "nonexistent_indication", "empty_drug"],
+)
+async def test_search_trials_invalid_input_returns_list(
+    clinical_trials_client, drug, indication, expect_empty
 ):
-    """Test that a nonexistent indication returns empty list."""
+    """search_trials returns a list (empty for unresolvable terms) rather than raising."""
     trials = await clinical_trials_client.search_trials(
-        drug="semaglutide",
-        indication="xyzzy_fake_disease_99999",
-
+        drug=drug,
+        indication=indication,
     )
-
-    assert trials == []
-
-
-async def test_search_trials_empty_drug_returns_empty(clinical_trials_client):
-    """Test that empty drug string returns empty list."""
-    trials = await clinical_trials_client.search_trials(
-        drug="",
-        indication="diabetes",
-
-    )
-
-    # Empty drug acts as no filter, so may return results
-    # Just verify it doesn't raise an error
     assert isinstance(trials, list)
+    if expect_empty:
+        assert trials == []
 
 
 async def test_get_landscape_nonexistent_indication_returns_empty(
@@ -563,6 +509,10 @@ async def test_search_trials_mesh_filter_drops_noise(clinical_trials_client):
     pre-eclampsia, pulmonary hypertension, prehypertension, masked hypertension.
     Post-filtering by D006973 ("Hypertension") keeps only trials whose
     mesh_conditions OR mesh_ancestors contain D006973.
+
+    Also covers the ancestor-only case: NCT02503943 has mesh_conditions =
+    [Masked Hypertension (D059468), ...] and mesh_ancestors includes
+    Hypertension (D006973); the post-filter must keep it.
     """
     unfiltered = await clinical_trials_client.search_trials(
         drug="metformin", indication="hypertension"
@@ -594,25 +544,12 @@ async def test_search_trials_mesh_filter_drops_noise(clinical_trials_client):
             f"{t.nct_id} was dropped but has D006973 — filter bug"
         )
 
-
-async def test_search_trials_mesh_filter_keeps_ancestor_only_match(
-    clinical_trials_client,
-):
-    """A trial whose mesh_ancestors (not mesh_conditions) contain the target is kept.
-
-    NCT02503943 has mesh_conditions = [Masked Hypertension (D059468), ...] and
-    mesh_ancestors includes Hypertension (D006973). The post-filter must keep it.
-    """
-    filtered = await clinical_trials_client.search_trials(
-        drug="metformin", indication="hypertension", target_mesh_id="D006973"
-    )
-
-    [trial] = [t for t in filtered if t.nct_id == "NCT02503943"]
-
-    cond_ids = {m.id for m in trial.mesh_conditions}
-    anc_ids = {m.id for m in trial.mesh_ancestors}
-    assert "D006973" not in cond_ids
-    assert "D006973" in anc_ids
+    # Ancestor-only spot check: NCT02503943 is kept via mesh_ancestors alone.
+    [ancestor_only] = [t for t in filtered if t.nct_id == "NCT02503943"]
+    ancestor_cond_ids = {m.id for m in ancestor_only.mesh_conditions}
+    ancestor_anc_ids = {m.id for m in ancestor_only.mesh_ancestors}
+    assert "D006973" not in ancestor_cond_ids
+    assert "D006973" in ancestor_anc_ids
 
 
 async def test_count_trials_with_mesh_narrows_to_real_matches(clinical_trials_client):
@@ -639,22 +576,3 @@ async def test_count_trials_with_mesh_narrows_to_real_matches(clinical_trials_cl
     assert unfiltered > 200
 
 
-async def test_get_trial_populates_mesh_ancestors(clinical_trials_client):
-    """_parse_trial extracts conditionBrowseModule.ancestors into mesh_ancestors.
-
-    NCT04971785 (NASH/semaglutide) has condition "Non-alcoholic Fatty Liver
-    Disease" (D065626) with ancestors Fatty Liver → Liver Diseases →
-    Digestive System Diseases.
-    """
-    trial = await clinical_trials_client.get_trial("NCT04971785")
-
-    assert trial.mesh_conditions == [
-        MeshTerm(id="D065626", term="Non-alcoholic Fatty Liver Disease"),
-    ]
-
-    ancestor_pairs = [(m.id, m.term) for m in trial.mesh_ancestors]
-    assert ancestor_pairs == [
-        ("D005234", "Fatty Liver"),
-        ("D008107", "Liver Diseases"),
-        ("D004066", "Digestive System Diseases"),
-    ]

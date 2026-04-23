@@ -88,6 +88,12 @@ after finalize_analysis.
 - Absence of terminations is not a positive signal. Report it as
   "no stopping signals on record," not as "favorable,"
   "encouraging," or "a favorable signal for continued development."
+- Do not describe a hypothesis as "definitively" or "conclusively"
+  closed based on stop_category alone. The classifier is keyword-
+  based and can miss stops phrased as "sponsor's decision" or
+  similar. Use hedged language — "on record as stopped for
+  safety/efficacy," "stopped for reasons indicating efficacy
+  concerns."
 - Attribute counts to the source and hedge. Say "N trials on record
   as completed Phase 3" or "N filed as terminated," not "N completed
   Phase 3 trials." CT.gov status fields are sponsor filings, not
@@ -140,9 +146,14 @@ conclusion is not available — say so rather than inferring.
   competitors. Call finalize_analysis immediately.
 
 - pair_specific termination with stop_category in {safety, efficacy}
-  → the hypothesis was directly tested and stopped early for that
-  reason. This inference is SAFE: stop_category encodes the answer.
-  Treat the hypothesis as closed for that trial.
+  → moderate evidence the hypothesis was directly tested and stopped
+  early for that reason. stop_category is a keyword-based classifier
+  over the why_stopped text and has known blind spots (it can miss
+  safety/efficacy stops phrased as "sponsor's decision" or similar,
+  and can occasionally mis-label enrollment futility as efficacy).
+  Cite the why_stopped text alongside the category; do not describe
+  the hypothesis as "definitively" or "conclusively" closed on
+  stop_category alone.
 
 - pair_specific termination with stop_category in {business,
   enrollment, other} → NEUTRAL. It reflects sponsor decisions, not

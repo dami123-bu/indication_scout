@@ -87,16 +87,53 @@ BROADENING_BLOCKLIST: frozenset[str] = frozenset(
 )
 
 # -- Stop-reason keywords → category (ClinicalTrials.gov) ------------------
+# Order matters: _classify_stop_reason takes the first match, so more specific
+# phrases must appear before broader ones. Examples observed in real CT.gov
+# stop-reason text that motivated each entry are noted inline.
 STOP_KEYWORDS: dict[str, str] = {
-    # Specific phrases first
+    # -- Disambiguate "futility" variants (specific → general) ---------------
+    # "enrollment futility" = operational futility, not efficacy
+    "enrollment futility": "enrollment",
+    "recruitment futility": "enrollment",
+    # otherwise "futility" is an efficacy stop
+    "futility": "efficacy",
+
+    # -- Efficacy: explicit-phrase forms ------------------------------------
     "lack of efficacy": "efficacy",
     "no benefit": "efficacy",
     "no significant difference": "efficacy",
+    # seen on solanezumab Phase 3s; common phrasing for endpoint misses
+    "did not meet the primary endpoint": "efficacy",
+    "did not meet the study's primary endpoint": "efficacy",
+    "did not meet the target efficacy": "efficacy",
+    "primary endpoint was not met": "efficacy",
+    "primary endpoint not met": "efficacy",
+    "not meet its primary endpoint": "efficacy",
+    # seen on metformin × diabetes (NCT02111096) and similar benefit/risk phrasing
+    "benefit-risk profile did not support": "efficacy",
+    "not support continued development": "efficacy",
+    "insufficient scientific evidence": "efficacy",
+    "meaningful benefit": "efficacy",
+    "insufficient target engagement": "efficacy",
+
+    # -- Safety: explicit-phrase forms (hepatic is the dominant real-world form)
+    "liver safety": "safety",
+    "hepatic safety": "safety",
+    "liver enzyme": "safety",  # covers "liver enzymes", "liver enzyme elevations"
+    "transaminase": "safety",  # covers "transaminases", "transaminase elevations"
+    "hepatotoxicity": "safety",
+    "nonclinical safety": "safety",
+    "safety finding": "safety",  # covers "safety findings"
+    # seen on atabecestat × AD (NCT02569398) — canonical hepatotoxicity stop
+    "change in benefit-risk profile": "safety",
     "side effect": "safety",
     "adverse event": "safety",
     "toxicity": "safety",
-    "futility": "efficacy",
-    # Then broader terms
+    "safety concern": "safety",
+    "safety signal": "safety",
+    "clinical hold": "safety",
+
+    # -- Broader terms (these fire if nothing above matched) -----------------
     "efficacy": "efficacy",
     "enrollment": "enrollment",
     "accrual": "enrollment",
@@ -105,10 +142,6 @@ STOP_KEYWORDS: dict[str, str] = {
     "strategic": "business",
     "funding": "business",
     "commercial": "business",
-    # "safety" and "adverse" are too broad without negation handling
-    "safety concern": "safety",
-    "safety signal": "safety",
-    "clinical hold": "safety",
 }
 
 NEGATION_PREFIXES: list[str] = ["no ", "not ", "unrelated to ", "without ", "non-"]

@@ -9,7 +9,9 @@ from langchain_core.messages import ToolCall as LCToolCall
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
+from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
     CompetitorEntry,
     IndicationDrug,
     IndicationLandscape,
@@ -531,6 +533,284 @@ async def test_get_terminated_passes_date_before():
         sort="EnrollmentCount:desc",
         target_mesh_id="D000001",
     )
+
+
+# ------------------------------------------------------------------
+# check_fda_approval
+# ------------------------------------------------------------------
+
+
+def _fda_client_mock(label_texts: list[str]) -> AsyncMock:
+    """AsyncMock FDAClient that works as an async context manager."""
+    client = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.get_all_label_indications = AsyncMock(return_value=label_texts)
+    return client
+
+
+async def test_check_fda_approval_approved_match():
+    """Drug resolved, labels found, indication approved → is_approved=True with all fields populated."""
+    drug_names = ["semaglutide", "ozempic", "wegovy", "rybelsus"]
+    label_texts = ["INDICATIONS AND USAGE: treatment of type 2 diabetes mellitus"]
+    fda_client = _fda_client_mock(label_texts)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL2108724"),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=AsyncMock(return_value=drug_names),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            return_value=fda_client,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=AsyncMock(return_value={"type 2 diabetes mellitus"}),
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "semaglutide", "indication": "type 2 diabetes mellitus"},
+                id="tc_fda1",
+                type="tool_call",
+            )
+        )
+
+    fda_client.get_all_label_indications.assert_awaited_once_with(drug_names)
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is True
+    assert msg.artifact.label_found is True
+    assert msg.artifact.matched_indication == "type 2 diabetes mellitus"
+    assert msg.artifact.drug_names_checked == drug_names
+    assert "APPROVED" in msg.content
+
+
+async def test_check_fda_approval_label_found_but_not_approved():
+    """Labels returned but the indication is not in the approved set → is_approved=False, label_found=True."""
+    drug_names = ["semaglutide", "ozempic", "wegovy", "rybelsus"]
+    label_texts = ["INDICATIONS AND USAGE: treatment of type 2 diabetes mellitus"]
+    fda_client = _fda_client_mock(label_texts)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL2108724"),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=AsyncMock(return_value=drug_names),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            return_value=fda_client,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=AsyncMock(return_value=set()),
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "semaglutide", "indication": "huntington disease"},
+                id="tc_fda2",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is False
+    assert msg.artifact.label_found is True
+    assert msg.artifact.matched_indication is None
+    assert msg.artifact.drug_names_checked == drug_names
+    assert "not on FDA label" in msg.content
+
+
+async def test_check_fda_approval_indication_match_is_case_insensitive():
+    """Indication match strips and lowercases both sides before comparing."""
+    drug_names = ["semaglutide"]
+    fda_client = _fda_client_mock(["some label text"])
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL2108724"),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=AsyncMock(return_value=drug_names),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            return_value=fda_client,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=AsyncMock(return_value={"TYPE 2 Diabetes Mellitus"}),
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "semaglutide", "indication": "  type 2 diabetes mellitus  "},
+                id="tc_fda3",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.is_approved is True
+    assert msg.artifact.label_found is True
+    assert msg.artifact.matched_indication == "  type 2 diabetes mellitus  "
+    assert msg.artifact.drug_names_checked == drug_names
+
+
+async def test_check_fda_approval_no_labels_found():
+    """Drug names resolved but FDA has no labels → label_found=False, is_approved=False."""
+    drug_names = ["aducanumab", "aduhelm"]
+    fda_client = _fda_client_mock([])
+    tools = build_clinical_trials_tools(date_before=None)
+    extract_mock = AsyncMock()
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL4650346"),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=AsyncMock(return_value=drug_names),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            return_value=fda_client,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=extract_mock,
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "aducanumab", "indication": "alzheimer disease"},
+                id="tc_fda4",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is False
+    assert msg.artifact.label_found is False
+    assert msg.artifact.matched_indication is None
+    assert msg.artifact.drug_names_checked == drug_names
+    assert "no FDA label" in msg.content
+    extract_mock.assert_not_awaited()
+
+
+async def test_check_fda_approval_unresolved_drug_returns_default():
+    """resolve_drug_name raises DataSourceError → default ApprovalCheck, no FDA call, no extract call."""
+    fda_factory = MagicMock()
+    extract_mock = AsyncMock()
+    get_names_mock = AsyncMock()
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(
+                side_effect=DataSourceError("chembl", "No drug found for 'xyzzybogus'")
+            ),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=get_names_mock,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            new=fda_factory,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=extract_mock,
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "xyzzybogus", "indication": "alzheimer disease"},
+                id="tc_fda5",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is False
+    assert msg.artifact.label_found is False
+    assert msg.artifact.matched_indication is None
+    assert msg.artifact.drug_names_checked == []
+    assert "drug not resolved" in msg.content
+    get_names_mock.assert_not_awaited()
+    fda_factory.assert_not_called()
+    extract_mock.assert_not_awaited()
+
+
+async def test_check_fda_approval_no_drug_names_returns_default():
+    """get_all_drug_names returns empty → default ApprovalCheck, no FDA call, no extract call."""
+    fda_factory = MagicMock()
+    extract_mock = AsyncMock()
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_drug_name",
+            new=AsyncMock(return_value="CHEMBL2108724"),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.get_all_drug_names",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.FDAClient",
+            new=fda_factory,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.extract_approved_from_labels",
+            new=extract_mock,
+        ),
+    ):
+        msg = await _get_tool(tools, "check_fda_approval").ainvoke(
+            LCToolCall(
+                name="check_fda_approval",
+                args={"drug": "semaglutide", "indication": "type 2 diabetes mellitus"},
+                id="tc_fda6",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, ApprovalCheck)
+    assert msg.artifact.is_approved is False
+    assert msg.artifact.label_found is False
+    assert msg.artifact.matched_indication is None
+    assert msg.artifact.drug_names_checked == []
+    assert "no drug names" in msg.content
+    fda_factory.assert_not_called()
+    extract_mock.assert_not_awaited()
+
+
+async def test_check_fda_approval_is_registered_in_tool_list():
+    """build_clinical_trials_tools exposes check_fda_approval."""
+    tools = build_clinical_trials_tools(date_before=None)
+    names = {t.name for t in tools}
+    assert "check_fda_approval" in names
 
 
 # ------------------------------------------------------------------

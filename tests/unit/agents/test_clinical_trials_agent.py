@@ -18,6 +18,7 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
     ClinicalTrialsOutput,
 )
 from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
     CompetitorEntry,
     IndicationDrug,
     IndicationLandscape,
@@ -122,6 +123,13 @@ TERMINATED = TrialOutcomes(
 
 NARRATIVE = (
     "No trials exist for this drug-disease pair. One prior efficacy failure found."
+)
+
+APPROVAL = ApprovalCheck(
+    is_approved=True,
+    label_found=True,
+    matched_indication="type 2 diabetes mellitus",
+    drug_names_checked=["semaglutide", "ozempic", "wegovy", "rybelsus"],
 )
 
 
@@ -290,6 +298,58 @@ async def test_run_clinical_trials_agent_summary_from_finalize_analysis():
 
 
 # ------------------------------------------------------------------
+# Approval path: check_fda_approval artifact is threaded into output.approval
+# ------------------------------------------------------------------
+
+
+async def test_run_clinical_trials_agent_approval_path():
+    """The check_fda_approval ToolMessage artifact is assigned to output.approval."""
+    messages = [
+        HumanMessage(content="Analyze semaglutide in type 2 diabetes mellitus"),
+        _tool_msg("detect_whitespace", WHITESPACE),
+        _tool_msg("get_landscape", LANDSCAPE),
+        _tool_msg("check_fda_approval", APPROVAL),
+        _tool_msg("finalize_analysis", "Semaglutide is FDA-approved for type 2 diabetes mellitus."),
+    ]
+    agent = _make_agent(messages)
+
+    output = await run_clinical_trials_agent(
+        agent, "semaglutide", "type 2 diabetes mellitus"
+    )
+
+    assert isinstance(output.approval, ApprovalCheck)
+    assert output.approval.is_approved is True
+    assert output.approval.label_found is True
+    assert output.approval.matched_indication == "type 2 diabetes mellitus"
+    assert output.approval.drug_names_checked == [
+        "semaglutide",
+        "ozempic",
+        "wegovy",
+        "rybelsus",
+    ]
+    assert (
+        output.summary
+        == "Semaglutide is FDA-approved for type 2 diabetes mellitus."
+    )
+
+
+async def test_run_clinical_trials_agent_approval_defaults_to_none_when_absent():
+    """When check_fda_approval is never called, output.approval stays None."""
+    messages = [
+        HumanMessage(content="Analyze somedrug in huntingtons"),
+        _tool_msg("detect_whitespace", WHITESPACE),
+        _tool_msg("get_landscape", LANDSCAPE),
+        _tool_msg("get_terminated", TERMINATED),
+        _tool_msg("finalize_analysis", NARRATIVE),
+    ]
+    agent = _make_agent(messages)
+
+    output = await run_clinical_trials_agent(agent, "somedrug", "huntingtons")
+
+    assert output.approval is None
+
+
+# ------------------------------------------------------------------
 # Partial runs — missing tools leave defaults
 # ------------------------------------------------------------------
 
@@ -297,13 +357,30 @@ async def test_run_clinical_trials_agent_summary_from_finalize_analysis():
 @pytest.mark.parametrize(
     "present_tools,missing_field,expected_default",
     [
-        (["search_trials", "get_landscape", "get_terminated"], "whitespace", None),
-        (["detect_whitespace", "get_landscape", "get_terminated"], "trials", []),
-        (["detect_whitespace", "search_trials", "get_terminated"], "landscape", None),
         (
-            ["detect_whitespace", "search_trials", "get_landscape"],
+            ["search_trials", "get_landscape", "get_terminated", "check_fda_approval"],
+            "whitespace",
+            None,
+        ),
+        (
+            ["detect_whitespace", "get_landscape", "get_terminated", "check_fda_approval"],
+            "trials",
+            [],
+        ),
+        (
+            ["detect_whitespace", "search_trials", "get_terminated", "check_fda_approval"],
+            "landscape",
+            None,
+        ),
+        (
+            ["detect_whitespace", "search_trials", "get_landscape", "check_fda_approval"],
             "terminated",
             TrialOutcomes(),
+        ),
+        (
+            ["detect_whitespace", "search_trials", "get_landscape", "get_terminated"],
+            "approval",
+            None,
         ),
     ],
 )
@@ -316,6 +393,7 @@ async def test_run_clinical_trials_agent_missing_tool_leaves_default(
         "search_trials": TRIALS,
         "get_landscape": LANDSCAPE,
         "get_terminated": TERMINATED,
+        "check_fda_approval": APPROVAL,
     }
     messages = [HumanMessage(content="Analyze somedrug in huntingtons")]
     for name in present_tools:
