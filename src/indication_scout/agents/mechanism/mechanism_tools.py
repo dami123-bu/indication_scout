@@ -5,13 +5,18 @@ msg.artifact. Tools share inter-call data via a closure-scoped store dict.
 No InjectedState, no LangGraph state machinery.
 """
 
+import logging
+
 from langchain_core.tools import tool
 
 from indication_scout.config import get_settings
 from indication_scout.constants import MECHANISM_SIGNAL_KEYS
+from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.chembl import resolve_drug_name
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import Association, MechanismOfAction
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
@@ -35,9 +40,21 @@ def build_mechanism_tools() -> list:
         the targets it applies to. Also populates the internal target map so
         subsequent tools can resolve target symbols. Call this first.
         """
-        async with OpenTargetsClient() as client:
-            chembl_id = await resolve_drug_name(drug_name, client.cache_dir)
-            drug = await client.get_drug(chembl_id)
+        try:
+            async with OpenTargetsClient() as client:
+                chembl_id = await resolve_drug_name(drug_name, client.cache_dir)
+                drug = await client.get_drug(chembl_id)
+        except DataSourceError as e:
+            # Resolution failed (unknown name, salt with no parent, etc.) — return
+            # an empty MoA list so the agent's "no mechanisms" short-circuit fires
+            # instead of crashing the agent loop.
+            logger.info("get_drug: could not resolve %r: %s", drug_name, e)
+            store["target_ids"] = {}
+            return (
+                f"No drug found for '{drug_name}' — our tools could not resolve "
+                f"this name to a ChEMBL entry.",
+                [],
+            )
 
         store["target_ids"] = {
             t.target_symbol: t.target_id
@@ -45,6 +62,7 @@ def build_mechanism_tools() -> list:
             if t.target_symbol and t.target_id
         }
         moas = drug.mechanisms_of_action
+
         summary = ", ".join(
             f"{m.action_type} ({m.mechanism_of_action})" for m in moas
         ) or "none"
@@ -81,13 +99,15 @@ def build_mechanism_tools() -> list:
         ]
         top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[:_settings.mechanism_associations_cap]
 
-        # Index by disease_id so record_shaped_associations can validate references
         fetched = store.setdefault("fetched_associations", {})
         for a in top:
             fetched[a.disease_id] = a
 
         rows = "\n".join(
-            f"  {a.disease_id} | {a.disease_name} | overall={a.overall_score:.3f} | {a.datatype_scores}"
+            (
+                f"  {a.disease_id} | {a.disease_name} | overall={a.overall_score:.3f} | "
+                f"{a.datatype_scores}"
+            )
             for a in top
         )
         return (

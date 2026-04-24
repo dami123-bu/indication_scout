@@ -157,3 +157,30 @@ Fallback options, in rough order of effort:
   `ever_approved: bool | None` field) so the agent can distinguish "drug has
   current label, indication not on it" from "drug has no current label,
   historical approval unchecked."
+
+## Mechanism — conflicting action types on a single target (added 2026-04-22)
+
+When a drug has two MoAs on the same target with opposing directions (one
+`INHIBITOR`, one `AGONIST`), `build_symbol_action_types` in
+`mechanism_shapes.py` records both in the `action_types` set for that
+symbol. `classify_association_shape` then sets `is_inhibitor` AND
+`is_activator` both to True, and whichever `if` branch runs first wins:
+
+```
+if (is_inhibitor and disease_gof) or (is_activator and disease_lof):
+    shape = "hypothesis"
+elif (is_inhibitor and disease_lof) or (is_activator and disease_gof):
+    shape = "contraindication"
+```
+
+For a GOF disease this always returns `hypothesis`; for a LOF disease
+always `contraindication`. The conflicting direction on the same target is
+silently dropped. Low priority — rare in the Open Targets data we've
+seen — but worth either:
+- Adding a comment on `classify_association_shape` flagging the tie-break
+  behaviour explicitly.
+- Returning a dedicated `ambiguous_direction` shape when
+  `is_inhibitor AND is_activator`, so downstream consumers know the drug's
+  direction on that target is itself contested.
+- Carrying the set of action_types into the rationale string so the
+  conflict is at least visible in the audit trail.

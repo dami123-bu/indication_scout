@@ -22,7 +22,6 @@ from indication_scout.agents.supervisor.supervisor_output import (
     SupervisorOutput,
 )
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
-from indication_scout.constants import MECHANISM_ASSOCIATION_MIN_SCORE
 
 logger = logging.getLogger(__name__)
 
@@ -191,36 +190,6 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     for c in candidates:
         allowed_lower[c.lower().strip()] = (c, "competitor")
 
-    # Build a disease_id → lowercase-key index from competitor diseases so we
-    # can dedup mechanism associations by ID rather than string matching alone.
-    competitor_id_to_key: dict[str, str] = {}
-    if mechanism:
-        # We don't have disease_ids on the competitor list directly, but
-        # shaped associations carry disease_id. If a shaped association's
-        # disease_name already matches a competitor key, record its ID.
-        for s in mechanism.shaped_associations:
-            key = s.disease_name.lower().strip()
-            if key in allowed_lower and s.disease_id:
-                competitor_id_to_key[s.disease_id] = key
-
-        # Now add qualifying mechanism associations.
-        for s in mechanism.shaped_associations:
-            if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
-                continue
-            key = s.disease_name.lower().strip()
-
-            # Check by disease_id first (handles name mismatches for same disease)
-            existing_key = competitor_id_to_key.get(s.disease_id)
-            if existing_key:
-                name, source = allowed_lower[existing_key]
-                if source == "competitor":
-                    allowed_lower[existing_key] = (name, "both")
-            elif key in allowed_lower:
-                name, source = allowed_lower[key]
-                if source == "competitor":
-                    allowed_lower[key] = (name, "both")
-            else:
-                allowed_lower[key] = (s.disease_name, "mechanism")
 
     def _canonical(disease_raw: str) -> tuple[str, Literal["competitor", "mechanism", "both"]] | None:
         """Return (canonical_name, source) for disease_raw, or None if not allowed."""

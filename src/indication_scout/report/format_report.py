@@ -126,24 +126,6 @@ def _fmt_mechanism(mech: MechanismOutput) -> str:
             syms = ", ".join(moa.target_symbols) if moa.target_symbols else "—"
             lines.append(f"- {moa.mechanism_of_action} ({moa.action_type}) → {syms}")
 
-    if mech.shaped_associations:
-        lines.append("\n**Mechanistic associations:**")
-        for sa in mech.shaped_associations:
-            shape_label = {
-                "hypothesis": "Repurposing hypothesis",
-                "contraindication": "Contraindication signal",
-                "confirms_known": "Confirms known use",
-                "neutral": "Neutral",
-            }.get(sa.shape, sa.shape)
-            lines.append(f"- **{sa.target_symbol} / {sa.disease_name}** [{shape_label}]: {sa.rationale}")
-
-    if mech.pathways:
-        lines.append("\n**Reactome pathways (per target):**")
-        for symbol, pathway_list in sorted(mech.pathways.items()):
-            if pathway_list:
-                names = ", ".join(p.pathway_name for p in pathway_list[:5] if p.pathway_name)
-                lines.append(f"- **{symbol}:** {names}")
-
     return "\n".join(lines)
 
 

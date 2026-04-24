@@ -10,16 +10,13 @@ surface disease candidates for a drug.
 
 import logging
 import time
-from collections import Counter
-from pathlib import Path
 from typing import Literal
 
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from indication_scout.constants import MECHANISM_ASSOCIATION_MIN_SCORE
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
-from indication_scout.services.approval_check import get_fda_approved_diseases, remove_approved_from_labels
+from indication_scout.services.approval_check import get_fda_approved_diseases
 
 logger = logging.getLogger(__name__)
 
@@ -39,55 +36,8 @@ from indication_scout.agents.mechanism.mechanism_agent import (
     build_mechanism_agent,
     run_mechanism_agent,
 )
-from indication_scout.agents.mechanism.mechanism_output import MechanismOutput, ShapedAssociation
+from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.services.retrieval import RetrievalService
-
-
-async def _filter_approved_mechanism_candidates(
-    drug_name: str,
-    shaped_associations: list[ShapedAssociation],
-    allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]],
-    cache_dir: Path,
-) -> list[ShapedAssociation]:
-    """Drop above-threshold shaped_associations whose disease is FDA-approved for the drug.
-
-    Below-threshold entries and already-allowed entries pass through untouched.
-    Returns the filtered list.
-    """
-    candidates = [
-        s.disease_name for s in shaped_associations
-        if (s.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE
-        and s.disease_name.lower().strip() not in allowed_diseases
-    ]
-    if not candidates:
-        return shaped_associations
-
-    chembl_id = await resolve_drug_name(drug_name, cache_dir)
-    drug_names = await get_all_drug_names(chembl_id, cache_dir)
-    if not drug_names:
-        return shaped_associations
-
-    survivors = await remove_approved_from_labels(
-        drug_names=drug_names,
-        candidate_diseases=candidates,
-        cache_dir=cache_dir,
-    )
-    dropped = set(candidates) - survivors
-    if dropped:
-        logger.warning(
-            "[TOOL] analyze_mechanism dropped %d mechanism diseases "
-            "(approval-covered or deduped): %s",
-            len(dropped), sorted(dropped),
-        )
-
-    survivors_lower = {s.lower().strip() for s in survivors}
-    allowed_lower = set(allowed_diseases.keys())
-    return [
-        s for s in shaped_associations
-        if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE
-        or s.disease_name.lower().strip() in allowed_lower
-        or s.disease_name.lower().strip() in survivors_lower
-    ]
 
 
 def build_supervisor_tools(
@@ -260,195 +210,20 @@ def build_supervisor_tools(
 
     @tool(response_format="content_and_artifact")
     async def analyze_mechanism(drug_name: str) -> tuple[str, MechanismOutput]:
-        """Run the mechanism sub-agent and filter out already-approved indications.
+        """Run the mechanism sub-agent for a drug.
 
-        Runs the mechanism sub-agent, collects target-disease associations that meet
-        the score threshold, then removes any candidates already covered by
-        the drug's FDA label (synonyms and narrower subsets included). What
-        remains are live mechanism-sourced repurposing candidates, which are
-        promoted into the investigation allowlist.
+        The mechanism agent returns target-level MoA data and the agent's
+        narrative summary. No disease-level hypothesis surfacing in this
+        step — rebuilt in a follow-up.
         """
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
-        original_count = len(output.shaped_associations)
-        output.shaped_associations = await _filter_approved_mechanism_candidates(
-            drug_name=drug_name,
-            shaped_associations=output.shaped_associations,
-            allowed_diseases=allowed_diseases,
-            cache_dir=svc.cache_dir,
-        )
-        if len(output.shaped_associations) != original_count:
-            # The LLM narrative was written pre-filter and may reference approved
-            # indications. Blank it — the structured fields are the source of truth.
-            output.summary = ""
-
-        # Promote surviving mechanism candidates into the investigation allowlist.
-        mechanism_added = 0
-        for s in output.shaped_associations:
-            if (s.overall_score or 0) < MECHANISM_ASSOCIATION_MIN_SCORE:
-                continue
-            key = s.disease_name.lower().strip()
-            if key in allowed_diseases:
-                name, source = allowed_diseases[key]
-                if source == "competitor":
-                    allowed_diseases[key] = (name, "both")
-            else:
-                allowed_diseases[key] = (s.disease_name, "mechanism")
-                mechanism_added += 1
-
-        logger.info(
-            "analyze_mechanism added %d mechanism-sourced diseases to allowlist",
-            mechanism_added,
-        )
-
-        mechanism_disease_names = sorted(
-            canonical_name
-            for _, (canonical_name, source) in allowed_diseases.items()
-            if source in ("mechanism", "both")
-        )
-
         n_targets = len(output.drug_targets)
-        n_top = len(output.shaped_associations)
-        shape_counts = Counter(s.shape for s in output.shaped_associations)
-        shaped_lines = "\n".join(
-            f"  [{s.shape.upper()}] {s.target_symbol} / {s.disease_name} ({s.disease_id}): {s.rationale}"
-            for s in output.shaped_associations
-        )
-
-        mechanism_note = ""
-        if mechanism_added > 0:
-            mechanism_note = (
-                f"\n{mechanism_added} mechanism-sourced diseases added to the "
-                f"investigation allowlist (score >= {MECHANISM_ASSOCIATION_MIN_SCORE}): "
-                f"{mechanism_disease_names}. You may now call analyze_literature or "
-                f"analyze_clinical_trials with these disease names."
-            )
-
         summary = (
-            f"Mechanism analysis for {drug_name}: {n_targets} targets, "
-            f"top {n_top} disease associations shown (capped per target).\n"
-            f"Shaped associations: {dict(shape_counts)}\n"
-            f"{shaped_lines}"
-            f"{mechanism_note}"
+            f"Mechanism analysis for {drug_name}: {n_targets} targets."
         )
         return summary, output
-
-
-    # @tool(response_format="content_and_artifact")
-    # async def analyze_mechanism(drug_name: str) -> tuple[str, MechanismOutput]:
-    #     """Analyse the molecular targets of a drug to provide mechanistic context.
-    #
-    #     Fetches the drug's targets, their top disease associations (with evidence
-    #     scores by type), and their Reactome pathways. Drug-level — call once per
-    #     drug, not once per candidate disease.
-    #     """
-    #     t0 = time.perf_counter()
-    #     output = await run_mechanism_agent(mech_agent, drug_name)
-    #     logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
-    #     logger.info("analyze_mechanism took %.2fs for %s", time.perf_counter() - t0, drug_name)
-    #
-    #     # Collect qualifying mechanism disease names not already in the allowlist
-    #     mechanism_candidates: list[str] = []
-    #     for assoc_list in output.associations.values():
-    #         for assoc in assoc_list:
-    #             if (assoc.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE:
-    #                 key = assoc.disease_name.lower().strip()
-    #                 if key not in allowed_diseases:
-    #                     mechanism_candidates.append(assoc.disease_name)
-    #
-    #     # FDA approval check — remove already-approved diseases
-    #     fda_approved_lower: set[str] = set()
-    #     if mechanism_candidates:
-    #         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
-    #         drug_names = await get_all_drug_names(chembl_id, svc.cache_dir)
-    #         if drug_names:
-    #             fda_approved = await get_fda_approved_diseases(
-    #                 drug_names=drug_names,
-    #                 candidate_diseases=mechanism_candidates,
-    #                 cache_dir=svc.cache_dir,
-    #             )
-    #             if fda_approved:
-    #                 logger.warning(
-    #                     "[TOOL] FDA approval check removing %d mechanism diseases: %s",
-    #                     len(fda_approved), fda_approved,
-    #                 )
-    #             fda_approved_lower = {d.lower().strip() for d in fda_approved}
-    #
-    #     # Drop FDA-approved diseases from the mechanism artifact so they do not
-    #     # leak into the final SupervisorOutput.mechanism payload.
-    #     if fda_approved_lower:
-    #         output.associations = {
-    #             target: [
-    #                 a for a in assoc_list
-    #                 if a.disease_name.lower().strip() not in fda_approved_lower
-    #             ]
-    #             for target, assoc_list in output.associations.items()
-    #         }
-    #         output.shaped_associations = [
-    #             s for s in output.shaped_associations
-    #             if s.disease_name.lower().strip() not in fda_approved_lower
-    #         ]
-    #         # Blank the LLM-generated narrative — it was written pre-filter and
-    #         # may reference approved indications. Structured fields above are
-    #         # the source of truth.
-    #         output.summary = ""
-    #
-    #     # Promote mechanism associations above the score threshold into the
-    #     # investigation allowlist so the LLM can run literature / trials on them.
-    #     mechanism_added = 0
-    #     for assoc_list in output.associations.values():
-    #         for assoc in assoc_list:
-    #             if (assoc.overall_score or 0) >= MECHANISM_ASSOCIATION_MIN_SCORE:
-    #                 key = assoc.disease_name.lower().strip()
-    #                 if key in fda_approved_lower:
-    #                     continue  # FDA-approved — skip
-    #                 if key in allowed_diseases:
-    #                     # Already a competitor candidate — upgrade source to "both"
-    #                     name, source = allowed_diseases[key]
-    #                     if source == "competitor":
-    #                         allowed_diseases[key] = (name, "both")
-    #                 else:
-    #                     allowed_diseases[key] = (assoc.disease_name, "mechanism")
-    #                     mechanism_added += 1
-    #     logger.info(
-    #         "analyze_mechanism added %d mechanism-sourced diseases to allowlist",
-    #         mechanism_added,
-    #     )
-    #
-    #     # Build the list of mechanism-sourced diseases now in the allowlist
-    #     # so the LLM knows it can investigate them.
-    #     mechanism_disease_names = sorted(
-    #         canonical_name
-    #         for _, (canonical_name, source) in allowed_diseases.items()
-    #         if source in ("mechanism", "both")
-    #     )
-    #
-    #     n_targets = len(output.drug_targets)
-    #     n_top = sum(len(a) for a in output.associations.values())
-    #     shape_counts = Counter(s.shape for s in output.shaped_associations)
-    #     shaped_lines = "\n".join(
-    #         f"  [{s.shape.upper()}] {s.target_symbol} / {s.disease_name} ({s.disease_id}): {s.rationale}"
-    #         for s in output.shaped_associations
-    #     )
-    #
-    #     mechanism_note = ""
-    #     if mechanism_added > 0:
-    #         mechanism_note = (
-    #             f"\n{mechanism_added} mechanism-sourced diseases added to the "
-    #             f"investigation allowlist (score >= {MECHANISM_ASSOCIATION_MIN_SCORE}): "
-    #             f"{mechanism_disease_names}. You may now call analyze_literature or "
-    #             f"analyze_clinical_trials with these disease names."
-    #         )
-    #
-    #     summary = (
-    #         f"Mechanism analysis for {drug_name}: {n_targets} targets, "
-    #         f"top {n_top} disease associations shown (capped per target).\n"
-    #         f"Shaped associations: {dict(shape_counts)}\n"
-    #         f"{shaped_lines}"
-    #         f"{mechanism_note}"
-    #     )
-    #     return summary, output
 
     @tool(response_format="content_and_artifact")
     async def finalize_supervisor(summary: str) -> tuple[str, str]:
