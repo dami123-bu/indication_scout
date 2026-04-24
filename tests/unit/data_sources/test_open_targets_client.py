@@ -403,3 +403,272 @@ def test_parse_constraint_all_fields(tmp_path):
     assert result.score == 0.065
     assert result.upper_bin == 1
     assert result.upper_bin6 == 1
+
+
+# --- _parse_association: disease_description field ---
+
+
+def test_parse_association_populates_disease_description(tmp_path):
+    """_parse_association copies disease.description from the raw row."""
+    raw = {
+        "score": 0.77,
+        "datatypeScores": [
+            {"id": "genetic_association", "score": 0.76},
+            {"id": "animal_model", "score": 0.56},
+        ],
+        "disease": {
+            "id": "EFO_0000400",
+            "name": "type 2 diabetes mellitus",
+            "description": (
+                "A type of diabetes mellitus that is characterized by insulin "
+                "resistance or desensitization and increased blood glucose levels."
+            ),
+            "therapeuticAreas": [{"id": "EFO_0000540", "name": "metabolic disease"}],
+        },
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_association(raw)
+
+    assert result.disease_id == "EFO_0000400"
+    assert result.disease_name == "type 2 diabetes mellitus"
+    assert result.disease_description.startswith("A type of diabetes mellitus")
+    assert result.overall_score == 0.77
+    assert result.datatype_scores == {"genetic_association": 0.76, "animal_model": 0.56}
+
+
+def test_parse_association_missing_description_defaults_to_empty(tmp_path):
+    """When disease.description is absent or null, disease_description is ''."""
+    raw = {
+        "score": 0.5,
+        "datatypeScores": [],
+        "disease": {
+            "id": "EFO_0000001",
+            "name": "some disease",
+            "description": None,
+            "therapeuticAreas": [],
+        },
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_association(raw)
+
+    assert result.disease_description == ""
+
+
+# --- _parse_target_data: function_descriptions field ---
+
+
+def test_parse_target_data_populates_function_descriptions(tmp_path):
+    """_parse_target_data copies functionDescriptions list from the raw node."""
+    raw = {
+        "id": "ENSG00000112164",
+        "approvedSymbol": "GLP1R",
+        "approvedName": "glucagon like peptide 1 receptor",
+        "functionDescriptions": [
+            "G-protein coupled receptor for glucagon-like peptide 1.",
+            "Plays a role in regulating insulin secretion.",
+        ],
+        "associatedDiseases": {"rows": []},
+        "pathways": [],
+        "interactions": {"rows": []},
+        "drugAndClinicalCandidates": {"rows": []},
+        "expressions": [],
+        "mousePhenotypes": [],
+        "safetyLiabilities": [],
+        "geneticConstraint": [],
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_target_data(raw)
+
+    assert result.symbol == "GLP1R"
+    assert len(result.function_descriptions) == 2
+    assert result.function_descriptions[0].startswith("G-protein coupled")
+
+
+def test_parse_target_data_missing_function_descriptions_defaults_to_empty(tmp_path):
+    """When functionDescriptions is absent or null, function_descriptions is []."""
+    raw = {
+        "id": "ENSG00000000001",
+        "approvedSymbol": "TEST",
+        "approvedName": "test target",
+        "functionDescriptions": None,
+        "associatedDiseases": {"rows": []},
+        "pathways": [],
+        "interactions": {"rows": []},
+        "drugAndClinicalCandidates": {"rows": []},
+        "expressions": [],
+        "mousePhenotypes": [],
+        "safetyLiabilities": [],
+        "geneticConstraint": [],
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_target_data(raw)
+
+    assert result.function_descriptions == []
+
+
+# --- _parse_evidence ---
+
+
+def test_parse_evidence_all_fields(tmp_path):
+    """_parse_evidence populates every EvidenceRecord field from the raw row."""
+    raw = {
+        "datatypeId": "genetic_association",
+        "score": 0.85,
+        "directionOnTarget": "LoF",
+        "directionOnTrait": "risk",
+        "disease": {"id": "EFO_0003847", "name": "Infantile dystonia-parkinsonism"},
+        "variantFunctionalConsequence": {
+            "id": "SO_0002054",
+            "label": "loss_of_function_variant",
+        },
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_evidence(raw)
+
+    assert result.disease_id == "EFO_0003847"
+    assert result.datatype_id == "genetic_association"
+    assert result.score == 0.85
+    assert result.direction_on_target == "LoF"
+    assert result.direction_on_trait == "risk"
+    assert result.variant_functional_consequence is not None
+    assert result.variant_functional_consequence.id == "SO_0002054"
+    assert result.variant_functional_consequence.label == "loss_of_function_variant"
+
+
+def test_parse_evidence_missing_direction_fields_stay_none(tmp_path):
+    """directionOnTarget / directionOnTrait / vFC absent → stay None."""
+    raw = {
+        "datatypeId": "literature",
+        "score": 0.4,
+        "directionOnTarget": None,
+        "directionOnTrait": None,
+        "disease": {"id": "EFO_000001", "name": "some disease"},
+        "variantFunctionalConsequence": None,
+    }
+
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    result = client._parse_evidence(raw)
+
+    assert result.direction_on_target is None
+    assert result.direction_on_trait is None
+    assert result.variant_functional_consequence is None
+
+
+# --- get_target_evidences ---
+
+
+async def test_get_target_evidences_empty_efo_ids_short_circuits(tmp_path):
+    """Empty efo_ids list returns {} without hitting the network."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    mock_gql = AsyncMock()
+    with patch.object(client, "_graphql", mock_gql):
+        result = await client.get_target_evidences("ENSG00000000001", [])
+
+    assert result == {}
+    mock_gql.assert_not_awaited()
+
+
+async def test_get_target_evidences_groups_by_disease_id(tmp_path):
+    """Evidence rows are bucketed under their disease_id. Requested efo_ids with
+    no evidence are present as empty lists."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    gql_response = {
+        "data": {
+            "target": {
+                "evidences": {
+                    "rows": [
+                        {
+                            "datatypeId": "genetic_association",
+                            "score": 0.9,
+                            "directionOnTarget": "GoF",
+                            "directionOnTrait": "protect",
+                            "disease": {"id": "EFO_0000400", "name": "T2D"},
+                            "variantFunctionalConsequence": None,
+                        },
+                        {
+                            "datatypeId": "animal_model",
+                            "score": 0.6,
+                            "directionOnTarget": "GoF",
+                            "directionOnTrait": "protect",
+                            "disease": {"id": "EFO_0000400", "name": "T2D"},
+                            "variantFunctionalConsequence": None,
+                        },
+                        {
+                            "datatypeId": "genetic_association",
+                            "score": 0.7,
+                            "directionOnTarget": "LoF",
+                            "directionOnTrait": "risk",
+                            "disease": {"id": "EFO_0003847", "name": "IDP"},
+                            "variantFunctionalConsequence": {
+                                "id": "SO_0002054",
+                                "label": "loss_of_function_variant",
+                            },
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    with patch.object(client, "_graphql", AsyncMock(return_value=gql_response)):
+        result = await client.get_target_evidences(
+            "ENSG00000112164", ["EFO_0000400", "EFO_0003847", "EFO_UNRELATED"]
+        )
+
+    assert set(result.keys()) == {"EFO_0000400", "EFO_0003847", "EFO_UNRELATED"}
+    assert len(result["EFO_0000400"]) == 2
+    assert len(result["EFO_0003847"]) == 1
+    assert result["EFO_UNRELATED"] == []
+    idp = result["EFO_0003847"][0]
+    assert idp.direction_on_target == "LoF"
+    assert idp.variant_functional_consequence.label == "loss_of_function_variant"
+
+
+async def test_get_target_evidences_caches_result(tmp_path):
+    """Second call with same args does not hit the network — served from cache."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    gql_response = {
+        "data": {
+            "target": {
+                "evidences": {
+                    "rows": [
+                        {
+                            "datatypeId": "genetic_association",
+                            "score": 0.9,
+                            "directionOnTarget": "GoF",
+                            "directionOnTrait": "protect",
+                            "disease": {"id": "EFO_0000400", "name": "T2D"},
+                            "variantFunctionalConsequence": None,
+                        },
+                    ]
+                }
+            }
+        }
+    }
+    mock_gql = AsyncMock(return_value=gql_response)
+
+    with patch.object(client, "_graphql", mock_gql):
+        first = await client.get_target_evidences("ENSG00000112164", ["EFO_0000400"])
+        second = await client.get_target_evidences("ENSG00000112164", ["EFO_0000400"])
+
+    assert mock_gql.await_count == 1
+    assert first == second
+    assert first["EFO_0000400"][0].direction_on_target == "GoF"
+
+
+async def test_get_target_evidences_empty_response_returns_efo_ids_with_empty_lists(tmp_path):
+    """When the API returns no evidence rows, every requested efo_id maps to []."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    gql_response = {"data": {"target": {"evidences": {"rows": []}}}}
+
+    with patch.object(client, "_graphql", AsyncMock(return_value=gql_response)):
+        result = await client.get_target_evidences(
+            "ENSG00000000001", ["EFO_001", "EFO_002"]
+        )
+
+    assert result == {"EFO_001": [], "EFO_002": []}

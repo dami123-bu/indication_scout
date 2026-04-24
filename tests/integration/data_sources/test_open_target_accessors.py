@@ -260,3 +260,63 @@ async def test_get_disease_drugs(open_targets_client):
     assert semaglutide.drug_id == "CHEMBL2108724"
     assert semaglutide.drug_name == "semaglutide"
     assert semaglutide.max_clinical_stage == "APPROVAL"
+
+
+# --- Text fields added for mechanism-agent candidate pipeline ---
+
+
+async def test_target_and_association_text_fields(open_targets_client):
+    """TargetData.function_descriptions + Association.disease_description are
+    populated on GLP1R / type 2 diabetes (both known to carry these fields)."""
+    target = await open_targets_client.get_target_data("ENSG00000112164")
+
+    # Target-level UniProt function paragraphs
+    assert target.symbol == "GLP1R"
+    assert len(target.function_descriptions) >= 1
+    assert "glucagon-like peptide 1" in target.function_descriptions[0].lower()
+
+    # Disease description on the T2D association
+    t2d = next(
+        a for a in target.associations
+        if a.disease_name == "type 2 diabetes mellitus"
+    )
+    assert t2d.disease_description
+    assert "diabetes" in t2d.disease_description.lower()
+
+
+async def test_get_target_evidences_glp1r_t2d(open_targets_client):
+    """get_target_evidences returns records grouped by disease_id with direction
+    fields populated for GLP1R / T2D (GoF / protect is the canonical signal)."""
+    ev_map = await open_targets_client.get_target_evidences(
+        "ENSG00000112164", ["MONDO_0005148"]
+    )
+
+    assert "MONDO_0005148" in ev_map
+    records = ev_map["MONDO_0005148"]
+    assert len(records) > 0
+    directions = {
+        (e.direction_on_target, e.direction_on_trait)
+        for e in records
+        if e.direction_on_target and e.direction_on_trait
+    }
+    assert ("GoF", "protect") in directions
+
+
+async def test_get_target_evidences_variant_functional_consequence(open_targets_client):
+    """variant_functional_consequence populates on rare-variant Mendelian disease.
+
+    SLC6A3 + infantile dystonia-parkinsonism is driven by coding variants in
+    SLC6A3, so the evidence records carry vFC labels like missense_variant /
+    absent_gene_product.
+    """
+    ev_map = await open_targets_client.get_target_evidences(
+        "ENSG00000142319", ["Orphanet_238455"]
+    )
+    records = ev_map["Orphanet_238455"]
+    vfc_labels = {
+        e.variant_functional_consequence.label
+        for e in records
+        if e.variant_functional_consequence
+        and e.variant_functional_consequence.label
+    }
+    assert "missense_variant" in vfc_labels

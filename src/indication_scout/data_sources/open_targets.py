@@ -44,6 +44,7 @@ from indication_scout.models.model_open_targets import (
     BiologicalModel,
     DrugData,
     DrugTarget,
+    EvidenceRecord,
     MechanismOfAction,
     ProteinExpression,
     DrugWarning,
@@ -52,6 +53,7 @@ from indication_scout.models.model_open_targets import (
     SafetyEffect,
     DiseaseSynonyms,
     RichDrugData,
+    VariantFunctionalConsequence,
 )
 
 logger = logging.getLogger(__name__)
@@ -311,6 +313,53 @@ class OpenTargetsClient(BaseClient):
         target = await self.get_target_data(target_id)
         return target.genetic_constraint
 
+    async def get_target_evidences(
+        self, target_id: str, efo_ids: list[str]
+    ) -> dict[str, list[EvidenceRecord]]:
+        """Fetch per-(target, disease) evidence records.
+
+        Returns a dict keyed by disease_id mapping to a list of evidence
+        records. Each record carries directionality fields used to classify
+        whether the drug's action aligns with or opposes the disease
+        mechanism. Empty list for any efo_id with no evidence.
+        """
+        if not efo_ids:
+            return {}
+
+        cached = cache_get(
+            "target_evidences",
+            {"target_id": target_id, "efo_ids": sorted(efo_ids)},
+            self.cache_dir,
+        )
+        if cached is not None:
+            return {
+                k: [EvidenceRecord.model_validate(e) for e in v]
+                for k, v in cached.items()
+            }
+
+        data = await self._graphql(
+            self.BASE_URL,
+            EVIDENCES_QUERY,
+            variables={"id": target_id, "efoIds": efo_ids},
+        )
+        raw_target = (data.get("data") or {}).get("target") or {}
+        rows = (raw_target.get("evidences") or {}).get("rows") or []
+
+        by_disease: dict[str, list[EvidenceRecord]] = {efo_id: [] for efo_id in efo_ids}
+        for r in rows:
+            record = self._parse_evidence(r)
+            if record.disease_id:
+                by_disease.setdefault(record.disease_id, []).append(record)
+
+        cache_set(
+            "target_evidences",
+            {"target_id": target_id, "efo_ids": sorted(efo_ids)},
+            {k: [e.model_dump() for e in v] for k, v in by_disease.items()},
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
+        return by_disease
+
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""
         cached = cache_get("disease_drugs", {"disease_id": disease_id}, self.cache_dir)
@@ -531,6 +580,7 @@ class OpenTargetsClient(BaseClient):
             target_id=raw["id"],
             symbol=raw["approvedSymbol"],
             name=raw.get("approvedName", ""),
+            function_descriptions=raw.get("functionDescriptions") or [],
             associations=[
                 self._parse_association(r)
                 for r in (raw.get("associatedDiseases") or {}).get("rows", [])
@@ -564,9 +614,30 @@ class OpenTargetsClient(BaseClient):
         return Association(
             disease_id=disease["id"],
             disease_name=disease["name"],
+            disease_description=disease.get("description") or "",
             overall_score=raw["score"],
             datatype_scores=datatype_scores,
             therapeutic_areas=therapeutic_areas,
+        )
+
+    def _parse_evidence(self, raw: dict) -> EvidenceRecord:
+        disease = raw.get("disease") or {}
+        vfc_raw = raw.get("variantFunctionalConsequence") or {}
+        vfc = (
+            VariantFunctionalConsequence(
+                id=vfc_raw.get("id") or "",
+                label=vfc_raw.get("label") or "",
+            )
+            if vfc_raw
+            else None
+        )
+        return EvidenceRecord(
+            disease_id=disease.get("id") or "",
+            datatype_id=raw.get("datatypeId") or "",
+            score=raw.get("score"),
+            direction_on_target=raw.get("directionOnTarget"),
+            direction_on_trait=raw.get("directionOnTrait"),
+            variant_functional_consequence=vfc,
         )
 
     def _parse_pathway(self, raw: dict) -> Pathway:
@@ -756,12 +827,12 @@ query($id: String!) {
 TARGET_QUERY = """
 query($id: String!) {
     target(ensemblId: $id) {
-        id approvedSymbol approvedName
+        id approvedSymbol approvedName functionDescriptions
 
         associatedDiseases(page: {index: 0, size: 500}) {
             rows {
                 disease {
-                    id name
+                    id name description
                     therapeuticAreas { id name }
                 }
                 score
@@ -845,11 +916,28 @@ query($id: String!, $index: Int!, $size: Int!) {
         associatedDiseases(page: {index: $index, size: $size}) {
             rows {
                 disease {
-                    id name
+                    id name description
                     therapeuticAreas { id name }
                 }
                 score
                 datatypeScores { id score }
+            }
+        }
+    }
+}
+"""
+
+EVIDENCES_QUERY = """
+query($id: String!, $efoIds: [String!]!) {
+    target(ensemblId: $id) {
+        evidences(efoIds: $efoIds, size: 200) {
+            rows {
+                datatypeId
+                score
+                directionOnTarget
+                directionOnTrait
+                disease { id name }
+                variantFunctionalConsequence { id label }
             }
         }
     }
