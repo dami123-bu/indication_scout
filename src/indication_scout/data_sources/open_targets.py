@@ -322,43 +322,54 @@ class OpenTargetsClient(BaseClient):
         records. Each record carries directionality fields used to classify
         whether the drug's action aligns with or opposes the disease
         mechanism. Empty list for any efo_id with no evidence.
+
+        Fans out per-efo so each (target, disease) pair gets its own
+        200-record budget from OT. Batched queries share that budget
+        across all efoIds, which starves rare diseases when they're
+        batched with common ones. Per-efo calls run in parallel via
+        asyncio.gather and are cached individually.
         """
         if not efo_ids:
             return {}
 
+        results = await asyncio.gather(
+            *[self._fetch_evidences_single(target_id, efo) for efo in efo_ids]
+        )
+        return dict(zip(efo_ids, results))
+
+    async def _fetch_evidences_single(
+        self, target_id: str, efo_id: str
+    ) -> list[EvidenceRecord]:
+        """Fetch evidence records for a single (target, disease) pair."""
         cached = cache_get(
             "target_evidences",
-            {"target_id": target_id, "efo_ids": sorted(efo_ids)},
+            {"target_id": target_id, "efo_id": efo_id},
             self.cache_dir,
         )
         if cached is not None:
-            return {
-                k: [EvidenceRecord.model_validate(e) for e in v]
-                for k, v in cached.items()
-            }
+            return [EvidenceRecord.model_validate(e) for e in cached]
 
         data = await self._graphql(
             self.BASE_URL,
             EVIDENCES_QUERY,
-            variables={"id": target_id, "efoIds": efo_ids},
+            variables={"id": target_id, "efoIds": [efo_id]},
         )
         raw_target = (data.get("data") or {}).get("target") or {}
         rows = (raw_target.get("evidences") or {}).get("rows") or []
 
-        by_disease: dict[str, list[EvidenceRecord]] = {efo_id: [] for efo_id in efo_ids}
-        for r in rows:
-            record = self._parse_evidence(r)
-            if record.disease_id:
-                by_disease.setdefault(record.disease_id, []).append(record)
+        records = [self._parse_evidence(r) for r in rows]
+        # Only keep records whose disease_id matches what we asked for —
+        # defends against the API returning cross-linked disease rows.
+        records = [r for r in records if r.disease_id == efo_id]
 
         cache_set(
             "target_evidences",
-            {"target_id": target_id, "efo_ids": sorted(efo_ids)},
-            {k: [e.model_dump() for e in v] for k, v in by_disease.items()},
+            {"target_id": target_id, "efo_id": efo_id},
+            [r.model_dump() for r in records],
             self.cache_dir,
             ttl=CACHE_TTL,
         )
-        return by_disease
+        return records
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:
         """All drugs for a disease, any target, any mechanism."""

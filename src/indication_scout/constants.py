@@ -171,6 +171,27 @@ VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
 
 MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset({"genetic_association", "literature", "affected_pathway"})
 
+# Drug action types that produce loss-of-function on the target.
+LOF_ACTION_TYPES: frozenset[str] = frozenset({
+    "INHIBITOR",
+    "ANTAGONIST",
+    "NEGATIVE ALLOSTERIC MODULATOR",
+    "NEGATIVE MODULATOR",
+    "BLOCKER",
+})
+
+# Drug action types that produce gain-of-function on the target.
+GOF_ACTION_TYPES: frozenset[str] = frozenset({
+    "AGONIST",
+    "ACTIVATOR",
+    "POSITIVE ALLOSTERIC MODULATOR",
+    "POSITIVE MODULATOR",
+    "PARTIAL AGONIST",
+})
+
+# Number of top POSITIVE repurposing candidates the mechanism agent surfaces.
+MECHANISM_TOP_CANDIDATES: int = 5
+
 # -- openFDA ----------------------------------------------------------------
 OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/label.json"
 OPENFDA_LABEL_LIMIT: int = 5

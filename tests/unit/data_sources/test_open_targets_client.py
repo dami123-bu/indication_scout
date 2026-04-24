@@ -573,53 +573,55 @@ async def test_get_target_evidences_empty_efo_ids_short_circuits(tmp_path):
     mock_gql.assert_not_awaited()
 
 
-async def test_get_target_evidences_groups_by_disease_id(tmp_path):
-    """Evidence rows are bucketed under their disease_id. Requested efo_ids with
-    no evidence are present as empty lists."""
-    client = OpenTargetsClient(cache_dir=tmp_path)
-    gql_response = {
-        "data": {
-            "target": {
-                "evidences": {
-                    "rows": [
-                        {
-                            "datatypeId": "genetic_association",
-                            "score": 0.9,
-                            "directionOnTarget": "GoF",
-                            "directionOnTrait": "protect",
-                            "disease": {"id": "EFO_0000400", "name": "T2D"},
-                            "variantFunctionalConsequence": None,
-                        },
-                        {
-                            "datatypeId": "animal_model",
-                            "score": 0.6,
-                            "directionOnTarget": "GoF",
-                            "directionOnTrait": "protect",
-                            "disease": {"id": "EFO_0000400", "name": "T2D"},
-                            "variantFunctionalConsequence": None,
-                        },
-                        {
-                            "datatypeId": "genetic_association",
-                            "score": 0.7,
-                            "directionOnTarget": "LoF",
-                            "directionOnTrait": "risk",
-                            "disease": {"id": "EFO_0003847", "name": "IDP"},
-                            "variantFunctionalConsequence": {
-                                "id": "SO_0002054",
-                                "label": "loss_of_function_variant",
-                            },
-                        },
-                    ]
-                }
-            }
-        }
+def _evidence_row(disease_id: str, dir_t: str, dir_trait: str, vfc_label: str | None = None) -> dict:
+    return {
+        "datatypeId": "genetic_association",
+        "score": 0.8,
+        "directionOnTarget": dir_t,
+        "directionOnTrait": dir_trait,
+        "disease": {"id": disease_id, "name": disease_id},
+        "variantFunctionalConsequence": (
+            {"id": "SO_0002054", "label": vfc_label} if vfc_label else None
+        ),
     }
 
-    with patch.object(client, "_graphql", AsyncMock(return_value=gql_response)):
+
+def _mock_per_efo_response(efo_to_rows: dict[str, list[dict]]):
+    """Build a _graphql mock that routes responses by the efoIds argument."""
+
+    async def fake_graphql(url, query, variables=None):
+        efo_ids = (variables or {}).get("efoIds") or []
+        # Per-efo fan-out: we always call with exactly one efo.
+        assert len(efo_ids) == 1, f"expected single-efo query, got {efo_ids}"
+        rows = efo_to_rows.get(efo_ids[0], [])
+        return {"data": {"target": {"evidences": {"rows": rows}}}}
+
+    return AsyncMock(side_effect=fake_graphql)
+
+
+async def test_get_target_evidences_fans_out_per_efo(tmp_path):
+    """One call per efo_id, each efo gets its own 200-record budget. Rows
+    are returned grouped by disease_id; efo_ids with no evidence map to []."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    efo_to_rows = {
+        "EFO_0000400": [
+            _evidence_row("EFO_0000400", "GoF", "protect"),
+            _evidence_row("EFO_0000400", "GoF", "protect"),
+        ],
+        "EFO_0003847": [
+            _evidence_row("EFO_0003847", "LoF", "risk", "loss_of_function_variant"),
+        ],
+        "EFO_UNRELATED": [],
+    }
+    mock_gql = _mock_per_efo_response(efo_to_rows)
+
+    with patch.object(client, "_graphql", mock_gql):
         result = await client.get_target_evidences(
             "ENSG00000112164", ["EFO_0000400", "EFO_0003847", "EFO_UNRELATED"]
         )
 
+    # Three efo_ids → three HTTP calls (fanned out).
+    assert mock_gql.await_count == 3
     assert set(result.keys()) == {"EFO_0000400", "EFO_0003847", "EFO_UNRELATED"}
     assert len(result["EFO_0000400"]) == 2
     assert len(result["EFO_0003847"]) == 1
@@ -629,46 +631,56 @@ async def test_get_target_evidences_groups_by_disease_id(tmp_path):
     assert idp.variant_functional_consequence.label == "loss_of_function_variant"
 
 
-async def test_get_target_evidences_caches_result(tmp_path):
-    """Second call with same args does not hit the network — served from cache."""
+async def test_get_target_evidences_caches_per_efo(tmp_path):
+    """Each (target, efo) pair caches independently. Re-requesting the same
+    efo hits the cache; a new efo triggers one fresh network call."""
     client = OpenTargetsClient(cache_dir=tmp_path)
-    gql_response = {
-        "data": {
-            "target": {
-                "evidences": {
-                    "rows": [
-                        {
-                            "datatypeId": "genetic_association",
-                            "score": 0.9,
-                            "directionOnTarget": "GoF",
-                            "directionOnTrait": "protect",
-                            "disease": {"id": "EFO_0000400", "name": "T2D"},
-                            "variantFunctionalConsequence": None,
-                        },
-                    ]
-                }
-            }
-        }
+    efo_to_rows = {
+        "EFO_0000400": [_evidence_row("EFO_0000400", "GoF", "protect")],
+        "EFO_0001073": [_evidence_row("EFO_0001073", "GoF", "protect")],
     }
-    mock_gql = AsyncMock(return_value=gql_response)
+    mock_gql = _mock_per_efo_response(efo_to_rows)
 
     with patch.object(client, "_graphql", mock_gql):
-        first = await client.get_target_evidences("ENSG00000112164", ["EFO_0000400"])
-        second = await client.get_target_evidences("ENSG00000112164", ["EFO_0000400"])
-
-    assert mock_gql.await_count == 1
-    assert first == second
-    assert first["EFO_0000400"][0].direction_on_target == "GoF"
-
-
-async def test_get_target_evidences_empty_response_returns_efo_ids_with_empty_lists(tmp_path):
-    """When the API returns no evidence rows, every requested efo_id maps to []."""
-    client = OpenTargetsClient(cache_dir=tmp_path)
-    gql_response = {"data": {"target": {"evidences": {"rows": []}}}}
-
-    with patch.object(client, "_graphql", AsyncMock(return_value=gql_response)):
-        result = await client.get_target_evidences(
-            "ENSG00000000001", ["EFO_001", "EFO_002"]
+        # Prime both.
+        await client.get_target_evidences("ENSG00000112164", ["EFO_0000400", "EFO_0001073"])
+        assert mock_gql.await_count == 2
+        # Repeat the same pair: zero extra calls.
+        await client.get_target_evidences("ENSG00000112164", ["EFO_0000400", "EFO_0001073"])
+        assert mock_gql.await_count == 2
+        # Add a new efo: one extra call, the cached two stay cached.
+        efo_to_rows["EFO_NEW"] = []
+        await client.get_target_evidences(
+            "ENSG00000112164", ["EFO_0000400", "EFO_0001073", "EFO_NEW"]
         )
+        assert mock_gql.await_count == 3
+
+
+async def test_get_target_evidences_empty_response_per_efo(tmp_path):
+    """When the API returns no rows for an efo, that efo maps to []."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    mock_gql = _mock_per_efo_response({"EFO_001": [], "EFO_002": []})
+
+    with patch.object(client, "_graphql", mock_gql):
+        result = await client.get_target_evidences("ENSG00000000001", ["EFO_001", "EFO_002"])
 
     assert result == {"EFO_001": [], "EFO_002": []}
+
+
+async def test_get_target_evidences_drops_cross_disease_rows(tmp_path):
+    """Defence in depth: if OT returns a row whose disease_id does not match
+    the requested efo_id, drop it — the per-efo bucket stays clean."""
+    client = OpenTargetsClient(cache_dir=tmp_path)
+    efo_to_rows = {
+        "EFO_A": [
+            _evidence_row("EFO_A", "GoF", "protect"),
+            _evidence_row("EFO_SOMETHING_ELSE", "LoF", "risk"),  # should be dropped
+        ],
+    }
+    mock_gql = _mock_per_efo_response(efo_to_rows)
+
+    with patch.object(client, "_graphql", mock_gql):
+        result = await client.get_target_evidences("ENSG00000000001", ["EFO_A"])
+
+    assert len(result["EFO_A"]) == 1
+    assert result["EFO_A"][0].disease_id == "EFO_A"
