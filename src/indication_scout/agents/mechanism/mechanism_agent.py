@@ -4,16 +4,35 @@ Uses LangGraph's prebuilt create_react_agent for the agent loop. After
 the run, walks the message history to pull typed artifacts off the
 ToolMessages and assembles them into a MechanismOutput.
 """
+import asyncio
 import logging
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
+from indication_scout.agents.mechanism.mechanism_candidates import (
+    select_top_candidates,
+)
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
+from indication_scout.agents.mechanism.mechanism_row_builder import (
+    build_candidate_rows,
+)
 from indication_scout.agents.mechanism.mechanism_tools import build_mechanism_tools
+from indication_scout.constants import MECHANISM_TOP_CANDIDATES
+from indication_scout.data_sources.chembl import (
+    get_all_drug_names,
+    resolve_drug_name,
+)
+from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import MechanismOfAction
+from indication_scout.services.approval_check import get_fda_approved_diseases
 
 logger = logging.getLogger(__name__)
+
+# Number of top-scored associations per target we pull evidence for.
+# Not the final candidate count — select_top_candidates trims to
+# MECHANISM_TOP_CANDIDATES after filtering.
+_ASSOCIATIONS_PER_TARGET = 15
 
 SYSTEM_PROMPT = ""
 
@@ -62,8 +81,82 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     logger.warning("[MECH] surfaced %d diseases: %s",
                    len(all_mech_diseases), sorted(all_mech_diseases))
 
+    candidates = await _assemble_candidates(drug_name, drug_targets, mechanisms_of_action)
+
     return MechanismOutput(
         drug_targets=drug_targets,
         mechanisms_of_action=mechanisms_of_action,
+        candidates=candidates,
         summary=summary,
+    )
+
+
+async def _assemble_candidates(
+    drug_name: str,
+    drug_targets: dict[str, str],
+    mechanisms_of_action: list[MechanismOfAction],
+) -> list:
+    """Fetch per-target rows, filter approved indications, classify.
+
+    Returns `[]` for any failure path (unresolvable drug, no MoAs, no
+    targets) so the agent keeps returning a valid MechanismOutput.
+    """
+    if not drug_targets or not mechanisms_of_action:
+        return []
+
+    # symbol → set of upper-cased action types, drawn from MoA entries.
+    symbol_to_actions: dict[str, set[str]] = {}
+    for moa in mechanisms_of_action:
+        action = (moa.action_type or "").upper()
+        if not action:
+            continue
+        for sym in moa.target_symbols:
+            symbol_to_actions.setdefault(sym, set()).add(action)
+
+    async with OpenTargetsClient() as ot_client:
+        per_target_rows = await asyncio.gather(
+            *[
+                build_candidate_rows(
+                    ot_client,
+                    target_id,
+                    symbol_to_actions.get(symbol, set()),
+                    _ASSOCIATIONS_PER_TARGET,
+                )
+                for symbol, target_id in drug_targets.items()
+            ],
+            return_exceptions=True,
+        )
+
+    rows: list[dict] = []
+    for symbol, result in zip(drug_targets.keys(), per_target_rows):
+        if isinstance(result, Exception):
+            logger.warning("_assemble_candidates: row build failed for %s: %s", symbol, result)
+            continue
+        rows.extend(result)
+
+    if not rows:
+        return []
+
+    # FDA approval filter. On any failure, fall back to an empty approved
+    # set so at least the biology filter runs — better than dropping
+    # candidates silently on a chembl / fda hiccup.
+    approved: set[str] = set()
+    candidate_names = sorted({r["disease_name"] for r in rows if r.get("disease_name")})
+    try:
+        chembl_id = await resolve_drug_name(drug_name)
+        drug_names = await get_all_drug_names(chembl_id)
+        if drug_names and candidate_names:
+            approved = await get_fda_approved_diseases(
+                drug_names=drug_names,
+                candidate_diseases=candidate_names,
+            )
+    except Exception as e:
+        logger.warning(
+            "_assemble_candidates: FDA approval check failed for %r: %s; "
+            "proceeding without approval filter",
+            drug_name, e,
+        )
+
+    return select_top_candidates(
+        rows, approved_diseases=approved, limit=MECHANISM_TOP_CANDIDATES
     )

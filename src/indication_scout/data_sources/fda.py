@@ -37,7 +37,8 @@ class FDAClient(BaseClient):
         openfda.generic_name. This catches labels where the name is registered
         only under generic_name (e.g. ~5% of metformin labels).
         Returns a flat list of indication text strings across all matching labels.
-        A 404 response (no results) returns [] and is cached.
+        A 404 response (no results) returns [] and is NOT cached, so a later
+        run can re-query in case the absence was transient.
 
         Args:
             drug_name: Any drug name — trade name, generic/INN, USAN, etc.
@@ -65,7 +66,6 @@ class FDAClient(BaseClient):
             data = await self._rest_get(OPENFDA_BASE_URL, params=params)
         except DataSourceError as e:
             if e.status_code == 404:
-                cache_set("fda_label", cache_params, [], self.cache_dir, ttl=CACHE_TTL)
                 return []
             raise
 

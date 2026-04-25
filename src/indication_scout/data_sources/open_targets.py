@@ -426,7 +426,7 @@ class OpenTargetsClient(BaseClient):
 
         result = DiseaseSynonyms(
             disease_id=raw_disease["id"],
-            disease_name=raw_disease["name"],
+            disease_name=raw_disease["name"].lower(),
             parent_names=parent_names,
             **grouped,
         )
@@ -561,7 +561,7 @@ class OpenTargetsClient(BaseClient):
             Indication(
                 id=row.get("id", ""),
                 disease_id=row["disease"]["id"],
-                disease_name=row["disease"]["name"],
+                disease_name=(row["disease"]["name"] or "").lower(),
                 max_clinical_stage=row.get("maxClinicalStage"),
             )
             for row in (raw.get("indications") or {}).get("rows", [])
@@ -624,7 +624,7 @@ class OpenTargetsClient(BaseClient):
         therapeutic_areas = [ta["name"] for ta in disease.get("therapeuticAreas", [])]
         return Association(
             disease_id=disease["id"],
-            disease_name=disease["name"],
+            disease_name=(disease["name"] or "").lower(),
             disease_description=disease.get("description") or "",
             overall_score=raw["score"],
             datatype_scores=datatype_scores,
@@ -673,14 +673,15 @@ class OpenTargetsClient(BaseClient):
 
     def _parse_drug_summary(self, raw: dict) -> DrugSummary:
         drug = raw.get("drug") or {}
-        diseases = [
-            ClinicalDisease(
+        diseases = []
+        for d in raw.get("diseases", []):
+            d_node = d.get("disease") or {}
+            d_name = d_node.get("name")
+            diseases.append(ClinicalDisease(
                 disease_from_source=d.get("diseaseFromSource", ""),
-                disease_id=(d.get("disease") or {}).get("id"),
-                disease_name=(d.get("disease") or {}).get("name"),
-            )
-            for d in raw.get("diseases", [])
-        ]
+                disease_id=d_node.get("id"),
+                disease_name=d_name.lower() if d_name else None,
+            ))
         return DrugSummary(
             id=raw.get("id", ""),
             drug_id=drug.get("id", ""),

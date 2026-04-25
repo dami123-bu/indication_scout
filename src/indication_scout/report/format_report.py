@@ -126,6 +126,15 @@ def _fmt_mechanism(mech: MechanismOutput) -> str:
             syms = ", ".join(moa.target_symbols) if moa.target_symbols else "—"
             lines.append(f"- {moa.mechanism_of_action} ({moa.action_type}) → {syms}")
 
+    if mech.candidates:
+        lines.append("\n**Repurposing candidates:**")
+        for c in mech.candidates:
+            lines.append(f"- **{c.target_symbol} ({c.action_type}) → {c.disease_name}**")
+            if c.disease_description:
+                lines.append(f"  - {c.disease_description}")
+            if c.target_function:
+                lines.append(f"  - _Target function:_ {c.target_function}")
+
     return "\n".join(lines)
 
 

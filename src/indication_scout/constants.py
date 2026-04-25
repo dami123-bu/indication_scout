@@ -196,6 +196,86 @@ MECHANISM_TOP_CANDIDATES: int = 5
 OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/label.json"
 OPENFDA_LABEL_LIMIT: int = 5
 
+# Curated per-drug list of candidate disease phrasings to short-circuit as
+# FDA-approved (return True without calling the LLM). Acts strictly as an
+# LLM backstop: only add candidate phrasings the LLM-against-label flow
+# misses (narrower subsets, lay synonyms, unusual phrasings, label coverage
+# gaps, etc.) for a given drug. When a candidate disease string EXACTLY
+# matches (case-sensitive, no normalization) any string in the drug's list,
+# the approval check short-circuits to True without calling the LLM.
+# Candidates not in the list fall through to the LLM-against-label flow.
+CURATED_FDA_APPROVED_CANDIDATES: dict[str, list[str]] = {
+    "semaglutide": [
+        "morbid obesity",
+        # FLOW indication (CKD in T2D); the label phrases CKD as both target
+        # and qualifier population, which the LLM reads as ambiguous → no.
+        "chronic kidney disease",
+    ],
+    "atorvastatin": [
+        "hypercholesterolemia",
+        "high cholesterol",
+        "coronary heart disease",
+        "coronary artery disease",
+    ],
+    "imatinib": ["chronic myeloid leukemia"],
+    # openFDA top-N label fetch misses these real approvals (e.g. PMDD lives
+    # on a Sarafem-era label that doesn't surface in fluoxetine's top labels;
+    # bipolar I lives on the Symbyax combination label).
+    "fluoxetine": ["premenstrual dysphoric disorder", "bipolar disorder"],
+    "sarafem": ["premenstrual dysphoric disorder"],
+    "levothyroxine": ["goiter", "tsh suppression"],
+    "amoxicillin": ["pneumonia"],
+    # Migraine is on branded ibuprofen labels (Advil Migraine, Motrin Migraine)
+    # but typically not on the generic ibuprofen label that openFDA serves.
+    "ibuprofen": ["migraine disorder"],
+    # OT mis-tags real FDA approvals as PHASE_3 (their APPROVAL flag lags
+    # the label in some cases). These are all on actual FDA labels.
+    "tofacitinib": [
+        "ulcerative colitis",
+        "juvenile idiopathic arthritis",
+        "ankylosing spondylitis",
+        "psoriatic arthritis",
+    ],
+    "ciprofloxacin": ["anthrax", "plague"],
+    "omeprazole": [
+        "helicobacter pylori infection",
+        "zollinger-ellison syndrome",
+    ],
+    # Lay disease names that OT records under syndrome/organism phrasings
+    # (e.g. urethritis caused by C. trachomatis) — bridge can't connect.
+    "azithromycin": ["chlamydia"],
+    "doxycycline": ["chlamydia", "lyme disease"],
+    # Both openFDA snapshot and OT miss these real Flagyl approvals.
+    "metronidazole": ["giardiasis", "clostridium difficile infection"],
+    # Symbyax (olanzapine + fluoxetine) carries the TRD approval; OT lists
+    # MDD on olanzapine alone, which conflates the combo's approval.
+    "olanzapine": ["treatment-resistant depression"],
+}
+
+
+# Curated per-drug list of candidate disease phrasings to short-circuit as
+# NOT FDA-approved (return False without calling the LLM). Mirrors
+# CURATED_FDA_APPROVED_CANDIDATES but for the rejection direction. Use
+# sparingly: only when the LLM bridge over-matches on narrow-population
+# approvals or symptom-specific approvals where the bare disease name
+# would be misleading. When a candidate string EXACTLY matches (case-
+# sensitive, no normalization) any string in the drug's list, the approval
+# check short-circuits to False without calling the LLM.
+CURATED_FDA_REJECTED_CANDIDATES: dict[str, list[str]] = {
+    # Approved for "irritability associated with autistic disorder" only —
+    # bare "autism" misleadingly suggests the disease is treated broadly.
+    "risperidone": ["autism"],
+    # Tamsulosin treats BPH (benign prostatic hyperplasia), NOT prostate
+    # cancer; OT may surface unrelated prostate-related approvals.
+    "tamsulosin": ["prostate cancer"],
+    # RLS is approved for gabapentin enacarbil (Horizant), a different drug
+    # entity from gabapentin proper. The LLM conflates them.
+    "gabapentin": ["restless legs syndrome"],
+    # MDD as monotherapy is NOT approved for olanzapine; only TRD as the
+    # Symbyax combination with fluoxetine.
+    "olanzapine": ["major depressive disorder"],
+}
+
 # -- Supervisor: mechanism-sourced candidate threshold -----------------------
 # Minimum Open Targets overall_score for a mechanism-surfaced disease
 # association to be promoted into the supervisor's investigation allowlist.

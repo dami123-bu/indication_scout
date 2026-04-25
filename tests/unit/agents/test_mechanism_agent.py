@@ -6,7 +6,7 @@ extracts artifacts into a MechanismOutput.
 """
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -16,6 +16,21 @@ from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.models.model_open_targets import Association, MechanismOfAction
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(autouse=True)
+def _stub_candidate_assembly():
+    """Skip the OT/FDA network work in _assemble_candidates.
+
+    These unit tests only care about message-history plumbing.
+    Candidate assembly is covered by test_mechanism_row_builder and
+    test_mechanism_candidates; integration tests cover the full path.
+    """
+    with patch(
+        "indication_scout.agents.mechanism.mechanism_agent._assemble_candidates",
+        new=AsyncMock(return_value=[]),
+    ):
+        yield
 
 MECHANISMS_OF_ACTION = [
     MechanismOfAction(

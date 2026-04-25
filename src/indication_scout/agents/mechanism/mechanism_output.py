@@ -41,4 +41,16 @@ class MechanismOutput(BaseModel):
         default_factory=list,
         description="Structured MoA entries from the drug entity: action type, mechanism string, and targets",
     )
+    candidates: list[MechanismCandidate] = Field(
+        default_factory=list,
+        description="Top POSITIVE-direction, non-approved repurposing candidates",
+    )
     summary: str = Field(default="", description="Narrative summary from the agent")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_nones(cls, values: dict) -> dict:
+        for field_name, field_info in cls.model_fields.items():
+            if values.get(field_name) is None and field_info.default_factory is not None:
+                values[field_name] = field_info.default_factory()
+        return values
