@@ -1,8 +1,7 @@
 """Mechanism agent.
 
-Uses LangGraph's prebuilt create_react_agent for the agent loop. After
-the run, walks the message history to pull typed artifacts off the
-ToolMessages and assembles them into a MechanismOutput.
+Uses LangGraph's prebuilt create_react_agent for the agent loop. After the run, walks the message
+history to pull typed artifacts off the ToolMessages and assembles them into a MechanismOutput.
 """
 import asyncio
 import logging
@@ -29,9 +28,8 @@ from indication_scout.services.approval_check import get_fda_approved_diseases
 
 logger = logging.getLogger(__name__)
 
-# Number of top-scored associations per target we pull evidence for.
-# Not the final candidate count — select_top_candidates trims to
-# MECHANISM_TOP_CANDIDATES after filtering.
+# Number of top-scored associations per target we pull evidence for. Not the final candidate count —
+# select_top_candidates trims to MECHANISM_TOP_CANDIDATES after filtering.
 _ASSOCIATIONS_PER_TARGET = 15
 
 SYSTEM_PROMPT = ""
@@ -98,8 +96,8 @@ async def _assemble_candidates(
 ) -> list:
     """Fetch per-target rows, filter approved indications, classify.
 
-    Returns `[]` for any failure path (unresolvable drug, no MoAs, no
-    targets) so the agent keeps returning a valid MechanismOutput.
+    Returns `[]` for any failure path (unresolvable drug, no MoAs, no targets) so the agent keeps
+    returning a valid MechanismOutput.
     """
     if not drug_targets or not mechanisms_of_action:
         return []
@@ -137,9 +135,8 @@ async def _assemble_candidates(
     if not rows:
         return []
 
-    # FDA approval filter. On any failure, fall back to an empty approved
-    # set so at least the biology filter runs — better than dropping
-    # candidates silently on a chembl / fda hiccup.
+    # FDA approval filter. On any failure, fall back to an empty approved set so at least the biology
+    # filter runs — better than dropping candidates silently on a chembl / fda hiccup.
     approved: set[str] = set()
     candidate_names = sorted({r["disease_name"] for r in rows if r.get("disease_name")})
     try:

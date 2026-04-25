@@ -1,11 +1,9 @@
 """Assemble OT data into rows for mechanism_candidates.select_top_candidates.
 
-Data-layer glue between OpenTargetsClient and the pure-function classifier.
-Fetches a single target's data + per-(target, disease) evidences and
-returns dict rows shaped for select_top_candidates.
+Data-layer glue between OpenTargetsClient and the pure-function classifier. Fetches a single target's
+data + per-(target, disease) evidences and returns dict rows shaped for select_top_candidates.
 
-Kept separate from mechanism_candidates.py so the classifier module has
-no OT / I/O dependencies.
+Kept separate from mechanism_candidates.py so the classifier module has no OT / I/O dependencies.
 """
 
 from indication_scout.data_sources.open_targets import OpenTargetsClient
@@ -17,12 +15,12 @@ async def build_candidate_rows(
     action_types: set[str],
     top_n: int,
 ) -> list[dict]:
-    """Fetch a target's top-N associations + per-pair evidences and
-    return row dicts shaped for select_top_candidates.
+    """Fetch a target's top-N associations + per-pair evidences and return row dicts shaped for
+    select_top_candidates.
 
     The row contract (keys):
-        target_symbol, action_types, disease_name, overall_score,
-        evidences, disease_description, target_function
+        target_symbol, action_types, disease_name, overall_score, evidences, disease_description,
+        target_function
     """
     target = await ot_client.get_target_data(target_id)
     target_function = (

@@ -1,8 +1,7 @@
 """Mechanism tools.
 
-Uses content_and_artifact so typed Python objects are preserved on
-msg.artifact. Tools share inter-call data via a closure-scoped store dict.
-No InjectedState, no LangGraph state machinery.
+Uses content_and_artifact so typed Python objects are preserved on msg.artifact. Tools share inter-call
+data via a closure-scoped store dict. No InjectedState, no LangGraph state machinery.
 """
 
 import logging
@@ -24,9 +23,8 @@ _settings = get_settings()
 def build_mechanism_tools() -> list:
     """Build tools that share data via a closure-scoped store dict.
 
-    get_drug must be called first — it populates the store with the
-    symbol→target_id map that get_target_associations uses to resolve
-    target symbols.
+    get_drug must be called first — it populates the store with the symbol→target_id map that
+    get_target_associations uses to resolve target symbols.
     """
 
     store: dict = {}
@@ -35,19 +33,17 @@ def build_mechanism_tools() -> list:
     async def get_drug(drug_name: str) -> tuple[str, list[MechanismOfAction]]:
         """Fetch drug data including mechanisms of action.
 
-        Returns the list of MechanismOfAction entries for the drug — each entry
-        has an action_type (e.g. INHIBITOR, AGONIST), a mechanism string, and
-        the targets it applies to. Also populates the internal target map so
-        subsequent tools can resolve target symbols. Call this first.
+        Returns the list of MechanismOfAction entries for the drug — each entry has an action_type (e.g.
+        INHIBITOR, AGONIST), a mechanism string, and the targets it applies to. Also populates the
+        internal target map so subsequent tools can resolve target symbols. Call this first.
         """
         try:
             async with OpenTargetsClient() as client:
                 chembl_id = await resolve_drug_name(drug_name, client.cache_dir)
                 drug = await client.get_drug(chembl_id)
         except DataSourceError as e:
-            # Resolution failed (unknown name, salt with no parent, etc.) — return
-            # an empty MoA list so the agent's "no mechanisms" short-circuit fires
-            # instead of crashing the agent loop.
+            # Resolution failed (unknown name, salt with no parent, etc.) — return an empty MoA list so
+            # the agent's "no mechanisms" short-circuit fires instead of crashing the agent loop.
             logger.info("get_drug: could not resolve %r: %s", drug_name, e)
             store["target_ids"] = {}
             return (
@@ -77,10 +73,9 @@ def build_mechanism_tools() -> list:
     ) -> tuple[str, dict[str, list[Association]]]:
         """Fetch disease associations for a target, ranked by overall score.
 
-        Returns a dict keyed by target symbol mapping to the top disease
-        associations (capped, signal-filtered) with per-datatype evidence
-        scores (genetic_association, literature, etc.).
-        Call get_drug first so the target ID is available.
+        Returns a dict keyed by target symbol mapping to the top disease associations (capped,
+        signal-filtered) with per-datatype evidence scores (genetic_association, literature, etc.). Call
+        get_drug first so the target ID is available.
         """
         target_ids: dict[str, str] = store.get("target_ids", {})
         target_id = target_ids.get(target_symbol)
@@ -120,8 +115,8 @@ def build_mechanism_tools() -> list:
     async def finalize_analysis(summary: str) -> tuple[str, str]:
         """Signal that the analysis is complete.
 
-        Call this as the very last step, passing your 3-4 sentence plain-text
-        summary of the mechanistic findings. This terminates the agent loop.
+        Call this as the very last step, passing your 3-4 sentence plain-text summary of the mechanistic
+        findings. This terminates the agent loop.
         """
         return "Analysis complete.", summary
 

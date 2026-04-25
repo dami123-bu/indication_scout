@@ -8,11 +8,10 @@ from indication_scout.models.model_open_targets import MechanismOfAction
 class MechanismCandidate(BaseModel):
     """A repurposing candidate surfaced by the mechanism agent.
 
-    A (target, disease) pair where the drug's action direction aligns with
-    the disease mechanism per Open Targets evidence, and the disease is
-    not an approved indication. Carries text context the LLM reasons over.
-    No scores, no direction labels — those are used upstream for selection
-    and discarded here.
+    A (target, disease) pair where the drug's action direction aligns with the disease mechanism per Open
+    Targets evidence, and the disease is not an approved indication. Carries text context the LLM
+    reasons over. No scores, no direction labels — those are used upstream for selection and discarded
+    here.
     """
 
     target_symbol: str = ""
@@ -51,6 +50,9 @@ class MechanismOutput(BaseModel):
     @classmethod
     def coerce_nones(cls, values: dict) -> dict:
         for field_name, field_info in cls.model_fields.items():
-            if values.get(field_name) is None and field_info.default_factory is not None:
-                values[field_name] = field_info.default_factory()
+            if values.get(field_name) is None:
+                if field_info.default_factory is not None:
+                    values[field_name] = field_info.default_factory()
+                elif field_info.default is not None:
+                    values[field_name] = field_info.default
         return values
