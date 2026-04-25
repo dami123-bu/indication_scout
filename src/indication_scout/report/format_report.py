@@ -181,8 +181,12 @@ def format_report(output: SupervisorOutput) -> str:
     # Per-candidate findings
     lines += ["## Candidate Findings", ""]
     if output.findings:
+        # Build set of investigated disease keys so we can list any
+        # mechanism candidates that were promoted but not investigated below.
+        investigated_keys = {f.disease.lower().strip() for f in output.findings}
+
         for finding in output.findings:
-            lines += [f"### {finding.disease}", ""]
+            lines += [f"### {finding.disease} _(source: {finding.source})_", ""]
 
             if finding.literature:
                 lines += ["#### Literature", "", _fmt_literature(finding.literature), ""]
@@ -192,6 +196,31 @@ def format_report(output: SupervisorOutput) -> str:
 
             lines.append("---")
             lines.append("")
+
+        # Surface mechanism candidates that were promoted to the allowlist
+        # but not selected for deep investigation in the findings above.
+        mech_only_uninvestigated: list[str] = []
+        if output.mechanism and output.mechanism.candidates:
+            seen: set[str] = set()
+            for c in output.mechanism.candidates:
+                key = c.disease_name.lower().strip()
+                if not key or key in seen or key in investigated_keys:
+                    continue
+                seen.add(key)
+                mech_only_uninvestigated.append(c.disease_name)
+
+        if mech_only_uninvestigated:
+            lines += [
+                "### Other mechanism candidates (promoted, not investigated)",
+                "",
+                "These diseases were surfaced by the mechanism agent and added to the "
+                "investigation allowlist, but the supervisor did not select them for deep "
+                "literature / clinical-trials analysis in this run.",
+                "",
+            ]
+            for name in mech_only_uninvestigated:
+                lines.append(f"- {name}")
+            lines += ["", "---", ""]
     else:
         lines.append("_No candidate findings produced._")
 

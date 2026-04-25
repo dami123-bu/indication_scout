@@ -209,15 +209,37 @@ def build_supervisor_tools(
     async def analyze_mechanism(drug_name: str) -> tuple[str, MechanismOutput]:
         """Run the mechanism sub-agent for a drug.
 
-        The mechanism agent returns target-level MoA data and the agent's narrative summary. No
-        disease-level hypothesis surfacing in this step — rebuilt in a follow-up.
+        The mechanism agent returns target-level MoA data and the agent's narrative summary.
+        Mechanism-surfaced candidates are promoted into the investigation allowlist so
+        analyze_literature / analyze_clinical_trials can investigate them downstream.
         """
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
+        promoted: list[str] = []
+        for candidate in output.candidates:
+            key = candidate.disease_name.lower().strip()
+            if not key:
+                continue
+            if key in allowed_diseases:
+                existing_name, source = allowed_diseases[key]
+                if source == "competitor":
+                    allowed_diseases[key] = (existing_name, "both")
+            else:
+                allowed_diseases[key] = (candidate.disease_name, "mechanism")
+                promoted.append(candidate.disease_name)
+
+        if promoted:
+            logger.warning(
+                "[TOOL] analyze_mechanism promoted %d mechanism-only candidates to allowlist: %s",
+                len(promoted), promoted,
+            )
+
         n_targets = len(output.drug_targets)
         summary = (
-            f"Mechanism analysis for {drug_name}: {n_targets} targets."
+            f"Mechanism analysis for {drug_name}: {n_targets} targets, "
+            f"{len(output.candidates)} mechanism candidates "
+            f"({len(promoted)} new to allowlist)."
         )
         return summary, output
 
