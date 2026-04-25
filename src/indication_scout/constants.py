@@ -205,80 +205,79 @@ OPENFDA_LABEL_LIMIT: int = 5
 # the approval check short-circuits to True without calling the LLM.
 # Candidates not in the list fall through to the LLM-against-label flow.
 CURATED_FDA_APPROVED_CANDIDATES: dict[str, list[str]] = {
-    "semaglutide": [
-        "morbid obesity",
-        # FLOW indication (CKD in T2D); the label phrases CKD as both target
-        # and qualifier population, which the LLM reads as ambiguous → no.
-        "chronic kidney disease",
-    ],
-    "atorvastatin": [
-        "hypercholesterolemia",
-        "high cholesterol",
-        "coronary heart disease",
-        "coronary artery disease",
-    ],
-    "imatinib": ["chronic myeloid leukemia"],
-    # openFDA top-N label fetch misses these real approvals (e.g. PMDD lives
-    # on a Sarafem-era label that doesn't surface in fluoxetine's top labels;
-    # bipolar I lives on the Symbyax combination label).
+    # Semaglutide — morbid obesity is a clinical subset of approved obesity;
+    # CKD lives in the FLOW indication, which the LLM reads ambiguously.
+    "semaglutide": ["morbid obesity", "chronic kidney disease"],
+    # Atorvastatin — CHD/CAD appear on the label as risk-reduction qualifier
+    # populations; the prompt's risk-reduction rule rejects them.
+    "atorvastatin": ["coronary heart disease", "coronary artery disease"],
+    # Fluoxetine — PMDD is on a Sarafem-era label that doesn't surface in
+    # the top-N generic fluoxetine labels openFDA returns. Bipolar I
+    # depression is on the Symbyax combination label.
     "fluoxetine": ["premenstrual dysphoric disorder", "bipolar disorder"],
     "sarafem": ["premenstrual dysphoric disorder"],
-    "levothyroxine": ["goiter", "tsh suppression"],
+    # Amoxicillin — pneumonia indication doesn't surface in the top-N labels.
     "amoxicillin": ["pneumonia"],
-    # Migraine is on branded ibuprofen labels (Advil Migraine, Motrin Migraine)
-    # but typically not on the generic ibuprofen label that openFDA serves.
-    "ibuprofen": ["migraine disorder"],
-    # OT mis-tags real FDA approvals as PHASE_3 (their APPROVAL flag lags
-    # the label in some cases). These are all on actual FDA labels.
-    "tofacitinib": [
-        "ulcerative colitis",
-        "juvenile idiopathic arthritis",
-        "ankylosing spondylitis",
-        "psoriatic arthritis",
-    ],
-    "ciprofloxacin": ["anthrax", "plague"],
-    "omeprazole": [
-        "helicobacter pylori infection",
-        "zollinger-ellison syndrome",
-    ],
-    # Lay disease names that OT records under syndrome/organism phrasings
-    # (e.g. urethritis caused by C. trachomatis) — bridge can't connect.
-    "azithromycin": ["chlamydia"],
-    "doxycycline": ["chlamydia", "lyme disease"],
-    # Both openFDA snapshot and OT miss these real Flagyl approvals.
-    "metronidazole": ["giardiasis", "clostridium difficile infection"],
-    # Symbyax (olanzapine + fluoxetine) carries the TRD approval; OT lists
-    # MDD on olanzapine alone, which conflates the combo's approval.
-    "olanzapine": ["treatment-resistant depression"],
-    # COMPASS-trial CAD/PAD risk-reduction is on the Xarelto label, but the
-    # label phrases CAD/PAD as "in patients with CAD/PAD" — the prompt's
-    # risk-reduction rule reads them as qualifier populations and rejects.
+    # Levothyroxine — goiter approval doesn't surface in top-N labels.
+    "levothyroxine": ["goiter"],
+    # Rivaroxaban — COMPASS CAD/PAD risk-reduction; the label phrases CAD/PAD
+    # as "in patients with CAD/PAD", which the LLM reads as qualifier-only.
     "rivaroxaban": ["coronary artery disease", "peripheral artery disease"],
-    # Jardiance/Farxiga labels approve bare "heart failure" (covers both
-    # HFrEF and HFpEF after EMPEROR-Preserved/DELIVER expansions). The LLM
-    # treats narrower-EF candidates as sub-indications and rejects them.
+    # Doxycycline — Lyme disease is on Vibramycin/Acticlate labels but not
+    # the top-N generic doxycycline labels openFDA returns.
+    "doxycycline": ["lyme disease"],
+    # Metronidazole — giardiasis and pseudomembranous colitis (C. diff) are
+    # on the full Flagyl label but not the top-N generic labels openFDA
+    # returns (only the Flagyl 375 capsules trichomoniasis label appears).
+    "metronidazole": ["giardiasis", "clostridium difficile infection"],
+    # Empagliflozin — Jardiance label approves bare "heart failure" (covers
+    # both HFrEF and HFpEF after EMPEROR-Preserved). The LLM treats
+    # narrower-EF candidates as unsupported sub-indications and rejects.
     "empagliflozin": [
         "heart failure with reduced ejection fraction",
         "heart failure with preserved ejection fraction",
     ],
-    "dapagliflozin": [
-        "heart failure with reduced ejection fraction",
-        "heart failure with preserved ejection fraction",
-    ],
-    # Cardio-prevention and Kawasaki indications live on specific aspirin
-    # product labels (Bayer Cardio, Ecotrin, etc.); openFDA's top-N tends to
-    # return generic OTC pain-relief labels that lack these indications.
+    # Aspirin — cardio-prevention and Kawasaki indications live on specific
+    # aspirin product labels (Bayer Cardio, Ecotrin); openFDA's top-N
+    # returns generic OTC pain-relief labels that lack these.
     "aspirin": [
         "myocardial infarction",
         "stroke",
         "rheumatoid arthritis",
+        "osteoarthritis",
         "kawasaki disease",
     ],
-    # Same morbid-obesity → obesity case as semaglutide.
+    # Liraglutide — same morbid-obesity → obesity case as semaglutide.
     "liraglutide": ["morbid obesity"],
-    # Stromectol's scabies indication is on the topical/cream formulations;
-    # generic ivermectin labels openFDA returns are strongyloidiasis-only.
+    # Acetaminophen — Tylenol Arthritis approves OA; openFDA top-N returns
+    # generic pain/fever acetaminophen labels that don't mention OA.
+    "acetaminophen": ["osteoarthritis"],
+    # Ondansetron — Zofran's CINV/PONV/post-radiotherapy indications always
+    # qualify nausea/vomiting; the LLM rejects the bare candidates as broad.
+    "ondansetron": ["nausea", "vomiting"],
+    # Ivermectin — Stromectol's scabies indication is on the topical/cream
+    # formulations; generic ivermectin labels openFDA returns are
+    # strongyloidiasis-only.
     "ivermectin": ["scabies"],
+    # Risperidone — label approves "irritability associated with autistic
+    # disorder"; bare "autistic disorder" reads as approved by clinical
+    # convention. The LLM is overly strict on the population qualifier.
+    "risperidone": ["autistic disorder"],
+    # Baricitinib — JIA approval (Sept 2024) is a recent label expansion;
+    # openFDA's top-N often returns older Olumiant labels that pre-date it.
+    "baricitinib": ["juvenile idiopathic arthritis"],
+    # Bupropion — smoking-cessation lives on Bupropion Hydrochloride SR
+    # labels (the discontinued Zyban brand has been pulled from openFDA).
+    # The SR labels share generic_name with XL/IR labels, so per-alias top-5
+    # queries return MDD-only XL labels and miss SR.
+    "bupropion": ["smoking cessation", "nicotine dependence"],
+    # Mebendazole — pinworm (enterobiasis) is on Vermox/Emverm; openFDA's
+    # top-N may return formulations that don't carry the indication text.
+    "mebendazole": ["pinworm infection"],
+    # Colchicine — pericarditis is standard-of-care globally (CORE/COPE/
+    # ICAP/CORP trials) but no current US colchicine label carries the
+    # indication; treated here as clinical-truth-over-openFDA-truth.
+    "colchicine": ["pericarditis"],
 }
 
 
@@ -292,13 +291,14 @@ CURATED_FDA_APPROVED_CANDIDATES: dict[str, list[str]] = {
 # the approval check short-circuits to False without calling the LLM.
 CURATED_FDA_REJECTED_CANDIDATES: dict[str, list[str]] = {
     # Acetaminophen labels list "the common cold" as a *cause* of "minor
-    # aches and pains," not as a treatment indication. The LLM reads it
-    # as an indication.
+    # aches and pains," not as a treatment indication. The LLM reads the
+    # phrase as an approval.
     "acetaminophen": ["common cold"],
-    # Olanzapine monotherapy is NOT approved for MDD; only Symbyax (olanz +
-    # fluoxetine combo) carries the TRD/bipolar-depression approval. The LLM
-    # conflates Symbyax's indication with single-agent olanzapine.
-    "olanzapine": ["major depressive disorder"],
+    # Lumakras has a CRC approval but only for KRAS G12C-mutated mCRC in
+    # combination with panitumumab (~3-4% of mCRC patients). The bare
+    # candidate "colorectal cancer" is too broad — the LLM matches on the
+    # word's presence in the label without checking how narrow the subset is.
+    "sotorasib": ["colorectal cancer"],
 }
 
 # -- Supervisor: mechanism-sourced candidate threshold -----------------------

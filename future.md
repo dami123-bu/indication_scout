@@ -184,3 +184,84 @@ seen — but worth either:
   direction on that target is itself contested.
 - Carrying the set of action_types into the rationale string so the
   conflict is at least visible in the audit trail.
+
+## FDA approval check — formulation-relevance ranking hides indications (added 2026-04-25)
+
+`get_fda_approved_disease_mapping` queries openFDA per ChEMBL alias with
+`OPENFDA_LABEL_LIMIT=5`. For drugs sold under multiple formulations with
+different indication profiles, openFDA's relevance ranker tends to return
+labels for the most populous formulation first, pushing the labels with
+rarer indications past the cutoff.
+
+Bupropion is the canonical case (confirmed 2026-04-25 via probe):
+- Total openFDA labels for bupropion: 255
+- Smoking-cessation indication lives only on the SR formulation (~45 labels)
+- MDD / SAD indications live on XL and immediate-release formulations (~190 labels)
+- Top-5 by openFDA's ranker returns 5 XL/IR labels — none mention smoking
+- The brand name "Zyban" was discontinued and is no longer in openFDA at all,
+  so the alias-expansion fallback can't surface the SR label by trade name
+
+Same pattern hits:
+- fluoxetine / PMDD (Sarafem-era label not in top-5)
+- doxycycline / Lyme disease (Vibramycin/Acticlate not in top-5)
+- acetaminophen / osteoarthritis (Tylenol Arthritis not in top-5)
+- amoxicillin / pneumonia, ondansetron / nausea, ivermectin / scabies, etc.
+
+We patch each via CURATED_FDA_APPROVED_CANDIDATES, but the curated list
+keeps growing.
+
+Architectural fixes, in rough order of effort:
+- **Increase per-alias `OPENFDA_LABEL_LIMIT` to 100, then dedup by
+  `indications_and_usage` text content.** Most of the manufacturer-multiplicity
+  duplicates (e.g. ~190 "Bupropion Hydrochloride" XL labels with identical
+  indication strings) collapse to a handful of unique indication strings.
+  Smoking-cessation would survive the dedup. Tradeoffs: bigger HTTP payloads,
+  more LLM context, slower. Earlier global bump to limit=25 caused regressions
+  on atorvastatin (prompt got noisy). A higher limit + content-dedup before
+  prompting may behave better.
+- **Per-candidate filtered query.** When checking `(bupropion, smoking cessation)`,
+  hit openFDA with a search filter that requires the candidate term in
+  `indications_and_usage` — surfaces the relevant labels deterministically.
+  Costs one openFDA call per (drug, candidate) pair instead of per drug.
+  Architectural change to the function signature / call pattern.
+- **Filter by `dosage_form` or `route`** — bias the per-alias query toward
+  SR vs XL. Drug-specific knowledge required; doesn't generalize.
+
+## FDA approval check — wrong primary endpoint (added 2026-04-25)
+
+The bigger architectural point behind the bupropion / fluoxetine / doxycycline
+/ acetaminophen pattern: we're using `/drug/label.json`, which is the wrong
+endpoint for "what is this drug approved for?". The label endpoint serves
+*Structured Product Labels* — manufacturer marketing/prescribing documents,
+filed once per (manufacturer × formulation × strength × packaging). Approvals
+get repeated 50-200 times across SPLs, indications get scattered across
+formulation-specific labels, and the ranker decides which slice we see.
+
+The FDA *does* maintain clean approval data; we're just reading it out of
+the wrong source. Better-aligned data sources:
+
+- **openFDA `/drug/drugsfda.json`** — keyed by FDA application number
+  (NDA/BLA/ANDA). One record per *application*, with submission history,
+  approval letters, and indication strings. No SPL multiplicity, no
+  formulation-relevance ranking, no per-manufacturer duplication. This is
+  structurally what we want — "approval" is an application-level event,
+  not a label-level event. Worth a prototype to see how clean the
+  indication strings actually are in this dataset.
+- **FDA Orange Book / Purple Book** — official drug-approval lists,
+  downloadable as monthly text files. Per-application records with
+  active ingredient, dosage form, route, approval date. No API but stable
+  and bulk-loadable. Authoritative source.
+- **DailyMed** — NLM's frontend to the same SPLs, but with structured
+  indication metadata and RxCUI / NDC cross-references. Same underlying
+  data as openFDA labels, better-organized retrieval.
+- **RxNorm + NDF-RT** — pre-computed "may treat" / "is treated by"
+  relationships keyed by RxCUI. Skips the need to extract indications
+  from text entirely.
+
+Estimated impact of switching to drugsfda.json: ~60-70% of current curated
+entries would be unnecessary (the ones that are real approvals just buried
+in SPL ranking noise). Genuine OT/openFDA gaps and LLM judgment errors
+would persist regardless of source. Estimated effort: medium — new client
+or new endpoint method on FDAClient, new prompt that consumes structured
+indication strings instead of free-text label sections, sanity-test against
+v1/v2/v3/v4 probes before swapping the production code path.

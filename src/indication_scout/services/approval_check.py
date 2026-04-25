@@ -12,6 +12,7 @@ from typing import Any
 from indication_scout.constants import (
     CACHE_TTL,
     CURATED_FDA_APPROVED_CANDIDATES,
+    CURATED_FDA_REJECTED_CANDIDATES,
     DEFAULT_CACHE_DIR,
 )
 from indication_scout.data_sources.chembl import (
@@ -270,13 +271,16 @@ async def get_fda_approved_disease_mapping(
         return result
 
     # Curated short-circuit: exact, case-sensitive match against the drug's
-    # curated approved-candidate list. Hits skip both the FDA fetch and the
-    # LLM call.
-    curated_set = set(CURATED_FDA_APPROVED_CANDIDATES.get(drug_name, []))
+    # curated approved-candidate list (force True) and rejected-candidate
+    # list (force False). Hits skip both the FDA fetch and the LLM call.
+    approved_set = set(CURATED_FDA_APPROVED_CANDIDATES.get(drug_name, []))
+    rejected_set = set(CURATED_FDA_REJECTED_CANDIDATES.get(drug_name, []))
     uncurated: list[str] = []
     for c in candidate_diseases:
-        if c in curated_set:
+        if c in approved_set:
             result[c] = True
+        elif c in rejected_set:
+            result[c] = False
         else:
             uncurated.append(c)
 
@@ -391,14 +395,20 @@ async def get_fda_approved_disease_mapping_with_reasons(
     if not drug_name or not candidate_diseases:
         return result
 
-    # Curated short-circuit (force True; no LLM call).
-    curated_set = set(CURATED_FDA_APPROVED_CANDIDATES.get(drug_name, []))
+    # Curated short-circuit (force True / force False; no LLM call).
+    approved_set = set(CURATED_FDA_APPROVED_CANDIDATES.get(drug_name, []))
+    rejected_set = set(CURATED_FDA_REJECTED_CANDIDATES.get(drug_name, []))
     uncurated: list[str] = []
     for c in candidate_diseases:
-        if c in curated_set:
+        if c in approved_set:
             result[c] = {
                 "approved": True,
                 "reason": "Curated entry (CURATED_FDA_APPROVED_CANDIDATES).",
+            }
+        elif c in rejected_set:
+            result[c] = {
+                "approved": False,
+                "reason": "Curated entry (CURATED_FDA_REJECTED_CANDIDATES).",
             }
         else:
             uncurated.append(c)
