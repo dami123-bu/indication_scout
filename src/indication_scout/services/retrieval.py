@@ -106,7 +106,8 @@ class RetrievalService:
             logger.warning("[COMP] raw from OT: %d diseases: %s",
                            len(raw["diseases"]), list(raw["diseases"].keys()))
 
-        top_40 = await self._normalize_disease_groups(raw["diseases"])
+        top_40=raw["diseases"]
+        #top_40 = await self._normalize_disease_groups(raw["diseases"])
         logger.warning("[COMP] after normalize: %d diseases: %s",
                        len(top_40), list(top_40.keys()))
 

@@ -295,3 +295,40 @@ Options if precision matters for a specific path:
 
 Estimated effort: low for path-specific cap lifts; medium for a clean
 "countOnly" mode that bypasses pagination.
+
+## Clinical Trials agent — collapse to a single precise search
+
+The clinical trials agent currently issues four scoped queries per (drug,
+indication) pair via `data_sources/clinical_trials.py::get_terminated`:
+
+  - drug_wide: this drug, any indication, terminated only.
+  - indication_wide: this indication, any drug, terminated only.
+  - pair_specific: this drug + this indication, terminated.
+  - pair_completed: this drug + this indication, completed.
+
+The LLM then has to reason across all four scopes simultaneously. Two issues:
+
+1. The agent's output frequently surfaces counts ("12 completed trials")
+   without making clear which scope they came from, and downstream summaries
+   blur the boundary between drug-scoped, indication-scoped, and pair-scoped
+   findings.
+2. The MeSH descriptor used for `_filter_by_mesh` rolls subtypes up into the
+   parent (e.g. NASH/MASH trials are tagged with the NAFLD MeSH descriptor
+   D065626), so even pair-specific counts can lump clinically distinct
+   populations together. Combined with the multi-scope structure, the user
+   has no easy way to tell what the count represents.
+
+Proposed direction: drop the multi-scope structure entirely and do one
+precise pair-scoped search per call. Report what's there; don't aggregate
+indication-wide attrition or drug-wide failures into the same answer.
+Whitespace / landscape / drug-wide failure context becomes a separate tool
+call (or moves out of the clinical-trials agent entirely), so each tool
+returns one clean signal.
+
+Out of scope for now — the mechanism agent is unaffected, and the current
+behavior is acceptable for it. This change should be a deliberate redesign
+of the clinical trials agent's tool surface, not a quick patch.
+
+Estimated effort: medium — touches the data-source method signature, the
+agent's tool definitions, the agent's prompt, and downstream supervisor
+prompts that reason about completed/terminated counts.
