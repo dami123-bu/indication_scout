@@ -1,11 +1,11 @@
 """Supervisor tools — wraps sub-agents as tools.
 
-Each sub-agent (literature, clinical trials) becomes a single tool the
-supervisor can call. The tool runs the full sub-agent and returns its
-typed output as an artifact, plus a short summary string for the LLM.
+Each sub-agent (literature, clinical trials) becomes a single tool the supervisor can call. The
+tool runs the full sub-agent and returns its typed output as an artifact, plus a short summary
+string for the LLM.
 
-There's also a find_candidates tool that hits Open Targets directly to
-surface disease candidates for a drug.
+There's also a find_candidates tool that hits Open Targets directly to surface disease candidates
+for a drug.
 """
 
 import logging
@@ -47,16 +47,16 @@ def build_supervisor_tools(
 ) -> list:
     """Build supervisor tools that close over the sub-agents.
 
-    The literature and clinical trials agents are compiled once here and
-    reused across calls — no need to rebuild them per invocation.
+    The literature and clinical trials agents are compiled once here and reused across calls — no
+    need to rebuild them per invocation.
     """
 
     # Build sub-agents once at supervisor construction (except literature — see below)
     ct_agent = build_clinical_trials_agent(llm=llm)
     mech_agent = build_mechanism_agent(llm=llm)
 
-    # Closure-scoped allowlist — populated by find_candidates and
-    # analyze_mechanism, checked by analyze_literature / analyze_clinical_trials.
+    # Closure-scoped allowlist — populated by find_candidates and analyze_mechanism, checked by
+    # analyze_literature / analyze_clinical_trials.
     # allowed_diseases: lowercase disease name → (canonical_name, source)
     allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
 
@@ -64,9 +64,8 @@ def build_supervisor_tools(
     async def find_candidates(drug_name: str) -> tuple[str, list[str]]:
         """Surface candidate diseases for repurposing this drug.
 
-        Uses Open Targets to find diseases where competitor drugs (drugs
-        sharing the same molecular targets) are being developed. Returns
-        a list of disease names ranked by competitor activity.
+        Uses Open Targets to find diseases where competitor drugs (drugs sharing the same molecular
+        targets) are being developed. Returns a list of disease names ranked by competitor activity.
         """
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
         competitors = await svc.get_drug_competitors(chembl_id)
@@ -118,12 +117,11 @@ def build_supervisor_tools(
     ) -> tuple[str, LiteratureOutput]:
         """Run a full literature analysis for a drug-disease pair.
 
-        Investigates published evidence via PubMed, embeds and re-ranks
-        abstracts, and produces a structured evidence summary with strength
-        rating (none / weak / moderate / strong).
+        Investigates published evidence via PubMed, embeds and re-ranks abstracts, and produces a
+        structured evidence summary with strength rating (none / weak / moderate / strong).
         """
-        # Build a fresh agent per call so the closure-scoped store dict in
-        # literature_tools is not shared across disease invocations.
+        # Build a fresh agent per call so the closure-scoped store dict in literature_tools is not
+        # shared across disease invocations.
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_literature", LiteratureOutput())
 
@@ -153,8 +151,8 @@ def build_supervisor_tools(
     ) -> tuple[str, ClinicalTrialsOutput]:
         """Run a full clinical trials analysis for a drug-disease pair.
 
-        Checks ClinicalTrials.gov for existing trials, competitive landscape,
-        and terminated trials (safety/efficacy red flags).
+        Checks ClinicalTrials.gov for existing trials, competitive landscape, and terminated
+        trials (safety/efficacy red flags).
         """
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_clinical_trials", ClinicalTrialsOutput())
@@ -212,9 +210,8 @@ def build_supervisor_tools(
     async def analyze_mechanism(drug_name: str) -> tuple[str, MechanismOutput]:
         """Run the mechanism sub-agent for a drug.
 
-        The mechanism agent returns target-level MoA data and the agent's
-        narrative summary. No disease-level hypothesis surfacing in this
-        step — rebuilt in a follow-up.
+        The mechanism agent returns target-level MoA data and the agent's narrative summary. No
+        disease-level hypothesis surfacing in this step — rebuilt in a follow-up.
         """
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
@@ -229,8 +226,8 @@ def build_supervisor_tools(
     async def finalize_supervisor(summary: str) -> tuple[str, str]:
         """Signal that the repurposing analysis is complete.
 
-        Call this as the very last step, passing your 4-6 sentence plain-text
-        summary of the most promising candidates. This terminates the agent loop.
+        Call this as the very last step, passing your 4-6 sentence plain-text summary of the most
+        promising candidates. This terminates the agent loop.
         """
         return "Supervisor analysis complete.", summary
 

@@ -1,8 +1,8 @@
 """Supervisor agent.
 
-Top-level agent that orchestrates the literature, clinical trials, and mechanism
-sub-agents. Given a drug, it surfaces candidate diseases, decides which
-to investigate, and delegates to the right sub-agent for each candidate.
+Top-level agent that orchestrates the literature, clinical trials, and mechanism sub-agents. Given
+a drug, it surfaces candidate diseases, decides which to investigate, and delegates to the right
+sub-agent for each candidate.
 
 The LLM decides:
 - Which candidates are worth investigating in depth
@@ -26,74 +26,65 @@ from indication_scout.agents.supervisor.supervisor_tools import build_supervisor
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a drug repurposing analyst. Your job is to identify indications
-where this drug has a LIVE repurposing opportunity — spaces with
-biological rationale and clinical interest where the hypothesis remains
-open.
+You are a drug repurposing analyst. Your job is to identify indications where this drug has a LIVE
+repurposing opportunity — spaces with biological rationale and clinical interest where the
+hypothesis remains open.
 
 Treat trial evidence as two distinct signals:
 - Active trials and strong literature measure INTEREST in a hypothesis.
 - Trial outcomes measure VIABILITY of that hypothesis.
 
-A candidate is live when both signals point the same way. When
-sub-agents report safety or efficacy terminations in a candidate space
-— or drug-wide safety/efficacy failures — treat those as direct
-evidence the hypothesis has been tested and closed. A closed
-hypothesis outranks a high volume of prior activity. Business or
-enrollment terminations are neutral (sponsor decisions, not drug
-performance).
+A candidate is live when both signals point the same way. When sub-agents report safety or
+efficacy terminations in a candidate space — or drug-wide safety/efficacy failures — treat those
+as direct evidence the hypothesis has been tested and closed. A closed hypothesis outranks a high
+volume of prior activity. Business or enrollment terminations are neutral (sponsor decisions, not
+drug performance).
 
-For each candidate you rank, cite the supporting evidence and the
-disconfirming evidence side by side. Rank by net signal.
+For each candidate you rank, cite the supporting evidence and the disconfirming evidence side by
+side. Rank by net signal.
 
 OUTCOME ACCOUNTING:
-The analyze_clinical_trials tool reports trial-outcome evidence across
-four scopes:
-- drug_wide — this drug in any indication; safety/efficacy only. Tempers
-  optimism across all candidates for this drug.
-- indication_wide — this indication with any drug. Context for how hard
-  the disease area is, not closure of this drug.
-- pair_specific — THIS drug in THIS indication, TERMINATED. A non-zero
-  count with safety or efficacy stop_category means the exact hypothesis
-  has been tested and stopped early. Treat as closed.
-- pair_completed — THIS drug in THIS indication, COMPLETED. A completed
-  Phase 3 without follow-on regulatory progression (no approval, no
-  subsequent Phase 3) is strong evidence the primary endpoint was
-  missed. Treat as closed unless the sub-agent explicitly indicates the
-  readout was positive. Do NOT describe a completed pair Phase 3 as
-  "sustained clinical interest" — it is a settled question.
+The analyze_clinical_trials tool reports trial-outcome evidence across four scopes:
+- drug_wide — this drug in any indication; safety/efficacy only. Tempers optimism across all
+  candidates for this drug.
+- indication_wide — this indication with any drug. Context for how hard the disease area is, not
+  closure of this drug.
+- pair_specific — THIS drug in THIS indication, TERMINATED. A non-zero count with safety or
+  efficacy stop_category means the exact hypothesis has been tested and stopped early. Treat as
+  closed.
+- pair_completed — THIS drug in THIS indication, COMPLETED. A completed Phase 3 without follow-on
+  regulatory progression (no approval, no subsequent Phase 3) is strong evidence the primary
+  endpoint was missed. Treat as closed unless the sub-agent explicitly indicates the readout was
+  positive. Do NOT describe a completed pair Phase 3 as "sustained clinical interest" — it is a
+  settled question.
 Do not merge or re-attribute scopes. Cite these counts when non-zero.
 
-When writing the final summary for the user, paraphrase this evidence
-in plain English. Never use the internal field names (pair_specific,
-pair_completed, drug_wide, indication_wide) — the reader does not know
-what they mean. Write "3 Phase 3 trials of <drug> in <disease> have
-already run to completion" rather than "3 pair_completed Phase 3
-trials."
+When writing the final summary for the user, paraphrase this evidence in plain English. Never use
+the internal field names (pair_specific, pair_completed, drug_wide, indication_wide) — the reader
+does not know what they mean. Write "3 Phase 3 trials of <drug> in <disease> have already run to
+completion" rather than "3 pair_completed Phase 3 trials."
 
 You have five tools:
 
 - find_candidates — surfaces candidate diseases for the drug from Open Targets
-- analyze_mechanism — fetches the drug's molecular targets, their disease
-  associations, and Reactome pathways; drug-level, call once per drug
+- analyze_mechanism — fetches the drug's molecular targets, their disease associations, and
+  Reactome pathways; drug-level, call once per drug
 - analyze_literature — runs a full literature analysis for a drug-disease pair
 - analyze_clinical_trials — runs a full clinical trials analysis for a pair
 - finalize_supervisor — signals completion; you MUST call this last
 
 CANDIDATE RULE:
-You may ONLY call analyze_literature and analyze_clinical_trials with a
-disease_name that appears VERBATIM in the allowed candidate list. Candidates
-come from two sources:
+You may ONLY call analyze_literature and analyze_clinical_trials with a disease_name that appears
+VERBATIM in the allowed candidate list. Candidates come from two sources:
 
-1. **Competitor-sourced**: diseases returned by find_candidates (competitor drugs
-   are active in these diseases).
-2. **Mechanism-sourced**: diseases from analyze_mechanism whose overall
-   association score meets the threshold. These are automatically added to the
-   allowed list when analyze_mechanism runs — the tool will tell you which
-   mechanism diseases were added.
+1. **Competitor-sourced**: diseases returned by find_candidates (competitor drugs are active in
+   these diseases).
+2. **Mechanism-sourced**: diseases from analyze_mechanism whose overall association score meets
+   the threshold. These are automatically added to the allowed list when analyze_mechanism runs —
+   the tool will tell you which mechanism diseases were added.
 
-Do not reword, substitute synonyms, expand abbreviations, or introduce
-diseases from your training knowledge.
+Do not reword, substitute synonyms, expand abbreviations, or introduce diseases from your training
+knowledge.
 
 Examples of disallowed substitutions:
 - find_candidates returns "fatty liver disease" → do NOT pass "NASH" or "MASH"
@@ -103,13 +94,12 @@ If a disease is rejected by a tool call, it is NOT in the allowed list.
 
 Strategy:
 1. Call find_candidates and analyze_mechanism in parallel as your first step.
-2. Use find_candidates to see which diseases competitor drugs are active in.
-   Use analyze_mechanism for both mechanistic context AND to surface additional
-   candidate diseases based on target-disease associations.
-3. Pick 3-5 candidates to investigate in depth with literature and/or trials.
-   Mechanism-sourced candidates with high association scores can be especially
-   interesting — they represent biologically plausible repurposing hypotheses.
-   Use your judgment:
+2. Use find_candidates to see which diseases competitor drugs are active in. Use analyze_mechanism
+   for both mechanistic context AND to surface additional candidate diseases based on
+   target-disease associations.
+3. Pick 3-5 candidates to investigate in depth with literature and/or trials. Mechanism-sourced
+   candidates with high association scores can be especially interesting — they represent
+   biologically plausible repurposing hypotheses. Use your judgment:
    - Literature first when you want to assess biological/clinical evidence
    - Clinical trials first when you want to know if the space is already crowded
    - Both for candidates that look genuinely promising
@@ -117,21 +107,19 @@ Strategy:
 5. Stop when you have enough evidence to identify the top candidates.
 
 REJECTION HANDLING:
-If a tool call returns a message starting with "REJECTED:", that call
-produced NO data. The disease in that rejected call MUST NOT appear in
-your final summary. Retry with a valid candidate name if needed.
+If a tool call returns a message starting with "REJECTED:", that call produced NO data. The
+disease in that rejected call MUST NOT appear in your final summary. Retry with a valid candidate
+name if needed.
 
 GROUNDING RULE:
-Your final summary must reference ONLY findings returned by SUCCESSFUL
-(non-rejected) sub-agent tool calls in this run. Before calling
-finalize_supervisor, review your tool history — if a disease's only
-tool call was REJECTED, do not include that disease in your summary.
+Your final summary must reference ONLY findings returned by SUCCESSFUL (non-rejected) sub-agent
+tool calls in this run. Before calling finalize_supervisor, review your tool history — if a
+disease's only tool call was REJECTED, do not include that disease in your summary.
 
-IMPORTANT: finalize_supervisor MUST be the final tool call. Pass it your
-4-6 sentence plain-text summary of the most promising candidates,
-referencing relevant mechanistic context from analyze_mechanism where it
-supports or contextualises the findings. Do NOT emit a plain
-text message after calling finalize_supervisor."""
+IMPORTANT: finalize_supervisor MUST be the final tool call. Pass it your 4-6 sentence plain-text
+summary of the most promising candidates, referencing relevant mechanistic context from
+analyze_mechanism where it supports or contextualises the findings. Do NOT emit a plain text
+message after calling finalize_supervisor."""
 
 
 def build_supervisor_agent(llm, svc, db):
@@ -143,10 +131,9 @@ def build_supervisor_agent(llm, svc, db):
 async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     """Invoke the supervisor and assemble a SupervisorOutput from the run.
 
-    Filters out tool calls that were rejected by the candidate guard, and
-    canonicalises disease names against the find_candidates list so that
-    casing variants (e.g. "Parkinson disease" vs "parkinson disease") do
-    not produce duplicate findings.
+    Filters out tool calls that were rejected by the candidate guard, and canonicalises disease
+    names against the find_candidates list so that casing variants (e.g. "Parkinson disease" vs
+    "parkinson disease") do not produce duplicate findings.
     """
     result = await agent.ainvoke(
         {
@@ -161,16 +148,16 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
     summary: str = ""
     findings_by_disease: dict[str, CandidateFindings] = {}
 
-    # Build a map from tool_call_id → args so we can recover the disease_name
-    # argument passed to each analyze_* call.
+    # Build a map from tool_call_id → args so we can recover the disease_name argument passed to
+    # each analyze_* call.
     tool_call_args: dict[str, dict] = {}
     for msg in result["messages"]:
         if isinstance(msg, AIMessage):
             for tc in msg.tool_calls:
                 tool_call_args[tc["id"]] = tc["args"]
 
-    # First pass: capture candidates and mechanism. We need candidates before
-    # processing findings so we can filter rejected calls.
+    # First pass: capture candidates and mechanism. We need candidates before processing findings
+    # so we can filter rejected calls.
     for msg in result["messages"]:
         if not isinstance(msg, ToolMessage):
             continue
@@ -181,10 +168,9 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
         elif msg.name == "finalize_supervisor":
             summary = msg.artifact or ""
 
-    # Build dual-source allowlist: competitor diseases + mechanism associations
-    # above the score threshold.  key = lowercase disease name →
-    # (canonical_name, source).  Uses disease_id for dedup when a mechanism
-    # association matches a competitor disease by ID.
+    # Build dual-source allowlist: competitor diseases + mechanism associations above the score
+    # threshold.  key = lowercase disease name → (canonical_name, source).  Uses disease_id for
+    # dedup when a mechanism association matches a competitor disease by ID.
     allowed_lower: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
 
     for c in candidates:
