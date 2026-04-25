@@ -3,11 +3,8 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from indication_scout.services.approval_check import (
     extract_approved_from_labels,
-    get_fda_approved_diseases,
 )
 
 
@@ -166,68 +163,3 @@ async def test_extract_approved_caches_result(tmp_path):
     mock_llm.assert_awaited_once()
 
 
-# --- get_fda_approved_diseases ---
-
-
-async def test_get_fda_approved_diseases_end_to_end(tmp_path):
-    mock_fda_client = AsyncMock()
-    mock_fda_client.__aenter__ = AsyncMock(return_value=mock_fda_client)
-    mock_fda_client.__aexit__ = AsyncMock(return_value=None)
-    mock_fda_client.get_all_label_indications = AsyncMock(
-        return_value=["Indicated for obesity."]
-    )
-
-    with (
-        patch(
-            "indication_scout.services.approval_check.FDAClient",
-            return_value=mock_fda_client,
-        ),
-        patch(
-            "indication_scout.services.approval_check.extract_approved_from_labels",
-            new=AsyncMock(return_value={"obesity"}),
-        ) as mock_extract,
-    ):
-        result = await get_fda_approved_diseases(
-            drug_names=["wegovy"],
-            candidate_diseases=["obesity", "heart failure"],
-            cache_dir=tmp_path,
-        )
-
-    assert result == {"obesity"}
-
-
-async def test_get_fda_approved_diseases_empty_drug_names(tmp_path):
-    result = await get_fda_approved_diseases(
-        drug_names=[],
-        candidate_diseases=["obesity"],
-        cache_dir=tmp_path,
-    )
-    assert result == set()
-
-
-async def test_get_fda_approved_diseases_empty_candidates(tmp_path):
-    result = await get_fda_approved_diseases(
-        drug_names=["wegovy"],
-        candidate_diseases=[],
-        cache_dir=tmp_path,
-    )
-    assert result == set()
-
-
-async def test_get_fda_approved_diseases_no_labels_found(tmp_path):
-    mock_fda_client = AsyncMock()
-    mock_fda_client.__aenter__ = AsyncMock(return_value=mock_fda_client)
-    mock_fda_client.__aexit__ = AsyncMock(return_value=None)
-    mock_fda_client.get_all_label_indications = AsyncMock(return_value=[])
-
-    with patch(
-        "indication_scout.services.approval_check.FDAClient",
-        return_value=mock_fda_client,
-    ):
-        result = await get_fda_approved_diseases(
-            drug_names=["unknownbrand"],
-            candidate_diseases=["obesity"],
-            cache_dir=tmp_path,
-        )
-
-    assert result == set()

@@ -191,7 +191,7 @@ def test_select_top_candidates_majority_vote_survives_outlier():
 def test_select_top_candidates_excludes_approved_diseases_exact_match():
     """Approved disease names must match the OT disease_name exactly
     (case-insensitive). Synonym / substring resolution is the caller's
-    problem (see services.approval_check.get_fda_approved_diseases)."""
+    problem (see services.approval_check.get_fda_approved_disease_mapping)."""
     rows = [
         _row(disease_name="type 2 diabetes mellitus", overall_score=0.9,
              evidences=[_ev("GoF", "risk")] * 5),

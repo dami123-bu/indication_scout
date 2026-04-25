@@ -15,8 +15,8 @@ from typing import Literal
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
-from indication_scout.services.approval_check import get_fda_approved_diseases
+from indication_scout.data_sources.chembl import resolve_drug_name
+from indication_scout.services.approval_check import get_fda_approved_disease_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +74,18 @@ def build_supervisor_tools(
         # FDA approval check — drop competitor diseases already approved for this drug
         fda_approved_lower: set[str] = set()
         if diseases:
-            drug_names = await get_all_drug_names(chembl_id, svc.cache_dir)
-            if drug_names:
-                fda_approved = await get_fda_approved_diseases(
-                    drug_names=drug_names,
-                    candidate_diseases=diseases,
-                    cache_dir=svc.cache_dir,
+            mapping = await get_fda_approved_disease_mapping(
+                drug_name=drug_name,
+                candidate_diseases=diseases,
+                cache_dir=svc.cache_dir,
+            )
+            fda_approved = {disease for disease, is_approved in mapping.items() if is_approved}
+            if fda_approved:
+                logger.warning(
+                    "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
+                    len(fda_approved), fda_approved,
                 )
-                if fda_approved:
-                    logger.warning(
-                        "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
-                        len(fda_approved), fda_approved,
-                    )
-                fda_approved_lower = {d.lower().strip() for d in fda_approved}
+            fda_approved_lower = {d.lower().strip() for d in fda_approved}
 
         diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
 

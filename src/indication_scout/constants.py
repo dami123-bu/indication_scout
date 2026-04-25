@@ -299,6 +299,13 @@ CURATED_FDA_REJECTED_CANDIDATES: dict[str, list[str]] = {
     # candidate "colorectal cancer" is too broad — the LLM matches on the
     # word's presence in the label without checking how narrow the subset is.
     "sotorasib": ["colorectal cancer"],
+    # Semaglutide labels list "non-fatal stroke" as a component of the
+    # MACE composite endpoint ("reduce the risk of major adverse cardiovascular
+    # events (cardiovascular death, non-fatal myocardial infarction, or
+    # non-fatal stroke)..."). The prompt's risk-reduction rule treats stroke
+    # as a target, but clinically semaglutide is not a stroke drug — stroke
+    # is just one component of the composite endpoint.
+    "semaglutide": ["ischemic stroke"],
 }
 
 # -- Supervisor: mechanism-sourced candidate threshold -----------------------

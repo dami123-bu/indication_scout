@@ -265,3 +265,33 @@ would persist regardless of source. Estimated effort: medium — new client
 or new endpoint method on FDAClient, new prompt that consumes structured
 indication strings instead of free-text label sections, sanity-test against
 v1/v2/v3/v4 probes before swapping the production code path.
+
+## Clinical Trials count truncation — page cap
+
+`data_sources/clinical_trials.py::_count_trials` is hard-capped at 10 pages of
+ClinicalTrials.gov results. When a query exceeds that (broad indications like
+"nonalcoholic steatohepatitis", "depression", "renal insufficiency"), the
+function stops early and logs:
+
+    _count_trials: page cap (10) hit for drug=None indication=<X> mesh_id=<Y>;
+    returned count is a lower bound
+
+The returned count is therefore a **lower bound**, not the true total. For most
+decisions ("is there meaningful trial activity?") the lower bound is enough,
+but downstream consumers should be aware:
+- "trial landscape size" for popular indications is truncated.
+- Comparisons of trial counts across indications can be misleading when both
+  are above the cap.
+
+Same caveat applies to `get_landscape` — it logs a separate "pre-filter fetch
+saturated at 20 pages" warning for the broader landscape fetch.
+
+Options if precision matters for a specific path:
+- Lift the cap for that call site (slow, more API calls).
+- Switch to ClinicalTrials.gov's `countTotal` endpoint if/when available, so we
+  get the exact count without paging.
+- Cache the lower-bound counts and only re-paginate when an analysis explicitly
+  needs an exact number.
+
+Estimated effort: low for path-specific cap lifts; medium for a clean
+"countOnly" mode that bypasses pagination.

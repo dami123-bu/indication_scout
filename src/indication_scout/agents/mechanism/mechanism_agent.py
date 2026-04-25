@@ -18,13 +18,9 @@ from indication_scout.agents.mechanism.mechanism_row_builder import (
 )
 from indication_scout.agents.mechanism.mechanism_tools import build_mechanism_tools
 from indication_scout.constants import MECHANISM_TOP_CANDIDATES
-from indication_scout.data_sources.chembl import (
-    get_all_drug_names,
-    resolve_drug_name,
-)
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.models.model_open_targets import MechanismOfAction
-from indication_scout.services.approval_check import get_fda_approved_diseases
+from indication_scout.services.approval_check import get_fda_approved_disease_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -140,13 +136,12 @@ async def _assemble_candidates(
     approved: set[str] = set()
     candidate_names = sorted({r["disease_name"] for r in rows if r.get("disease_name")})
     try:
-        chembl_id = await resolve_drug_name(drug_name)
-        drug_names = await get_all_drug_names(chembl_id)
-        if drug_names and candidate_names:
-            approved = await get_fda_approved_diseases(
-                drug_names=drug_names,
+        if candidate_names:
+            mapping = await get_fda_approved_disease_mapping(
+                drug_name=drug_name,
                 candidate_diseases=candidate_names,
             )
+            approved = {disease for disease, is_approved in mapping.items() if is_approved}
     except Exception as e:
         logger.warning(
             "_assemble_candidates: FDA approval check failed for %r: %s; "

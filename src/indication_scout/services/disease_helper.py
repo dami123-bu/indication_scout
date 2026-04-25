@@ -258,6 +258,33 @@ async def normalize_batch(
 # ── MeSH Resolver ────────────────────────────────────────────────────────────
 
 
+async def _ncbi_get_json(
+    session: aiohttp.ClientSession,
+    url: str,
+    params: dict[str, Any],
+    indication: str,
+) -> dict[str, Any]:
+    """GET json from NCBI with one 90s retry on rate-limit / transient failure.
+
+    On the first failure (ClientError or TimeoutError), sleep 90s and retry
+    once. A second failure re-raises so the caller's outer except can log and
+    return None as before.
+    """
+    try:
+        async with session.get(url, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logger.warning(
+            "MeSH resolver: NCBI request failed for '%s': %s; sleeping 90s and retrying once",
+            indication, e,
+        )
+        await asyncio.sleep(90)
+        async with session.get(url, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
 async def resolve_mesh_id(indication: str) -> str | None:
     """Resolve an indication string to its canonical MeSH descriptor ID.
 
@@ -285,9 +312,9 @@ async def resolve_mesh_id(indication: str) -> str | None:
     try:
         async with aiohttp.ClientSession() as session:
             await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-            async with session.get(NCBI_ESEARCH_URL, params=esearch_params) as resp:
-                resp.raise_for_status()
-                esearch_data = await resp.json()
+            esearch_data = await _ncbi_get_json(
+                session, NCBI_ESEARCH_URL, esearch_params, indication
+            )
 
             uids = esearch_data.get("esearchresult", {}).get("idlist", [])
             if not uids:
@@ -299,9 +326,9 @@ async def resolve_mesh_id(indication: str) -> str | None:
                 retry_params = dict(esearch_params)
                 retry_params["term"] = indication
                 await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-                async with session.get(NCBI_ESEARCH_URL, params=retry_params) as resp:
-                    resp.raise_for_status()
-                    esearch_data = await resp.json()
+                esearch_data = await _ncbi_get_json(
+                    session, NCBI_ESEARCH_URL, retry_params, indication
+                )
                 translation = esearch_data.get("esearchresult", {}).get(
                     "querytranslation", ""
                 )
@@ -326,9 +353,9 @@ async def resolve_mesh_id(indication: str) -> str | None:
                 esummary_params["api_key"] = api_key
 
             await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-            async with session.get(NCBI_ESUMMARY_URL, params=esummary_params) as resp:
-                resp.raise_for_status()
-                esummary_data = await resp.json()
+            esummary_data = await _ncbi_get_json(
+                session, NCBI_ESUMMARY_URL, esummary_params, indication
+            )
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         logger.warning("MeSH resolver: NCBI request failed for '%s': %s", indication, e)
         return None

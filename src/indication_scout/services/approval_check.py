@@ -375,31 +375,3 @@ async def get_fda_approved_disease_mapping(
     return result
 
 
-async def get_fda_approved_diseases(
-    drug_names: list[str],
-    candidate_diseases: list[str],
-    cache_dir: Path = DEFAULT_CACHE_DIR,
-) -> set[str]:
-    """Fetch FDA labels for drug names and identify which candidates are already approved.
-
-    Orchestrates FDAClient label fetching and LLM-based extraction.
-
-    Args:
-        drug_names: Any drug names — trade names, generic/INN, USAN, etc.
-                    (e.g. ["Ozempic", "Wegovy", "semaglutide"]).
-        candidate_diseases: Disease names to check.
-        cache_dir: Cache directory.
-
-    Returns:
-        Set of candidate disease names that are FDA-approved according to labels.
-    """
-    if not drug_names or not candidate_diseases:
-        return set()
-
-    async with FDAClient(cache_dir=cache_dir) as client:
-        label_texts = await client.get_all_label_indications(drug_names)
-
-    if not label_texts:
-        return set()
-
-    return await extract_approved_from_labels(label_texts, candidate_diseases, cache_dir)

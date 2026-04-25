@@ -92,7 +92,12 @@ class BaseClient(ABC):
                 # Retry on 429/5xx
                 if resp.status in {429, 500, 502, 503, 504}:
                     if attempt < self.max_retries:
-                        delay = min(2**attempt, 30)
+                        delay = min(2**attempt, 90)
+                        logger.warning(
+                            "%s: HTTP %d on %s; sleeping %ds and retrying (attempt %d/%d)",
+                            self._source_name, resp.status, url, delay,
+                            attempt + 1, self.max_retries,
+                        )
                         await asyncio.sleep(delay)
                         continue
                     raise DataSourceError(
@@ -117,7 +122,13 @@ class BaseClient(ABC):
                 )
 
             if attempt < self.max_retries:
-                await asyncio.sleep(min(2**attempt, 30))
+                delay = min(2**attempt, 90)
+                logger.warning(
+                    "%s: %s on %s; sleeping %ds and retrying (attempt %d/%d)",
+                    self._source_name, last_error, url, delay,
+                    attempt + 1, self.max_retries,
+                )
+                await asyncio.sleep(delay)
 
         raise last_error or DataSourceError(self._source_name, "Unknown error")
 

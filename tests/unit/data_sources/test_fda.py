@@ -116,7 +116,7 @@ async def test_get_label_indications_caches_result(tmp_path):
     mock_rest_get.assert_awaited_once()
 
 
-async def test_get_label_indications_caches_404(tmp_path):
+async def test_get_label_indications_does_not_cache_404(tmp_path):
     client = FDAClient(cache_dir=tmp_path)
     mock_rest_get = AsyncMock(
         side_effect=DataSourceError("openfda", "HTTP 404", 404)
@@ -127,7 +127,7 @@ async def test_get_label_indications_caches_404(tmp_path):
 
     assert first == []
     assert second == []
-    mock_rest_get.assert_awaited_once()
+    assert mock_rest_get.await_count == 2
 
 
 # --- get_all_label_indications ---
@@ -173,7 +173,28 @@ async def test_get_all_label_indications_empty_trade_names(tmp_path):
     assert result == []
 
 
-async def test_get_all_label_indications_tolerates_individual_failures(tmp_path):
+async def test_get_all_label_indications_tolerates_404(tmp_path):
+    """Per-alias 404s are turned into [] inside get_label_indications and
+    must not cause get_all_label_indications to fail."""
+    client = FDAClient(cache_dir=tmp_path)
+
+    async def mock_get_label(brand_name: str) -> list[str]:
+        # 404 is already converted to [] inside get_label_indications, so we
+        # mirror that here: missing alias yields [] without raising.
+        if brand_name == "GhostBrand":
+            return []
+        return ["Good indication text."]
+
+    with patch.object(client, "get_label_indications", side_effect=mock_get_label):
+        result = await client.get_all_label_indications(["GhostBrand", "GoodBrand"])
+
+    assert len(result) == 1
+    assert result[0] == "Good indication text."
+
+
+async def test_get_all_label_indications_reraises_non_404_failures(tmp_path):
+    """Non-404 errors (e.g. HTTP 500, 429) on any alias must be re-raised so
+    the caller knows the result is incomplete."""
     client = FDAClient(cache_dir=tmp_path)
 
     async def mock_get_label(brand_name: str) -> list[str]:
@@ -182,7 +203,5 @@ async def test_get_all_label_indications_tolerates_individual_failures(tmp_path)
         return ["Good indication text."]
 
     with patch.object(client, "get_label_indications", side_effect=mock_get_label):
-        result = await client.get_all_label_indications(["BadBrand", "GoodBrand"])
-
-    assert len(result) == 1
-    assert result[0] == "Good indication text."
+        with pytest.raises(DataSourceError):
+            await client.get_all_label_indications(["BadBrand", "GoodBrand"])

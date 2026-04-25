@@ -81,7 +81,7 @@ async def test_positive_candidates_surface_and_exclude_approved(
     plus non-empty target_function text.
 
     Exact-match only — synonym / parent-term expansion is the caller's
-    problem (services.approval_check.get_fda_approved_diseases). So
+    problem (services.approval_check.get_fda_approved_disease_mapping). So
     'familial hypercholesterolemia' can survive even when
     'hypercholesterolemia' is in the approved set — that's the contract.
     """

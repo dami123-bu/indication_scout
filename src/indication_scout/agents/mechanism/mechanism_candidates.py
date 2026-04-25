@@ -255,8 +255,8 @@ def _disease_direction(
 
 def _is_approved(disease_name: str, approved_lower: set[str]) -> bool:
     """Case-insensitive exact match. `approved_diseases` is expected to contain disease names already
-    matched to OT's vocabulary upstream (e.g. by services.approval_check.get_fda_approved_diseases), so
-    this layer just drops exact hits — no synonym or substring logic."""
+    matched to OT's vocabulary upstream (e.g. by services.approval_check.get_fda_approved_disease_mapping),
+    so this layer just drops exact hits — no synonym or substring logic."""
     if not disease_name or not approved_lower:
         return False
     return disease_name.lower() in approved_lower
