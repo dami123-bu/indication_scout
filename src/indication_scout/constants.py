@@ -250,29 +250,54 @@ CURATED_FDA_APPROVED_CANDIDATES: dict[str, list[str]] = {
     # Symbyax (olanzapine + fluoxetine) carries the TRD approval; OT lists
     # MDD on olanzapine alone, which conflates the combo's approval.
     "olanzapine": ["treatment-resistant depression"],
+    # COMPASS-trial CAD/PAD risk-reduction is on the Xarelto label, but the
+    # label phrases CAD/PAD as "in patients with CAD/PAD" — the prompt's
+    # risk-reduction rule reads them as qualifier populations and rejects.
+    "rivaroxaban": ["coronary artery disease", "peripheral artery disease"],
+    # Jardiance/Farxiga labels approve bare "heart failure" (covers both
+    # HFrEF and HFpEF after EMPEROR-Preserved/DELIVER expansions). The LLM
+    # treats narrower-EF candidates as sub-indications and rejects them.
+    "empagliflozin": [
+        "heart failure with reduced ejection fraction",
+        "heart failure with preserved ejection fraction",
+    ],
+    "dapagliflozin": [
+        "heart failure with reduced ejection fraction",
+        "heart failure with preserved ejection fraction",
+    ],
+    # Cardio-prevention and Kawasaki indications live on specific aspirin
+    # product labels (Bayer Cardio, Ecotrin, etc.); openFDA's top-N tends to
+    # return generic OTC pain-relief labels that lack these indications.
+    "aspirin": [
+        "myocardial infarction",
+        "stroke",
+        "rheumatoid arthritis",
+        "kawasaki disease",
+    ],
+    # Same morbid-obesity → obesity case as semaglutide.
+    "liraglutide": ["morbid obesity"],
+    # Stromectol's scabies indication is on the topical/cream formulations;
+    # generic ivermectin labels openFDA returns are strongyloidiasis-only.
+    "ivermectin": ["scabies"],
 }
 
 
 # Curated per-drug list of candidate disease phrasings to short-circuit as
 # NOT FDA-approved (return False without calling the LLM). Mirrors
 # CURATED_FDA_APPROVED_CANDIDATES but for the rejection direction. Use
-# sparingly: only when the LLM bridge over-matches on narrow-population
-# approvals or symptom-specific approvals where the bare disease name
-# would be misleading. When a candidate string EXACTLY matches (case-
-# sensitive, no normalization) any string in the drug's list, the approval
-# check short-circuits to False without calling the LLM.
+# sparingly: only when the LLM over-matches because the label phrases an
+# etiology, qualifier, or combination-product context as an indication that
+# isn't actually a standalone approval. When a candidate string EXACTLY
+# matches (case-sensitive, no normalization) any string in the drug's list,
+# the approval check short-circuits to False without calling the LLM.
 CURATED_FDA_REJECTED_CANDIDATES: dict[str, list[str]] = {
-    # Approved for "irritability associated with autistic disorder" only —
-    # bare "autism" misleadingly suggests the disease is treated broadly.
-    "risperidone": ["autism"],
-    # Tamsulosin treats BPH (benign prostatic hyperplasia), NOT prostate
-    # cancer; OT may surface unrelated prostate-related approvals.
-    "tamsulosin": ["prostate cancer"],
-    # RLS is approved for gabapentin enacarbil (Horizant), a different drug
-    # entity from gabapentin proper. The LLM conflates them.
-    "gabapentin": ["restless legs syndrome"],
-    # MDD as monotherapy is NOT approved for olanzapine; only TRD as the
-    # Symbyax combination with fluoxetine.
+    # Acetaminophen labels list "the common cold" as a *cause* of "minor
+    # aches and pains," not as a treatment indication. The LLM reads it
+    # as an indication.
+    "acetaminophen": ["common cold"],
+    # Olanzapine monotherapy is NOT approved for MDD; only Symbyax (olanz +
+    # fluoxetine combo) carries the TRD/bipolar-depression approval. The LLM
+    # conflates Symbyax's indication with single-agent olanzapine.
     "olanzapine": ["major depressive disorder"],
 }
 
