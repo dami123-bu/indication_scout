@@ -1,8 +1,7 @@
 """Literature tools — middle-ground version.
 
-Uses content_and_artifact so typed Python objects are preserved on
-msg.artifact. Tools share inter-call data via a closure-scoped store dict.
-No InjectedState, no LangGraph state machinery.
+Uses content_and_artifact so typed Python objects are preserved on msg.artifact. Tools share
+inter-call data via a closure-scoped store dict. No InjectedState, no LangGraph state machinery.
 """
 
 from datetime import date
@@ -26,8 +25,8 @@ def build_literature_tools(
 ) -> list:
     """Build tools that share data via a closure-scoped store dict.
 
-    Tools write to the store themselves as a side effect, so subsequent
-    tools can read prior results without the LLM passing them around.
+    Tools write to the store themselves as a side effect, so subsequent tools can read prior results
+    without the LLM passing them around.
     """
 
     store: dict = {}
@@ -41,8 +40,8 @@ def build_literature_tools(
 
     @tool(response_format="content_and_artifact")
     async def build_drug_profile(drug_name: str) -> tuple[str, DrugProfile]:
-        """Fetch pharmacological profile (gene targets, mechanisms, ATC codes)
-        for a drug. Call before expand_search_terms for richer queries."""
+        """Fetch pharmacological profile (gene targets, mechanisms, ATC codes) for a drug. Call
+        before expand_search_terms for richer queries."""
         chembl_id = await _get_chembl(drug_name)
         profile = await svc.build_drug_profile(chembl_id)
         store["drug_profile"] = profile
@@ -57,8 +56,8 @@ def build_literature_tools(
     async def expand_search_terms(
         drug_name: str, disease_name: str
     ) -> tuple[str, list[str]]:
-        """Generate diverse PubMed keyword queries. Uses the drug profile
-        if available, otherwise builds one on the fly."""
+        """Generate diverse PubMed keyword queries. Uses the drug profile if available, otherwise
+        builds one on the fly."""
         chembl_id = await _get_chembl(drug_name)
         profile = store.get("drug_profile") or await svc.build_drug_profile(chembl_id)
         queries = await svc.expand_search_terms(chembl_id, disease_name, profile)
@@ -107,8 +106,8 @@ def build_literature_tools(
     async def finalize_analysis(summary: str) -> tuple[str, str]:
         """Signal that the analysis is complete.
 
-        Call this as the very last step, passing your 3-4 sentence plain-text
-        summary of the findings. This terminates the agent loop.
+        Call this as the very last step, passing your 3-4 sentence plain-text summary of the
+        findings. This terminates the agent loop.
         """
         store["final_summary"] = summary
         return "Analysis complete.", summary

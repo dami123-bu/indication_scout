@@ -1,8 +1,7 @@
 """Literature agent
 
-Uses LangGraph's prebuilt create_react_agent for the agent loop. After
-the run, walks the message history to pull typed artifacts off the
-ToolMessages and assembles them into a LiteratureOutput.
+Uses LangGraph's prebuilt create_react_agent for the agent loop. After the run, walks the message
+history to pull typed artifacts off the ToolMessages and assembles them into a LiteratureOutput.
 """
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -12,8 +11,8 @@ from indication_scout.agents.literature.literature_output import LiteratureOutpu
 from indication_scout.agents.literature.literature_tools import build_literature_tools
 
 SYSTEM_PROMPT = """\
-You are a biomedical literature researcher investigating whether a drug
-could be repurposed for a new indication.
+You are a biomedical literature researcher investigating whether a drug could be repurposed for a
+new indication.
 
 You have six tools:
 
@@ -24,18 +23,16 @@ You have six tools:
 - synthesize — produces a structured evidence summary
 - finalize_analysis — signals completion; you MUST call this last
 
-IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your
-3-4 sentence plain-text summary of the findings. Do NOT
-emit a plain text message after calling finalize_analysis.
+IMPORTANT: finalize_analysis MUST be the final tool call. Pass it your 3-4 sentence plain-text
+summary of the findings. Do NOT emit a plain text message after calling finalize_analysis.
 
-Tools that need prior results read them automatically — you do not pass
-PMIDs or abstracts as arguments. Batch independent calls when possible.
+Tools that need prior results read them automatically — you do not pass PMIDs or abstracts as
+arguments. Batch independent calls when possible.
 
-GROUNDING RULE: Your summary must reference ONLY information that
-appeared in the tool results from this run. Do NOT introduce trial
-names, drug histories, or facts from your training that were not
-returned by the tools. If you don't have evidence from the retrieved
-abstracts for a claim, do not make it.
+GROUNDING RULE: Your summary must reference ONLY information that appeared in the tool results
+from this run. Do NOT introduce trial names, drug histories, or facts from your training that
+were not returned by the tools. If you don't have evidence from the retrieved abstracts for a
+claim, do not make it.
 """
 
 

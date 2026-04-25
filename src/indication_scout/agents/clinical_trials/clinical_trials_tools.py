@@ -30,21 +30,19 @@ def build_clinical_trials_tools(
     ) -> tuple[str, TrialOutcomes]:
         """Get trial-outcome evidence for a drug and indication, split by scope.
 
-        Runs four queries and returns them in a TrialOutcomes with four
-        scope-labelled lists:
-        (1) drug_wide — this drug, ANY indication, safety/efficacy stop_category
-            only. Reflects the drug's overall failure history.
-        (2) indication_wide — this indication, ANY drug. Shows historical
-            attrition in the disease area.
-        (3) pair_specific — this drug AND this indication, TERMINATED. All
-            stop_categories retained. Safety/efficacy here means the exact
-            hypothesis has been directly tested and stopped early.
-        (4) pair_completed — this drug AND this indication, COMPLETED.
-            Catches trials that ran to protocol end (a Phase 3 that finishes
-            but misses its primary endpoint is COMPLETED, not TERMINATED).
-            Inspect these for likely outcome — a completed Phase 3 in a
-            disease area without subsequent regulatory progression is a
-            strong signal the endpoint was missed.
+        Runs four queries and returns them in a TrialOutcomes with four scope-labelled lists:
+        (1) drug_wide — this drug, ANY indication, safety/efficacy stop_category only. Reflects
+            the drug's overall failure history.
+        (2) indication_wide — this indication, ANY drug. Shows historical attrition in the
+            disease area.
+        (3) pair_specific — this drug AND this indication, TERMINATED. All stop_categories
+            retained. Safety/efficacy here means the exact hypothesis has been directly tested
+            and stopped early.
+        (4) pair_completed — this drug AND this indication, COMPLETED. Catches trials that ran
+            to protocol end (a Phase 3 that finishes but misses its primary endpoint is
+            COMPLETED, not TERMINATED). Inspect these for likely outcome — a completed Phase 3
+            in a disease area without subsequent regulatory progression is a strong signal the
+            endpoint was missed.
 
         When reporting, keep the scopes separate — do not sum them.
         """
@@ -95,9 +93,8 @@ def build_clinical_trials_tools(
     async def search_trials(drug: str, indication: str) -> tuple[str, list[Trial]]:
         """Search for clinical trials matching a drug and indication.
 
-        Returns trial records including phase, status, enrollment, sponsor,
-        interventions, and outcomes. Use when detect_whitespace shows trials
-        exist and you need details.
+        Returns trial records including phase, status, enrollment, sponsor, interventions, and
+        outcomes. Use when detect_whitespace shows trials exist and you need details.
 
         Only trials with a start date before the session cutoff are returned.
         """
@@ -129,10 +126,9 @@ def build_clinical_trials_tools(
         drug: str, indication: str
     ) -> tuple[str, WhitespaceResult]:
         """Check if a drug-indication pair has been explored in clinical trials.
-        Returns whitespace signal: whether trials exist for this exact pair,
-        how many trials exist for the drug alone and indication alone, and
-        (when whitespace exists) other drugs being tested for the same indication.
-        This should almost always be the first tool called.
+        Returns whitespace signal: whether trials exist for this exact pair, how many trials exist
+        for the drug alone and indication alone, and (when whitespace exists) other drugs being
+        tested for the same indication. This should almost always be the first tool called.
         """
         mesh_id = await resolve_mesh_id(indication)
         if mesh_id is None:
@@ -163,9 +159,8 @@ def build_clinical_trials_tools(
     async def get_landscape(indication: str) -> tuple[str, IndicationLandscape]:
         """Get the competitive landscape for a indication.
 
-        Returns top 10 competitors grouped by sponsor + drug, ranked by
-        phase then enrollment, plus phase distribution and recent starts.
-        Use to understand how crowded the space is.
+        Returns top 10 competitors grouped by sponsor + drug, ranked by phase then enrollment,
+        plus phase distribution and recent starts. Use to understand how crowded the space is.
         """
         mesh_id = await resolve_mesh_id(indication)
         if mesh_id is None:
@@ -197,16 +192,14 @@ def build_clinical_trials_tools(
     ) -> tuple[str, ApprovalCheck]:
         """Check whether the drug is FDA-approved for this indication.
 
-        Resolves all known trade/generic names for the drug via ChEMBL, then
-        checks current FDA labels for any label whose approved indications
-        cover the given indication. Use this whenever pair_completed contains
-        any trial — it is the only tool that can tell you whether a completed
-        trial led to approval.
+        Resolves all known trade/generic names for the drug via ChEMBL, then checks current FDA
+        labels for any label whose approved indications cover the given indication. Use this
+        whenever pair_completed contains any trial — it is the only tool that can tell you whether
+        a completed trial led to approval.
 
-        When is_approved is True, the drug IS approved for this indication —
-        this is NOT a repurposing opportunity. When False, the indication was
-        not found on FDA labels (which does not distinguish trial failure
-        from approval pending from approval outside the US).
+        When is_approved is True, the drug IS approved for this indication — this is NOT a
+        repurposing opportunity. When False, the indication was not found on FDA labels (which
+        does not distinguish trial failure from approval pending from approval outside the US).
         """
         try:
             chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
@@ -270,8 +263,8 @@ def build_clinical_trials_tools(
     async def finalize_analysis(summary: str) -> tuple[str, str]:
         """Signal that the analysis is complete.
 
-        Call this as the very last step, passing your 2-3 sentence plain-text
-        summary of the findings. This terminates the agent loop.
+        Call this as the very last step, passing your 2-3 sentence plain-text summary of the
+        findings. This terminates the agent loop.
         """
         return "Analysis complete.", summary
 
