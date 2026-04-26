@@ -388,11 +388,11 @@ async def test_batch_returned_keys_match_all_input_terms():
 
 
 async def test_resolve_mesh_id_cached_hit_skips_network():
-    """A cached MeSH ID is returned without any aiohttp session being opened."""
+    """A cached (D-number, preferred_term) tuple is returned without aiohttp."""
     with (
         patch(
             "indication_scout.services.disease_helper.cache_get",
-            return_value="D006973",
+            return_value=("D006973", "Hypertension"),
         ),
         patch(
             "indication_scout.services.disease_helper.aiohttp.ClientSession"
@@ -400,7 +400,7 @@ async def test_resolve_mesh_id_cached_hit_skips_network():
     ):
         result = await resolve_mesh_id("hypertension")
 
-    assert result == "D006973"
+    assert result == ("D006973", "Hypertension")
     mock_session.assert_not_called()
 
 
@@ -439,12 +439,17 @@ async def test_resolve_mesh_id_returns_none_when_esearch_empty():
 
 
 async def test_resolve_mesh_id_writes_cache_on_success():
-    """On a successful resolution, the D-number is written to cache with the long TTL."""
+    """On a successful resolution, (D-number, preferred_term) is cached."""
     from indication_scout.constants import MESH_RESOLVER_TTL_SECONDS
 
     esearch_response = {"esearchresult": {"idlist": ["68006973"]}}
     esummary_response = {
-        "result": {"68006973": {"ds_meshui": "D006973"}}
+        "result": {
+            "68006973": {
+                "ds_meshui": "D006973",
+                "ds_meshterms": ["Hypertension", "High Blood Pressure"],
+            }
+        }
     }
 
     call_results = [esearch_response, esummary_response]
@@ -478,10 +483,10 @@ async def test_resolve_mesh_id_writes_cache_on_success():
     ):
         result = await resolve_mesh_id("hypertension")
 
-    assert result == "D006973"
+    assert result == ("D006973", "Hypertension")
     mock_cache_set.assert_called_once()
     args, kwargs = mock_cache_set.call_args
     assert args[0] == "mesh_resolver"
-    assert args[1] == {"indication": "hypertension"}
-    assert args[2] == "D006973"
+    assert args[1] == {"indication": "hypertension", "v": 2}
+    assert args[2] == ("D006973", "Hypertension")
     assert kwargs["ttl"] == MESH_RESOLVER_TTL_SECONDS

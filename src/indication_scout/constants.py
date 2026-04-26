@@ -36,14 +36,6 @@ CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
 # enrollment desc; counts that need the full population go through
 # _count_trials_total (cheap countTotal API path) instead of a record fetch.
 CLINICAL_TRIALS_FETCH_MAX: int = 50
-# Safety ceiling for the legacy _count_trials (still used by get_landscape).
-# CT.gov pages are 100 studies each; the legacy path walks results to count
-# post-MeSH survivors. Cap at 10 pages (≈1000 studies) to bound latency.
-CLINICAL_TRIALS_COUNT_PAGE_CAP: int = 10
-# get_landscape fetches unbounded when MeSH-filtering, then caps post-filter to
-# max_results. Cap the pre-filter fetch at 20 pages (≈2000 studies) to bound
-# latency while giving room for narrow MeSH subsets of broad Essie results.
-CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP: int = 20
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"

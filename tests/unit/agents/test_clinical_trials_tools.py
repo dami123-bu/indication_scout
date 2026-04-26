@@ -13,15 +13,14 @@ from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.models.model_clinical_trials import (
     ApprovalCheck,
     CompetitorEntry,
-    IndicationDrug,
+    CompletedTrialsResult,
     IndicationLandscape,
     Intervention,
     PrimaryOutcome,
     RecentStart,
-    TerminatedTrial,
+    SearchTrialsResult,
+    TerminatedTrialsResult,
     Trial,
-    TrialOutcomes,
-    WhitespaceResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,169 +48,12 @@ def _get_tool(tools: list, name: str):
 
 
 # ------------------------------------------------------------------
-# detect_whitespace
-# ------------------------------------------------------------------
-
-
-async def test_detect_whitespace_whitespace_case():
-    """detect_whitespace returns WhitespaceResult artifact when whitespace exists."""
-    mock_result = WhitespaceResult(
-        is_whitespace=True,
-        no_data=False,
-        exact_match_count=0,
-        drug_only_trials=120,
-        indication_only_trials=250,
-        indication_drugs=[
-            IndicationDrug(
-                nct_id="NCT00652457",
-                drug_name="Memantine",
-                indication="Huntington's Disease",
-                phase="Phase 4",
-                status="COMPLETED",
-            ),
-            IndicationDrug(
-                nct_id="NCT00029874",
-                drug_name="Tetrabenazine",
-                indication="Huntington's Disease",
-                phase="Phase 4",
-                status="COMPLETED",
-            ),
-        ],
-    )
-
-    mock_client = _mock_client(detect_whitespace=mock_result)
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D006816"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        msg = await _get_tool(tools, "detect_whitespace").ainvoke(
-            LCToolCall(
-                name="detect_whitespace",
-                args={"drug": "tirzepatide", "indication": "Huntington disease"},
-                id="tc1",
-                type="tool_call",
-            )
-        )
-
-    mock_client.detect_whitespace.assert_awaited_once_with(
-        "tirzepatide",
-        "Huntington disease",
-        date_before=None,
-        target_mesh_id="D006816",
-    )
-    assert isinstance(msg.artifact, WhitespaceResult)
-    assert msg.artifact.is_whitespace is True
-    assert msg.artifact.no_data is False
-    assert msg.artifact.exact_match_count == 0
-    assert msg.artifact.drug_only_trials == 120
-    assert msg.artifact.indication_only_trials == 250
-    assert len(msg.artifact.indication_drugs) == 2
-    assert msg.artifact.indication_drugs[0].nct_id == "NCT00652457"
-    assert msg.artifact.indication_drugs[0].drug_name == "Memantine"
-    assert msg.artifact.indication_drugs[0].phase == "Phase 4"
-    assert msg.artifact.indication_drugs[0].status == "COMPLETED"
-    assert msg.artifact.indication_drugs[1].nct_id == "NCT00029874"
-    assert msg.artifact.indication_drugs[1].drug_name == "Tetrabenazine"
-    assert "True" in msg.content
-
-
-async def test_detect_whitespace_not_whitespace_case():
-    """detect_whitespace returns artifact with is_whitespace=False when trials exist."""
-    mock_result = WhitespaceResult(
-        is_whitespace=False,
-        no_data=False,
-        exact_match_count=25,
-        drug_only_trials=500,
-        indication_only_trials=30000,
-        indication_drugs=[],
-    )
-
-    mock_client = _mock_client(detect_whitespace=mock_result)
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D003920"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        msg = await _get_tool(tools, "detect_whitespace").ainvoke(
-            LCToolCall(
-                name="detect_whitespace",
-                args={"drug": "semaglutide", "indication": "diabetes"},
-                id="tc2",
-                type="tool_call",
-            )
-        )
-
-    assert msg.artifact.is_whitespace is False
-    assert msg.artifact.exact_match_count == 25
-    assert msg.artifact.drug_only_trials == 500
-    assert msg.artifact.indication_only_trials == 30000
-    assert msg.artifact.indication_drugs == []
-    assert "False" in msg.content
-
-
-async def test_detect_whitespace_passes_date_before():
-    """detect_whitespace forwards date_before from closure to the client."""
-    cutoff = date(2020, 1, 1)
-    mock_result = WhitespaceResult(
-        is_whitespace=True,
-        no_data=False,
-        exact_match_count=0,
-        drug_only_trials=10,
-        indication_only_trials=20,
-        indication_drugs=[],
-    )
-    mock_client = _mock_client(detect_whitespace=mock_result)
-    tools = build_clinical_trials_tools(date_before=cutoff)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D000001"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "detect_whitespace").ainvoke(
-            LCToolCall(
-                name="detect_whitespace",
-                args={"drug": "drug_x", "indication": "indication_y"},
-                id="tc3",
-                type="tool_call",
-            )
-        )
-
-    mock_client.detect_whitespace.assert_awaited_once_with(
-        "drug_x",
-        "indication_y",
-        date_before=cutoff,
-        target_mesh_id="D000001",
-    )
-
-
-# ------------------------------------------------------------------
 # search_trials
 # ------------------------------------------------------------------
 
 
-async def test_search_trials_returns_trial_artifact():
-    """search_trials returns list[Trial] as artifact with all fields intact."""
+async def test_search_trials_returns_search_trials_result_artifact():
+    """search_trials returns a SearchTrialsResult artifact with all fields intact."""
     trial = Trial(
         nct_id="NCT00127933",
         title="XeNA Study",
@@ -229,14 +71,19 @@ async def test_search_trials_returns_trial_artifact():
         primary_outcomes=[PrimaryOutcome(measure="pCR rate", time_frame="4 cycles")],
         references=[],
     )
+    mock_result = SearchTrialsResult(
+        total_count=1,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[trial],
+    )
 
-    mock_client = _mock_client(search_trials=[trial])
+    mock_client = _mock_client(search_trials=mock_result)
     tools = build_clinical_trials_tools(date_before=None)
 
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D001943"),
+            new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -254,13 +101,18 @@ async def test_search_trials_returns_trial_artifact():
 
     mock_client.search_trials.assert_awaited_once_with(
         "trastuzumab",
-        "breast cancer",
+        "Breast Neoplasms",
         date_before=None,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D001943",
     )
-    assert len(msg.artifact) == 1
-    t = msg.artifact[0]
+    assert isinstance(msg.artifact, SearchTrialsResult)
+    assert msg.artifact.total_count == 1
+    assert msg.artifact.by_status == {
+        "RECRUITING": 0,
+        "ACTIVE_NOT_RECRUITING": 0,
+        "WITHDRAWN": 0,
+    }
+    assert len(msg.artifact.trials) == 1
+    t = msg.artifact.trials[0]
     assert t.nct_id == "NCT00127933"
     assert t.title == "XeNA Study"
     assert t.phase == "Phase 4"
@@ -280,15 +132,15 @@ async def test_search_trials_returns_trial_artifact():
 
 
 async def test_search_trials_passes_date_before():
-    """search_trials forwards date_before from closure and reads max from settings."""
+    """search_trials forwards date_before from closure into the client call."""
     cutoff = date(2018, 1, 1)
-    mock_client = _mock_client(search_trials=[])
+    mock_client = _mock_client(search_trials=SearchTrialsResult())
     tools = build_clinical_trials_tools(date_before=cutoff)
 
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D000505"),
+            new=AsyncMock(return_value=("D000505", "Alopecia Areata")),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -306,11 +158,373 @@ async def test_search_trials_passes_date_before():
 
     mock_client.search_trials.assert_awaited_once_with(
         "tofacitinib",
-        "alopecia areata",
+        "Alopecia Areata",
         date_before=cutoff,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D000505",
     )
+
+
+async def test_search_trials_returns_empty_when_resolver_returns_none():
+    """search_trials returns a default SearchTrialsResult and skips the client when resolver is None."""
+    client_factory = MagicMock()
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            new=client_factory,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "metformin", "indication": "xyzzy_bogus"},
+                id="tc_ms2",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, SearchTrialsResult)
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.by_status == {}
+    assert msg.artifact.trials == []
+    assert "MeSH unresolved" in msg.content
+    client_factory.assert_not_called()
+
+
+async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
+    """When total_count exceeds len(trials), the content string flags the 50-cap."""
+    trial = Trial(
+        nct_id="NCT00000001",
+        title="T",
+        phase="Phase 2",
+        overall_status="RECRUITING",
+        sponsor="S",
+    )
+    mock_result = SearchTrialsResult(
+        total_count=131,
+        by_status={"RECRUITING": 12, "ACTIVE_NOT_RECRUITING": 4, "WITHDRAWN": 1},
+        trials=[trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D003866", "Depressive Disorder")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "bupropion", "indication": "depression"},
+                id="tc_search_cap",
+                type="tool_call",
+            )
+        )
+
+    assert "131 trials" in msg.content
+    assert "recruiting=12" in msg.content
+    assert "active=4" in msg.content
+    assert "withdrawn=1" in msg.content
+    assert "top 50 shown" in msg.content
+
+
+# ------------------------------------------------------------------
+# get_completed
+# ------------------------------------------------------------------
+
+
+async def test_get_completed_returns_completed_trials_result_artifact():
+    """get_completed returns a CompletedTrialsResult artifact and reports phase3 count in content."""
+    trial = Trial(
+        nct_id="NCT04111111",
+        title="Phase 3 Study",
+        phase="Phase 3",
+        overall_status="COMPLETED",
+        sponsor="Sponsor",
+        enrollment=500,
+    )
+    mock_result = CompletedTrialsResult(
+        total_count=12, phase3_count=3, trials=[trial]
+    )
+    mock_client = _mock_client(get_completed_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D003924", "Diabetes Mellitus, Type 2")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "semaglutide", "indication": "type 2 diabetes"},
+                id="tc_completed",
+                type="tool_call",
+            )
+        )
+
+    mock_client.get_completed_trials.assert_awaited_once_with(
+        "semaglutide",
+        "Diabetes Mellitus, Type 2",
+        date_before=None,
+    )
+    assert isinstance(msg.artifact, CompletedTrialsResult)
+    assert msg.artifact.total_count == 12
+    assert msg.artifact.phase3_count == 3
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT04111111"
+    assert "12 total" in msg.content
+    assert "3 Phase 3" in msg.content
+    # only 1 shown of 12 → cap note present
+    assert "top 50 shown" in msg.content
+
+
+async def test_get_completed_passes_date_before():
+    """get_completed forwards date_before from closure into the client call."""
+    cutoff = date(2020, 1, 1)
+    mock_client = _mock_client(
+        get_completed_trials=CompletedTrialsResult()
+    )
+    tools = build_clinical_trials_tools(date_before=cutoff)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D000001", "Test Term")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "drug_x", "indication": "indication_y"},
+                id="tc_completed_date",
+                type="tool_call",
+            )
+        )
+
+    mock_client.get_completed_trials.assert_awaited_once_with(
+        "drug_x",
+        "Test Term",
+        date_before=cutoff,
+    )
+
+
+async def test_get_completed_returns_empty_when_resolver_returns_none():
+    """get_completed returns a default CompletedTrialsResult and skips client when resolver is None."""
+    client_factory = MagicMock()
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            new=client_factory,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "metformin", "indication": "xyzzy_bogus"},
+                id="tc_completed_none",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, CompletedTrialsResult)
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.phase3_count == 0
+    assert msg.artifact.trials == []
+    assert "MeSH unresolved" in msg.content
+    client_factory.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# get_terminated
+# ------------------------------------------------------------------
+
+
+async def test_get_terminated_returns_terminated_trials_result_artifact():
+    """get_terminated returns TerminatedTrialsResult and counts safety/efficacy stops in content."""
+    safety_trial = Trial(
+        nct_id="NCT04012255",
+        title="Safety Stop Trial",
+        phase="Phase 2",
+        overall_status="TERMINATED",
+        why_stopped="Serious adverse events observed",
+        sponsor="Novo Nordisk",
+        enrollment=40,
+    )
+    business_trial = Trial(
+        nct_id="NCT04012256",
+        title="Business Stop Trial",
+        phase="Phase 1",
+        overall_status="TERMINATED",
+        why_stopped="The trial was terminated for strategic reasons.",
+        sponsor="Novo Nordisk",
+        enrollment=20,
+    )
+    mock_result = TerminatedTrialsResult(
+        total_count=2, trials=[safety_trial, business_trial]
+    )
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D050177", "Overweight")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "semaglutide", "indication": "overweight"},
+                id="tc_term",
+                type="tool_call",
+            )
+        )
+
+    mock_client.get_terminated_trials.assert_awaited_once_with(
+        "semaglutide",
+        "Overweight",
+        date_before=None,
+    )
+    assert isinstance(msg.artifact, TerminatedTrialsResult)
+    assert msg.artifact.total_count == 2
+    assert len(msg.artifact.trials) == 2
+    assert msg.artifact.trials[0].nct_id == "NCT04012255"
+    assert msg.artifact.trials[0].why_stopped == "Serious adverse events observed"
+    assert msg.artifact.trials[1].nct_id == "NCT04012256"
+    # 1 safety stop, 1 business → "1 safety/efficacy"
+    assert "2 total" in msg.content
+    assert "1 safety/efficacy" in msg.content
+
+
+async def test_get_terminated_content_notes_cap_when_total_exceeds_shown():
+    """When total_count exceeds shown trials, the content string flags the 50-cap."""
+    trial = Trial(
+        nct_id="NCT04012255",
+        title="Trial",
+        phase="Phase 2",
+        overall_status="TERMINATED",
+        why_stopped="Lack of efficacy",
+        sponsor="S",
+    )
+    mock_result = TerminatedTrialsResult(total_count=80, trials=[trial])
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D050177", "Overweight")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "drug_x", "indication": "indication_y"},
+                id="tc_term_cap",
+                type="tool_call",
+            )
+        )
+
+    assert "80 total" in msg.content
+    assert "top 50 shown" in msg.content
+    assert "stop-category counts cover the 1 shown only" in msg.content
+
+
+async def test_get_terminated_passes_date_before():
+    """get_terminated forwards date_before from closure into the client call."""
+    cutoff = date(2018, 1, 1)
+    mock_client = _mock_client(get_terminated_trials=TerminatedTrialsResult())
+    tools = build_clinical_trials_tools(date_before=cutoff)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D000001", "Test Term")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "drug_x", "indication": "indication_y"},
+                id="tc9",
+                type="tool_call",
+            )
+        )
+
+    mock_client.get_terminated_trials.assert_awaited_once_with(
+        "drug_x",
+        "Test Term",
+        date_before=cutoff,
+    )
+
+
+async def test_get_terminated_returns_empty_when_resolver_returns_none():
+    """get_terminated returns a default TerminatedTrialsResult and skips client when resolver is None."""
+    client_factory = MagicMock()
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            new=client_factory,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "metformin", "indication": "xyzzy_bogus"},
+                id="tc_ms8",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, TerminatedTrialsResult)
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
+    assert "MeSH unresolved" in msg.content
+    client_factory.assert_not_called()
 
 
 # ------------------------------------------------------------------
@@ -350,7 +564,7 @@ async def test_get_landscape_returns_landscape_artifact():
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D018589"),
+            new=AsyncMock(return_value=("D018589", "Gastroparesis")),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -367,10 +581,9 @@ async def test_get_landscape_returns_landscape_artifact():
         )
 
     mock_client.get_landscape.assert_awaited_once_with(
-        "gastroparesis",
+        "Gastroparesis",
         date_before=None,
         top_n=10,
-        target_mesh_id="D018589",
     )
     assert isinstance(msg.artifact, IndicationLandscape)
     assert msg.artifact.total_trial_count == 95
@@ -406,7 +619,7 @@ async def test_get_landscape_passes_date_before():
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D018589"),
+            new=AsyncMock(return_value=("D018589", "Gastroparesis")),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -423,116 +636,43 @@ async def test_get_landscape_passes_date_before():
         )
 
     mock_client.get_landscape.assert_awaited_once_with(
-        "gastroparesis",
+        "Gastroparesis",
         date_before=cutoff,
         top_n=10,
-        target_mesh_id="D018589",
     )
 
 
-# ------------------------------------------------------------------
-# get_terminated
-# ------------------------------------------------------------------
-
-
-async def test_get_terminated_returns_terminated_trial_artifact():
-    """get_terminated returns TrialOutcomes artifact with all fields intact."""
-    terminated = TerminatedTrial(
-        nct_id="NCT04012255",
-        title="Semaglutide Overweight Trial",
-        drug_name="Semaglutide",
-        indication="Overweight",
-        phase="Phase 1",
-        why_stopped="The trial was terminated for strategic reasons.",
-        stop_category="business",
-        enrollment=40,
-        sponsor="Novo Nordisk",
-        start_date="2019-01-01",
-        termination_date="2020-06-01",
-    )
-    outcomes = TrialOutcomes(indication_wide=[terminated])
-
-    mock_client = _mock_client(get_terminated=outcomes)
+async def test_get_landscape_returns_empty_when_resolver_returns_none():
+    """get_landscape returns default IndicationLandscape and skips client when resolver is None."""
+    client_factory = MagicMock()
     tools = build_clinical_trials_tools(date_before=None)
 
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D050177"),
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
+            new=client_factory,
         ),
     ):
-        msg = await _get_tool(tools, "get_terminated").ainvoke(
+        msg = await _get_tool(tools, "get_landscape").ainvoke(
             LCToolCall(
-                name="get_terminated",
-                args={"drug": "semaglutide", "indication": "overweight"},
-                id="tc8",
+                name="get_landscape",
+                args={"indication": "xyzzy_bogus"},
+                id="tc_ms6",
                 type="tool_call",
             )
         )
 
-    mock_client.get_terminated.assert_awaited_once_with(
-        "semaglutide",
-        "overweight",
-        date_before=None,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D050177",
-    )
-    assert isinstance(msg.artifact, TrialOutcomes)
-    assert msg.artifact.drug_wide == []
-    assert msg.artifact.pair_specific == []
-    assert msg.artifact.pair_completed == []
-    assert len(msg.artifact.indication_wide) == 1
-    t = msg.artifact.indication_wide[0]
-    assert t.nct_id == "NCT04012255"
-    assert t.title == "Semaglutide Overweight Trial"
-    assert t.drug_name == "Semaglutide"
-    assert t.indication == "Overweight"
-    assert t.phase == "Phase 1"
-    assert t.why_stopped == "The trial was terminated for strategic reasons."
-    assert t.stop_category == "business"
-    assert t.enrollment == 40
-    assert t.sponsor == "Novo Nordisk"
-    assert t.start_date == "2019-01-01"
-    assert t.termination_date == "2020-06-01"
-    assert "1 indication-specific terminations" in msg.content
-
-
-async def test_get_terminated_passes_date_before():
-    """get_terminated forwards date_before from closure to the client."""
-    cutoff = date(2018, 1, 1)
-    mock_client = _mock_client(get_terminated=TrialOutcomes())
-    tools = build_clinical_trials_tools(date_before=cutoff)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D000001"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "get_terminated").ainvoke(
-            LCToolCall(
-                name="get_terminated",
-                args={"drug": "drug_x", "indication": "indication_y"},
-                id="tc9",
-                type="tool_call",
-            )
-        )
-
-    mock_client.get_terminated.assert_awaited_once_with(
-        "drug_x",
-        "indication_y",
-        date_before=cutoff,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D000001",
-    )
+    assert isinstance(msg.artifact, IndicationLandscape)
+    assert msg.artifact.total_trial_count is None
+    assert msg.artifact.competitors == []
+    assert msg.artifact.phase_distribution == {}
+    assert msg.artifact.recent_starts == []
+    assert "MeSH unresolved" in msg.content
+    client_factory.assert_not_called()
 
 
 # ------------------------------------------------------------------
@@ -806,11 +946,30 @@ async def test_check_fda_approval_no_drug_names_returns_default():
     extract_mock.assert_not_awaited()
 
 
+# ------------------------------------------------------------------
+# Tool registration
+# ------------------------------------------------------------------
+
+
 async def test_check_fda_approval_is_registered_in_tool_list():
     """build_clinical_trials_tools exposes check_fda_approval."""
     tools = build_clinical_trials_tools(date_before=None)
     names = {t.name for t in tools}
     assert "check_fda_approval" in names
+
+
+async def test_tool_list_contains_expected_tools():
+    """build_clinical_trials_tools returns the documented set of tools and excludes detect_whitespace."""
+    tools = build_clinical_trials_tools(date_before=None)
+    names = {t.name for t in tools}
+    assert names == {
+        "search_trials",
+        "get_completed",
+        "get_terminated",
+        "get_landscape",
+        "check_fda_approval",
+        "finalize_analysis",
+    }
 
 
 # ------------------------------------------------------------------
@@ -834,281 +993,3 @@ async def test_finalize_analysis_returns_summary_as_artifact():
 
     assert msg.artifact == text
     assert "Analysis complete" in msg.content
-
-
-# ------------------------------------------------------------------
-# MeSH resolver wiring (Phase 4)
-# ------------------------------------------------------------------
-#
-# Each tool must:
-#   1. Call resolve_mesh_id(indication) before constructing the client.
-#   2. If the resolver returns a MeSH id, forward it as target_mesh_id to
-#      the client method.
-#   3. If the resolver returns None, return the tool's empty-result shape
-#      and NOT instantiate ClinicalTrialsClient.
-
-
-async def test_search_trials_forwards_target_mesh_id_to_client():
-    """search_trials forwards the resolved MeSH id into the client call."""
-    mock_client = _mock_client(search_trials=[])
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D006973"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "search_trials").ainvoke(
-            LCToolCall(
-                name="search_trials",
-                args={"drug": "metformin", "indication": "hypertension"},
-                id="tc_ms1",
-                type="tool_call",
-            )
-        )
-
-    mock_client.search_trials.assert_awaited_once_with(
-        "metformin",
-        "hypertension",
-        date_before=None,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D006973",
-    )
-
-
-async def test_search_trials_returns_empty_when_resolver_returns_none():
-    """search_trials returns [] and does not instantiate the client when resolver is None."""
-    client_factory = MagicMock()
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            new=client_factory,
-        ),
-    ):
-        msg = await _get_tool(tools, "search_trials").ainvoke(
-            LCToolCall(
-                name="search_trials",
-                args={"drug": "metformin", "indication": "xyzzy_bogus"},
-                id="tc_ms2",
-                type="tool_call",
-            )
-        )
-
-    assert msg.artifact == []
-    assert "MeSH unresolved" in msg.content
-    client_factory.assert_not_called()
-
-
-async def test_detect_whitespace_forwards_target_mesh_id_to_client():
-    """detect_whitespace forwards the resolved MeSH id into the client call."""
-    mock_result = WhitespaceResult(
-        is_whitespace=False,
-        no_data=False,
-        exact_match_count=5,
-        drug_only_trials=10,
-        indication_only_trials=20,
-        indication_drugs=[],
-    )
-    mock_client = _mock_client(detect_whitespace=mock_result)
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D006973"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "detect_whitespace").ainvoke(
-            LCToolCall(
-                name="detect_whitespace",
-                args={"drug": "metformin", "indication": "hypertension"},
-                id="tc_ms3",
-                type="tool_call",
-            )
-        )
-
-    mock_client.detect_whitespace.assert_awaited_once_with(
-        "metformin",
-        "hypertension",
-        date_before=None,
-        target_mesh_id="D006973",
-    )
-
-
-async def test_detect_whitespace_returns_empty_when_resolver_returns_none():
-    """detect_whitespace returns default WhitespaceResult and skips client when resolver is None."""
-    client_factory = MagicMock()
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            new=client_factory,
-        ),
-    ):
-        msg = await _get_tool(tools, "detect_whitespace").ainvoke(
-            LCToolCall(
-                name="detect_whitespace",
-                args={"drug": "metformin", "indication": "xyzzy_bogus"},
-                id="tc_ms4",
-                type="tool_call",
-            )
-        )
-
-    assert isinstance(msg.artifact, WhitespaceResult)
-    assert msg.artifact.is_whitespace is None
-    assert msg.artifact.exact_match_count is None
-    assert msg.artifact.indication_drugs == []
-    assert "MeSH unresolved" in msg.content
-    client_factory.assert_not_called()
-
-
-async def test_get_landscape_forwards_target_mesh_id_to_client():
-    """get_landscape forwards the resolved MeSH id into the client call."""
-    mock_result = IndicationLandscape(
-        total_trial_count=10, competitors=[], phase_distribution={}, recent_starts=[]
-    )
-    mock_client = _mock_client(get_landscape=mock_result)
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D006973"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "get_landscape").ainvoke(
-            LCToolCall(
-                name="get_landscape",
-                args={"indication": "hypertension"},
-                id="tc_ms5",
-                type="tool_call",
-            )
-        )
-
-    mock_client.get_landscape.assert_awaited_once_with(
-        "hypertension", date_before=None, top_n=10, target_mesh_id="D006973"
-    )
-
-
-async def test_get_landscape_returns_empty_when_resolver_returns_none():
-    """get_landscape returns default IndicationLandscape and skips client when resolver is None."""
-    client_factory = MagicMock()
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            new=client_factory,
-        ),
-    ):
-        msg = await _get_tool(tools, "get_landscape").ainvoke(
-            LCToolCall(
-                name="get_landscape",
-                args={"indication": "xyzzy_bogus"},
-                id="tc_ms6",
-                type="tool_call",
-            )
-        )
-
-    assert isinstance(msg.artifact, IndicationLandscape)
-    assert msg.artifact.total_trial_count is None
-    assert msg.artifact.competitors == []
-    assert msg.artifact.phase_distribution == {}
-    assert msg.artifact.recent_starts == []
-    assert "MeSH unresolved" in msg.content
-    client_factory.assert_not_called()
-
-
-async def test_get_terminated_forwards_target_mesh_id_to_client():
-    """get_terminated forwards the resolved MeSH id into the client call."""
-    mock_outcomes = TrialOutcomes()
-    mock_client = _mock_client(get_terminated=mock_outcomes)
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value="D006973"),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            return_value=mock_client,
-        ),
-    ):
-        await _get_tool(tools, "get_terminated").ainvoke(
-            LCToolCall(
-                name="get_terminated",
-                args={"drug": "metformin", "indication": "hypertension"},
-                id="tc_ms7",
-                type="tool_call",
-            )
-        )
-
-    mock_client.get_terminated.assert_awaited_once_with(
-        "metformin",
-        "hypertension",
-        date_before=None,
-        sort="EnrollmentCount:desc",
-        target_mesh_id="D006973",
-    )
-
-
-async def test_get_terminated_returns_empty_when_resolver_returns_none():
-    """get_terminated returns default TrialOutcomes and skips client when resolver is None."""
-    client_factory = MagicMock()
-    tools = build_clinical_trials_tools(date_before=None)
-
-    with (
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
-            new=AsyncMock(return_value=None),
-        ),
-        patch(
-            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
-            new=client_factory,
-        ),
-    ):
-        msg = await _get_tool(tools, "get_terminated").ainvoke(
-            LCToolCall(
-                name="get_terminated",
-                args={"drug": "metformin", "indication": "xyzzy_bogus"},
-                id="tc_ms8",
-                type="tool_call",
-            )
-        )
-
-    assert isinstance(msg.artifact, TrialOutcomes)
-    assert msg.artifact.drug_wide == []
-    assert msg.artifact.indication_wide == []
-    assert msg.artifact.pair_specific == []
-    assert msg.artifact.pair_completed == []
-    assert "MeSH unresolved" in msg.content
-    client_factory.assert_not_called()

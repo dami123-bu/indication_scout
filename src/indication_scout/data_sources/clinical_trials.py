@@ -19,9 +19,7 @@ from typing import Any
 from indication_scout.config import get_settings
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
-    CLINICAL_TRIALS_COUNT_PAGE_CAP,
     CLINICAL_TRIALS_FETCH_MAX,
-    CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP,
     CLINICAL_TRIALS_RECENT_START_YEAR,
     VACCINE_NAME_KEYWORDS,
 )
@@ -149,66 +147,37 @@ class ClinicalTrialsClient(BaseClient):
 
     async def get_landscape(
         self,
-        indication: str,
+        mesh_term: str,
         date_before: date | None = None,
         top_n: int = 50,
-        target_mesh_id: str | None = None,
     ) -> IndicationLandscape:
         """Competitive landscape for an indication — drug/biologic trials, grouped by sponsor + drug.
 
+        Indication is filtered server-side via `AREA[ConditionMeshTerm]"<mesh_term>"`
+        — same precise descriptor match as the pair-scoped query methods.
         Fetches trials for the indication sorted by most recent start date,
-        then filters client-side to Drug/Biological interventions (vaccines
-        excluded). Ranks competitors by max phase, then most recent start date.
+        capped at clinical_trials_landscape_max_trials. Then filters
+        client-side to Drug/Biological interventions (vaccines excluded).
+        Ranks competitors by max phase, then most recent start date.
         Returns top_n competitors after filtering.
 
-        When target_mesh_id is set, the pre-filter fetch is unbounded (capped
-        at CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP pages as a safety ceiling) so
-        that MeSH-true matches outside the first landscape_max_trials window
-        are not silently truncated. The MeSH filter is applied before the
-        per-indication cap.
+        Total count comes from a single `countTotal` call — exact, no page cap.
         """
         landscape_max = _settings.clinical_trials_landscape_max_trials
+        cond = _mesh_cond(mesh_term)
 
-        if target_mesh_id:
-            fetch_task = self._fetch_all_indication_trials(
-                indication,
-                date_before=date_before,
-                phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
-                max_results=None,
-                max_pages=CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP,
-                sort="StartDate:desc",
-            )
-        else:
-            fetch_task = self._fetch_all_indication_trials(
-                indication,
-                date_before=date_before,
-                phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
-                max_results=landscape_max,
-                sort="StartDate:desc",
-            )
-
-        (trials, fetch_saturated), total_count = await asyncio.gather(
-            fetch_task,
-            self._count_trials(
-                drug=None,
-                indication=indication,
-                date_before=date_before,
-                target_mesh_id=target_mesh_id,
-            ),
+        fetch_task = self._fetch_all_indication_trials(
+            cond,
+            date_before=date_before,
+            phase_filter="(EARLY_PHASE1 OR PHASE1 OR PHASE2 OR PHASE3 OR PHASE4)",
+            max_results=landscape_max,
+            sort="StartDate:desc",
+        )
+        count_task = self._count_trials_total(
+            indication=cond, date_before=date_before,
         )
 
-        if target_mesh_id:
-            if fetch_saturated:
-                logger.warning(
-                    "get_landscape: pre-filter fetch saturated at %d pages for "
-                    "indication '%s' (mesh_id=%s); MeSH-true matches beyond cap "
-                    "are not seen",
-                    CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP,
-                    indication,
-                    target_mesh_id,
-                )
-            trials = self._filter_by_mesh(trials, target_mesh_id)
-            trials = trials[:landscape_max]
+        (trials, _), total_count = await asyncio.gather(fetch_task, count_task)
 
         return self._aggregate_landscape(trials, total_count=total_count, top_n=top_n)
 
@@ -461,52 +430,6 @@ class ClinicalTrialsClient(BaseClient):
         data = await self._rest_get(self.BASE_URL, params)
         return data.get("totalCount", 0)
 
-    async def _count_trials(
-        self,
-        drug: str | None,
-        indication: str | None,
-        date_before: date | None = None,
-        target_mesh_id: str | None = None,
-    ) -> int:
-        """Trial count for a drug/indication query.
-
-        Without target_mesh_id: short-circuits on the API's totalCount.
-        With target_mesh_id: paginates the Essie result set (capped at
-        CLINICAL_TRIALS_COUNT_PAGE_CAP pages), applies _filter_by_mesh, and
-        returns the post-filter count. The cap exists because CT.gov's
-        totalCount reflects the unfiltered query, and an uncapped walk on
-        broad indications (e.g. "cancer") would trigger hundreds of HTTP
-        calls per count. When the cap is hit, the returned count is a lower
-        bound — saturation is logged.
-        """
-        if target_mesh_id is None:
-            params = self._build_search_params(
-                drug=drug,
-                indication=indication,
-                date_before=date_before,
-            )
-            params["pageSize"] = 1  # we only need the count
-
-            data = await self._rest_get(self.BASE_URL, params)
-            return data.get("totalCount", 0)
-
-        trials, saturated = await self._paginated_search(
-            drug=drug,
-            indication=indication,
-            date_before=date_before,
-            max_pages=CLINICAL_TRIALS_COUNT_PAGE_CAP,
-        )
-        if saturated:
-            logger.warning(
-                "_count_trials: page cap (%d) hit for drug=%s indication=%s "
-                "mesh_id=%s; returned count is a lower bound",
-                CLINICAL_TRIALS_COUNT_PAGE_CAP,
-                drug,
-                indication,
-                target_mesh_id,
-            )
-        return len(self._filter_by_mesh(trials, target_mesh_id))
-
     # ------------------------------------------------------------------
     # Parsers: v2 API response → Pydantic models
     # ------------------------------------------------------------------
@@ -681,22 +604,6 @@ class ClinicalTrialsClient(BaseClient):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _filter_by_mesh(trials: list[Trial], target_mesh_id: str) -> list[Trial]:
-        """Keep trials whose mesh_conditions or mesh_ancestors contain target_mesh_id.
-
-        Comparison is on the MeSH D-number `id` field, not `term`. Trials with
-        both lists empty are dropped (cannot be verified against the MeSH tree).
-        """
-        filtered: list[Trial] = []
-        for t in trials:
-            if not t.mesh_conditions and not t.mesh_ancestors:
-                continue
-            ids = {m.id for m in t.mesh_conditions} | {m.id for m in t.mesh_ancestors}
-            if target_mesh_id in ids:
-                filtered.append(t)
-        return filtered
 
     @staticmethod
     def _normalize_phase(phases: list[str]) -> str:

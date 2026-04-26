@@ -212,14 +212,13 @@ def build_clinical_trials_tools(
                 f"Landscape for {indication}: MeSH unresolved, skipped.",
                 IndicationLandscape(),
             )
-        mesh_id, _ = resolved
+        _mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
             landscape = await client.get_landscape(
-                indication,
+                mesh_term,
                 date_before=date_before,
                 top_n=10,
-                target_mesh_id=mesh_id,
             )
         return (
             f"Landscape for {indication}: {len(landscape.competitors)} competitors",
