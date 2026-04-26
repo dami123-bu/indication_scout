@@ -10,6 +10,7 @@ Strategy: LLM normalize → verify with PubMed count → cache everything.
 import asyncio
 import json
 import logging
+import random
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -257,6 +258,13 @@ async def normalize_batch(
 
 # ── MeSH Resolver ────────────────────────────────────────────────────────────
 
+# Pre-emptive sleep before every NCBI call. Crude desynchronization: when several
+# coroutines (e.g. parallel disease pairs from the supervisor) hit NCBI in the
+# same scheduler tick they otherwise blow past the 10 req/s ceiling and 429.
+# Jitter widens the firing window so concurrent callers don't land in lockstep.
+_NCBI_PRECALL_SLEEP_BASE: float = 0.5
+_NCBI_PRECALL_SLEEP_JITTER: float = 0.4
+
 
 async def _ncbi_get_json(
     session: aiohttp.ClientSession,
@@ -269,10 +277,16 @@ async def _ncbi_get_json(
     Initial attempt + 3 retries (4 total tries). Each retry waits 90s before
     firing. After the final attempt fails, the exception re-raises so the
     caller's outer except can log and return None as before.
+
+    A pre-emptive jittered sleep runs before every attempt to keep concurrent
+    callers from saturating NCBI's per-second rate ceiling.
     """
     max_retries = 3
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
+        await asyncio.sleep(
+            _NCBI_PRECALL_SLEEP_BASE + random.random() * _NCBI_PRECALL_SLEEP_JITTER
+        )
         try:
             async with session.get(url, params=params) as resp:
                 logger.debug(

@@ -1,5 +1,48 @@
 # Future Improvements
 
+## NCBI rate limiting — proper semaphore + spacing gate (added 2026-04-26)
+
+Symptom (observed 2026-04-26 on dasatinib × breast / melanoma run): three
+concurrent supervisor pairs hit `resolve_mesh_id` simultaneously, all 429'd on
+the same MeSH descriptor URL, and all entered a 90s reactive backoff in
+lockstep. Trace showed the same warning line three times for the same
+`indication='melanoma'` and the same descriptor id, firing in the same
+scheduler tick.
+
+Current mitigation (in place): pre-emptive jittered `asyncio.sleep` before
+every `_ncbi_get_json` attempt (`_NCBI_PRECALL_SLEEP_BASE=0.5s`,
+`_NCBI_PRECALL_SLEEP_JITTER=0.4s`). Crude but cheap. It desynchronizes
+concurrent callers within ~0.9s of each other but does not enforce a global
+rate ceiling — under heavier supervisor parallelism (e.g. 5+ candidates) the
+429s will return.
+
+Proper fix when this resurfaces:
+
+1. **Module-level `asyncio.Semaphore(8)`** in `disease_helper.py` — one slot
+   below NCBI's 10 req/s ceiling with API key. Every NCBI call acquires it.
+2. **Module-level `asyncio.Lock` + last-call timestamp** for minimum spacing.
+   Under the lock: wait until `now - last_call >= 0.12s`, update `last_call`,
+   release. This guarantees spacing regardless of caller count.
+3. Wrap both around `_ncbi_get_json` so all NCBI traffic flows through the
+   same gate (esearch + esummary, MeSH resolver and any future caller).
+4. Drop the pre-emptive `asyncio.sleep` once the semaphore is in place — the
+   semaphore is strictly better (slow only when traffic is heavy).
+5. Drop the inline `asyncio.sleep(0.1)` calls in `resolve_mesh_id` (lines 347,
+   361, 388) for the same reason — they're a per-callsite version of the same
+   idea, but they don't coordinate across coroutines.
+
+Also worth doing alongside:
+- **Cache negative MeSH results.** The current docstring of `resolve_mesh_id`
+  notes "Does NOT cache None results." That means a missing or unresolvable
+  descriptor (e.g. a typo, a rare disease) re-queries NCBI on every call from
+  every pair. With the semaphore in place, this becomes the dominant remaining
+  source of avoidable load.
+
+Estimated effort: low (single file, ~30 lines). Defer until the pre-emptive
+sleep proves insufficient under realistic supervisor parallelism.
+
+---
+
 ## Supervisor — drug-level shared store (added 2026-04-26)
 
 Observed in a semaglutide snapshot: the supervisor demoted NAFLD as "settled
