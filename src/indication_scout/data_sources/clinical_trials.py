@@ -119,6 +119,14 @@ class ClinicalTrialsClient(BaseClient):
             drug=drug, indication=cond, date_before=date_before,
             status_filter="WITHDRAWN",
         )
+        # UNKNOWN: CT.gov auto-assigns when a record hasn't been updated in
+        # ~2 years. The trial ran but outcome is unknowable from CT.gov status.
+        # Critical for repurposing analysis — these must NOT be confused with
+        # "trial never happened."
+        unknown_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
+            status_filter="UNKNOWN",
+        )
         fetch_task = self._paginated_search(
             drug=drug,
             indication=cond,
@@ -127,8 +135,9 @@ class ClinicalTrialsClient(BaseClient):
             sort="EnrollmentCount:desc",
         )
 
-        total, recruiting, active, withdrawn, (trials, _) = await asyncio.gather(
-            total_task, recruiting_task, active_task, withdrawn_task, fetch_task,
+        total, recruiting, active, withdrawn, unknown, (trials, _) = await asyncio.gather(
+            total_task, recruiting_task, active_task, withdrawn_task,
+            unknown_task, fetch_task,
         )
 
         return SearchTrialsResult(
@@ -137,6 +146,7 @@ class ClinicalTrialsClient(BaseClient):
                 "RECRUITING": recruiting,
                 "ACTIVE_NOT_RECRUITING": active,
                 "WITHDRAWN": withdrawn,
+                "UNKNOWN": unknown,
             },
             trials=trials,
         )

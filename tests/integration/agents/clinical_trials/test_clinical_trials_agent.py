@@ -77,6 +77,7 @@ async def test_riluzole_als_clinical_trials_agent(clinical_trials_agent):
         "RECRUITING": 2,
         "ACTIVE_NOT_RECRUITING": 1,
         "WITHDRAWN": 1,
+        "UNKNOWN": 4,
     }
     # Top-50 cap not hit (38 < 50), so all 38 are shown.
     assert len(output.search.trials) == 38

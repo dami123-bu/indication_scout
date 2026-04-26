@@ -1,5 +1,79 @@
 # Future Improvements
 
+## Supervisor — drug-level shared store (added 2026-04-26)
+
+Observed in a semaglutide snapshot: the supervisor demoted NAFLD as "settled
+and unfavorable" because `(semaglutide, NAFLD)` returned `is_approved=False,
+completed.phase3=1`. Locally correct, globally wrong — semaglutide IS approved
+for NASH (the inflammatory subset of NAFLD, per 2024 Wegovy expansion). The
+supervisor never saw that fact because no candidate was named "NASH."
+
+Two structural gaps:
+
+1. **No drug-level facts visible to the supervisor.** Each sub-agent call is
+   per-pair. FDA-approval discoveries, ChEMBL aliases, and mechanism context
+   get computed and discarded once the pair is analyzed. A fact discovered for
+   `(drug, candidate_A)` is invisible when the supervisor reasons about
+   `(drug, candidate_B)`.
+2. **Strict GROUNDING RULE blocks training-knowledge inference.** Even if the
+   model knows NASH ⊂ NAFLD, the prompt blocks that inference (rightly —
+   opening that door invites hallucinated approvals).
+
+Fix: a closure-scoped shared store inside `build_supervisor_tools`, populated
+by sub-agents as side effect, surfaced to the supervisor via two tools.
+
+**Store fields (Tier 1, in scope):**
+- `drug_aliases` (ChEMBL trade/generic names)
+- `approved_indications` (`(text, matched_label_text)` tuples)
+- `mechanism_targets` (gene + action_type pairs)
+- `mechanism_disease_associations` (high-score target→disease pairs)
+
+**Tools (Tier 2):**
+- `analyze_drug(drug_name)` — runs once at start, resolves ChEMBL aliases +
+  FDA approval check across known indications. Writes to store. Returns
+  briefing as content.
+- `get_drug_briefing()` — read-only view of current store, rendered as
+  markdown. Supervisor calls before `finalize_supervisor`.
+
+**Sub-agent write-throughs:**
+- `analyze_mechanism` populates `mechanism_targets` and
+  `mechanism_disease_associations`.
+- `analyze_clinical_trials` appends any `is_approved=True` matched_indication.
+
+**Briefing shape (terse, structured, no prose):**
+```
+DRUG INTAKE: semaglutide
+- Trade names: Ozempic, Wegovy, Rybelsus
+- FDA-approved indications:
+  - Type 2 diabetes mellitus
+  - Chronic weight management
+  - MASH
+- Targets: SLC6A2 (INHIBITOR), SLC6A3 (INHIBITOR)
+- Top mechanism-disease associations:
+  - SLC6A2 → ADHD (score 0.95)
+  - SLC6A3 → ADHD (score 0.93)
+```
+
+**Prompt change:** add to RECONCILIATION RULE that the supervisor must call
+`get_drug_briefing()` before finalize and check whether any candidate is
+related to an approved indication (subset/superset/sibling). If so, name the
+relationship explicitly — do not treat the candidate as a closed unfavorable
+hypothesis when its sister indication is already approved.
+
+**Implementation order:** closure dict → `analyze_drug` tool → briefing
+renderer → `get_drug_briefing` tool → mechanism write-through → trials
+write-through → supervisor prompt update → regression test against
+semaglutide × NAFLD case.
+
+**Out of scope (added back when concrete trigger conditions appear):**
+- Drug-level safety signals (accumulate from terminated `why_stopped`).
+  Add when the same drug repeatedly stops for the same reason across pairs.
+- `related_terms` for approved indications (precomputed synonym/subset/
+  superset hints). Add if the LLM proves unable to make the NASH↔NAFLD
+  inference from the flat approved list alone.
+
+---
+
 ## Reconsider drug_wide and indication_wide scopes (added 2026-04-25)
 
 The current refactor (see `trial_refactor.md`) drops `drug_wide` and
@@ -357,3 +431,205 @@ of the clinical trials agent's tool surface, not a quick patch.
 Estimated effort: medium — touches the data-source method signature, the
 agent's tool definitions, the agent's prompt, and downstream supervisor
 prompts that reason about completed/terminated counts.
+
+------
+
+APPENDIX
+
+
+## Scenarios
+
+### Scenario 1 — Drug did not resolve (prerequisite short-circuit)
+**Drug:** a made-up string like `"xyzzy-not-a-drug"` or a withdrawn
+compound that ChEMBL won't resolve.
+
+**Structural assertions:**
+- `output.mechanisms_of_action == []`
+- `output.drug_targets == {}`
+- `output.shaped_associations == []`
+
+**Summary assertions:**
+- Length < 300 chars (single sentence).
+- Contains "our tools" or "did not find" (attribute-to-tools rule).
+- Must NOT contain: any gene symbol, disease name, or the word
+  "hypothesis".
+- Must NOT contain banned tokens: `MechanismOfAction`,
+  `Association`, `overall_score`, `datatype_scores`.
+
+This proves the prerequisite short-circuit fires and the model
+doesn't hallucinate targets from training data.
+
+---
+
+### Scenario 2 — Drug resolves but has no `action_type` on any MoA (direction-unknown short-circuit)
+**Drug:** find one in Open Targets where every
+`mechanisms_of_action[i].action_type is None`. Candidates to probe:
+small-molecule imaging agents or older compounds with incomplete
+MoA entries (confirm by inspecting `get_drug` output before
+committing to the case).
+
+**Structural assertions:**
+- `output.mechanisms_of_action` is non-empty.
+- Every `moa.action_type is None`.
+- Every `shaped_associations` entry has `shape == "neutral"`.
+
+**Summary assertions:**
+- Regex for "direction" AND ("unknown" OR "cannot be determined").
+- Must NOT contain "hypothesis" OR "contraindication" (shape words
+  are banned when direction is unknown).
+- Must NOT claim any repurposing opportunity.
+
+---
+
+### Scenario 3 — Every surfaced association is `confirms_known` (clinical-dominated short-circuit)
+**Drug:** a widely-used approved drug whose target–disease
+associations on Open Targets are dominated by its own clinical
+evidence. Good candidates: `metformin` (type 2 diabetes through
+AMPK/PRKAB1 associations) or `atorvastatin` (HMGCR →
+hypercholesterolemia). Verify by inspecting
+`datatype_scores['clinical'] ≥ 0.6, genetic_association < 0.3` on
+the top associations before committing.
+
+**Structural assertions:**
+- `shaped_associations` is non-empty.
+- `all(a.shape == "confirms_known" for a in output.shaped_associations)`.
+
+**Summary assertions:**
+- Contains phrase matching:
+  `no (novel|new) .* (hypothesis|repurposing)` OR
+  `dominated by .* clinical use`.
+- Must NOT use outcome-laden words: `"validated"`, `"promising"`,
+  `"encouraging"`, `"would treat"`.
+- Must NOT list any disease as a new hypothesis.
+
+This is the analogue of the semaglutide/NASH case — it proves the
+model stops rather than pads with "opportunities" when the data
+only confirms existing use.
+
+---
+
+### Scenario 4 — Single hypothesis, sufficient score (single-hypothesis branch)
+**Drug:** an inhibitor whose target has exactly one
+high-`overall_score` non-clinical disease association. Candidate:
+`imatinib` (KIT inhibitor → GIST is approved, but KIT also has
+mid-score associations to other diseases). Need to pick one where
+exactly one pair has `shape=="hypothesis"` and
+`overall_score ≥ 0.5` — verify by running
+`_compute_shaped_associations` on real data before committing.
+
+**Structural assertions:**
+- Exactly one `a` in `shaped_associations` with
+  `shape == "hypothesis"` AND `overall_score >= 0.5`.
+
+**Summary assertions:**
+- Contains the disease name and the target symbol.
+- Contains a numeric score within ±0.02 of the real `overall_score`
+  (proves it's citing data, not paraphrasing).
+- Plain-English translation of `action_type` (e.g. "inhibits",
+  "activates"), NOT the raw token `"INHIBITOR"`.
+- Contains exactly one disease name from `shaped_associations`
+  where `shape=="hypothesis"` — no extras.
+
+---
+
+### Scenario 5 — Multiple hypotheses (count-scaled branch)
+**Drug:** a multi-target kinase inhibitor like `dasatinib` or
+`sunitinib` with several targets each having non-clinical
+hypothesis-shape associations.
+
+**Structural assertions:**
+- `len([a for a in shaped_associations if a.shape == "hypothesis" and a.overall_score >= 0.5]) >= 2`
+
+**Summary assertions:**
+- Each hypothesis disease from `shaped_associations` appears in
+  the summary (loop assertion).
+- Each corresponding `overall_score` appears (within rounding
+  tolerance).
+- Must NOT use the single-adjective hedge: ban `"moderate evidence"`,
+  `"some evidence"`.
+- Must NOT collapse multiple hypotheses into one generic sentence —
+  assert each disease name shows up individually.
+
+This is the solanezumab-analogue test: prove the model scales with
+count instead of flattening.
+
+---
+
+### Scenario 6 — Contraindication shape (directional-opposite branch)
+**Drug:** harder to find cleanly. Need an activator where the
+disease carries GOF evidence (`somatic_mutation >= 0.4`), e.g. a
+kinase activator implicated in a cancer where the target is a
+known oncogene. Alternative: construct the case by picking a known
+inhibitor + a disease with low somatic/pathway scores and an LOF-name
+match (e.g. "…deficiency"). Verify the shape is
+`contraindication` in the real output before committing.
+
+**Structural assertions:**
+- At least one `a` in `shaped_associations` with
+  `shape == "contraindication"`.
+
+**Summary assertions:**
+- Uses hedged phrasing like `"directionally inconsistent"` or
+  `"opposes"` — regex for `(direction|opposite|inconsistent)`.
+- Must NOT say `"contraindicated"` or `"harmful"` (banned — tools
+  can't tell you clinical harm).
+
+---
+
+### Scenario 7 — Banned-tokens-everywhere regression (run across all scenarios)
+Factor into a parametrized test that runs over every output summary
+from the above tests and asserts that none of the banned internal
+tokens appear:
+
+```python
+BANNED_TOKENS = [
+    "MechanismOfAction", "Association", "overall_score", "datatype_scores",
+    "genetic_association", "somatic_mutation", "affected_pathway",
+    "target_symbols", "shaped_associations", "ShapedAssociation",
+    "confirms_known", "GOF", "LOF",
+]
+# plus outcome-laden words
+BANNED_OUTCOME_WORDS = ["validated", "promising", "encouraging",
+                        "mechanistically confirmed", "would treat"]
+```
+
+---
+
+### Scenario 8 — Grounding regression
+**Setup:** Reuse Scenario 4's drug. Before assertions, capture
+`surfaced_diseases = {a.disease_name for a in shaped_associations}`
+and `surfaced_targets = set(drug_targets.keys())`.
+
+**Summary assertions:**
+- Every disease-looking proper noun in the summary ∈
+  `surfaced_diseases` (approximate via substring check against the
+  set).
+- Every gene-symbol-looking token (regex `[A-Z0-9]{2,6}`) that
+  appears ∈ `surfaced_targets ∪ {"FDA", "DNA", etc.}`.
+
+This catches training-data leakage directly — the failure mode
+RULE 0 was written to prevent.
+
+---
+
+## Test organization notes
+
+- Use `@pytest.fixture` for the agent (same pattern as
+  clinical_trials).
+- Use `temperature=0, max_tokens=4096` for reproducibility.
+- Real API tests are slow and costly — mark them
+  `@pytest.mark.integration` and gate on an env var if you want to
+  run unit tests fast.
+- The structural assertions act as guardrails: if Open Targets
+  changes and a case stops exercising its branch, the structural
+  assert fails first with a clear message, so you don't waste time
+  debugging a summary that was testing the wrong branch.
+
+## What to do before writing the tests
+
+For each scenario, do a dry run of the agent against real data and
+inspect `output.shaped_associations` to **confirm the branch fires**.
+The clinical_trials test comment for atorvastatin is a good model —
+it explains why *that specific drug* exercises the ≥2 branch,
+including failed alternatives. Drug pick is the hard part; the
+assertions are mechanical once the branch is confirmed.

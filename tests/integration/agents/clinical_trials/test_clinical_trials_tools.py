@@ -50,12 +50,13 @@ async def test_search_trials_tool_uses_server_side_mesh_filter():
     )
 
     # Content string format: "Search for {drug} × {indication}: {N} trials
-    # (recruiting=..., active=..., withdrawn=...)" — no truncation note when
-    # shown == total.
+    # (recruiting=..., active=..., withdrawn=..., unknown=...)" — no
+    # truncation note when shown == total.
     assert "Search for semaglutide × hypertension: 2 trials" in msg.content
     assert "recruiting=2" in msg.content
     assert "active=0" in msg.content
     assert "withdrawn=0" in msg.content
+    assert "unknown=0" in msg.content
 
     result = msg.artifact
     assert isinstance(result, SearchTrialsResult)
@@ -64,6 +65,7 @@ async def test_search_trials_tool_uses_server_side_mesh_filter():
         "RECRUITING": 2,
         "ACTIVE_NOT_RECRUITING": 0,
         "WITHDRAWN": 0,
+        "UNKNOWN": 0,
     }
     assert len(result.trials) == 2
 

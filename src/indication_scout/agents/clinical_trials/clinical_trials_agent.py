@@ -51,7 +51,7 @@ output.
 # TOOLS
 - check_fda_approval — whether the drug is FDA-approved for this indication (resolves all known
   trade/generic names and checks current FDA labels). MUST be called first.
-- search_trials — all-status pair query: total + recruiting/active/withdrawn counts + top 50 trials
+- search_trials — all-status pair query: total + recruiting/active/withdrawn/unknown counts + top 50 trials
 - get_completed — COMPLETED pair query: total + Phase 3 count + top 50 trials
 - get_terminated — TERMINATED pair query: total + top 50 trials (each with why_stopped text)
 - get_landscape — competitive landscape for the indication
@@ -61,8 +61,10 @@ Do not emit plain text after finalize_analysis.
 
 # SCHEMA — facts about what each tool returns
 - SearchTrialsResult: total_count (all-status trials matching the pair), by_status (recruiting,
-  active, withdrawn counts only — terminated/completed are owned by their dedicated tools), and
-  trials (top 50 by enrollment).
+  active, withdrawn, UNKNOWN counts — terminated/completed are owned by their dedicated tools),
+  and trials (top 50 by enrollment). UNKNOWN status is critical: CT.gov auto-assigns it when a
+  record hasn't been updated in ~2 years. UNKNOWN trials RAN but their outcome is unknowable
+  from the registry — they are NOT the same as "trial never happened."
 - CompletedTrialsResult: total_count (completed trials for the pair), phase3_count (subset that
   are Phase 3), and trials (top 50 by enrollment).
 - TerminatedTrialsResult: total_count (terminated trials for the pair) and trials (top 50 by
@@ -157,6 +159,16 @@ required evidence is absent, the conclusion is not available — say so rather t
 - Competitive landscape shows a completed Phase 3 by SOME drug → the space has reached
   pivotal-scale activity. The tools CANNOT tell you whether that trial succeeded. Describe as
   "pivotal-scale activity reached," not as "validated."
+
+- search_trials.by_status['UNKNOWN'] > 0 → trials EXIST for this pair in UNKNOWN status (CT.gov
+  auto-assigns when records aren't updated for ~2 years). These trials RAN but their outcome is
+  unknowable from this run's data. CRITICAL: when reasoning about Phase 3 history, you MUST
+  inspect search_trials.trials for any UNKNOWN-status entries with Phase 3 (or Phase 2/Phase 3)
+  in the phase field. Do NOT claim "no Phase 3 has been conducted" based on completed.phase3_count
+  == 0 alone — UNKNOWN-status Phase 3 trials are excluded from completed counts but are still
+  evidence the hypothesis has been tested at that scale. Required phrasing when UNKNOWN Phase 3
+  trials exist: "N Phase 3 trials in this pair are on record but have UNKNOWN status (CT.gov
+  records not updated in ~2 years); their outcome cannot be determined from this run."
 
 # GROUNDING
 Reference ONLY information returned by the tools in this run. Do not introduce trial names,

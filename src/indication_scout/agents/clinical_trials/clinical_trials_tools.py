@@ -98,7 +98,8 @@ def build_clinical_trials_tools(
             f"Search for {drug} × {indication}: {result.total_count} trials "
             f"(recruiting={by.get('RECRUITING', 0)}, "
             f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
-            f"withdrawn={by.get('WITHDRAWN', 0)})"
+            f"withdrawn={by.get('WITHDRAWN', 0)}, "
+            f"unknown={by.get('UNKNOWN', 0)})"
             f"{cap_note}"
         )
         return content, result

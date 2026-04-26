@@ -127,10 +127,28 @@ Your final summary must reference ONLY findings returned by SUCCESSFUL (non-reje
 tool calls in this run. Before calling finalize_supervisor, review your tool history — if a
 disease's only tool call was REJECTED, do not include that disease in your summary.
 
+RECONCILIATION RULE:
+Before writing the final summary, reason ACROSS the findings — do not just stitch per-candidate
+blurbs together. Each sub-agent (mechanism, literature, clinical trials) returns its own
+narrative summary; you see all of them in the tool outputs. These summaries can disagree:
+- Literature may report "strong evidence of efficacy" while clinical trials shows "Phase 3
+  did not lead to approval" — these are not equally weighted (a failed pivotal trial outranks
+  preclinical/observational literature).
+- Mechanism may flag a target as a strong association while literature finds nothing.
+- A trial space may be crowded (high competitor count) but every prior drug failed for safety
+  reasons (closes the disease area, not just the candidate).
+
+Your job is to RECONCILE these signals candidate-by-candidate, then RANK the candidates by net
+signal across all three lenses. When findings conflict, name the conflict explicitly and
+explain which signal you weight more heavily and why. Do not pretend findings agree when they
+don't.
+
 IMPORTANT: finalize_supervisor MUST be the final tool call. Pass it your 4-6 sentence plain-text
-summary of the most promising candidates, referencing relevant mechanistic context from
-analyze_mechanism where it supports or contextualises the findings. Do NOT emit a plain text
-message after calling finalize_supervisor."""
+summary of the most promising candidates. The summary should: (1) name the top candidate and
+its net signal, (2) cite the specific mechanistic, literature, and trial evidence that
+supports the ranking, (3) briefly say why the runner-up candidates rank lower, including any
+conflicts that drove the demotion. Do NOT emit a plain text message after calling
+finalize_supervisor."""
 
 
 def build_supervisor_agent(llm, svc, db):
