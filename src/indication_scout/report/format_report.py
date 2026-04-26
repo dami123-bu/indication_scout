@@ -4,6 +4,7 @@ from datetime import datetime
 
 from indication_scout.agents.supervisor.supervisor_output import SupervisorOutput
 from indication_scout.agents.clinical_trials.clinical_trials_output import ClinicalTrialsOutput
+from indication_scout.agents.clinical_trials.clinical_trials_tools import _classify_stop_reason
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
@@ -79,7 +80,8 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
                 reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
                 title = f" {t.title}" if t.title else ""
                 phase = t.phase or "Unknown phase"
-                lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){reason}")
+                category = f" [{_classify_stop_reason(t.why_stopped)}]"
+                lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
 
     if ct.landscape and ct.landscape.competitors:
         lines.append(f"\n**Competitive landscape ({len(ct.landscape.competitors)} competitors):**")

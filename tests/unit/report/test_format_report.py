@@ -157,7 +157,19 @@ def test_fmt_clinical_trials_terminated_with_why_stopped():
     assert "**Terminated trials (1):**" in rendered
     assert (
         "[NCT01112233](https://clinicaltrials.gov/study/NCT01112233) Cardio Trial (Phase 2)"
-        " — *Sponsor decision due to slow enrollment*"
+        " [enrollment] — *Sponsor decision due to slow enrollment*"
+        in rendered
+    )
+
+
+def test_fmt_clinical_trials_terminated_unknown_when_no_why_stopped():
+    trial = Trial(nct_id="NCT09998888", title="Mystery Stop", phase="Phase 1")
+    out = ClinicalTrialsOutput(
+        terminated=TerminatedTrialsResult(total_count=1, trials=[trial])
+    )
+    rendered = _fmt_clinical_trials(out)
+    assert (
+        "[NCT09998888](https://clinicaltrials.gov/study/NCT09998888) Mystery Stop (Phase 1) [unknown]"
         in rendered
     )
 
