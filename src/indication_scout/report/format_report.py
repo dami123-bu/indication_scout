@@ -42,67 +42,49 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
     if ct.summary:
         lines.append(ct.summary)
 
-    if ct.whitespace:
-        ws = ct.whitespace
-        counts = []
-        if ws.exact_match_count is not None:
-            counts.append(f"{ws.exact_match_count} exact matches")
-        if ws.drug_only_trials is not None:
-            counts.append(f"{ws.drug_only_trials} drug-only")
-        if ws.indication_only_trials is not None:
-            counts.append(f"{ws.indication_only_trials} indication-only")
-        if counts:
-            lines.append(f"\n**Trial counts:** {', '.join(counts)}")
-        if ws.is_whitespace:
-            lines.append("**Whitespace detected** — limited competition in this indication.")
-        if ws.indication_drugs:
-            drug_names = ", ".join(d.drug_name for d in ws.indication_drugs if d.drug_name)
-            if drug_names:
-                lines.append(f"**Competing drugs:** {drug_names}")
+    if ct.approval:
+        ap = ct.approval
+        if ap.is_approved:
+            matched = f" ({ap.matched_indication})" if ap.matched_indication else ""
+            lines.append(f"\n**FDA approval:** Approved{matched}")
+        elif ap.label_found:
+            lines.append("\n**FDA approval:** Not found on FDA label for this indication")
+        else:
+            names = ", ".join(ap.drug_names_checked) if ap.drug_names_checked else "drug"
+            lines.append(f"\n**FDA approval:** No FDA label found for {names} — status undetermined")
 
-    if ct.landscape and ct.landscape.competitors:
-        lines.append(f"\n**Competitive landscape ({len(ct.landscape.competitors)} competitors):**")
-        for comp in ct.landscape.competitors[:10]:
-            lines.append(f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)")
+    if ct.search:
+        s = ct.search
+        lines.append(f"\n**Trial activity:** {s.total_count} total trial(s) for this pair")
+        if s.by_status:
+            status_bits = [f"{count} {status.lower().replace('_', ' ')}" for status, count in s.by_status.items() if count]
+            if status_bits:
+                lines.append(f"- {', '.join(status_bits)}")
+        if s.total_count == 0:
+            lines.append("- _Whitespace: no trials found for this drug × indication pair._")
 
-    if ct.trials:
-        lines.append(f"\n**Active / completed trials ({len(ct.trials)}):**")
-        for trial in ct.trials[:10]:
+    if ct.completed:
+        c = ct.completed
+        lines.append(f"\n**Completed trials ({c.total_count} total, {c.phase3_count} Phase 3):**")
+        for trial in c.trials[:10]:
             phase = trial.phase or "Unknown phase"
             status = trial.overall_status or ""
             lines.append(f"- [{trial.nct_id}](https://clinicaltrials.gov/study/{trial.nct_id}) — {trial.title} ({phase}{', ' + status if status else ''})")
 
     if ct.terminated:
         term = ct.terminated
-        total = (
-            len(term.drug_wide)
-            + len(term.indication_wide)
-            + len(term.pair_specific)
-            + len(term.pair_completed)
-        )
-        if total:
-            lines.append(f"\n**Trial outcomes ({total}):**")
-            for label, bucket in [
-                ("Pair-specific terminated", term.pair_specific),
-                ("Drug-wide terminations (safety/efficacy)", term.drug_wide),
-                ("Indication-wide terminations", term.indication_wide),
-            ]:
-                if not bucket:
-                    continue
-                lines.append(f"\n_{label} ({len(bucket)}):_")
-                for t in bucket[:10]:
-                    reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
-                    category = f" [{t.stop_category}]" if t.stop_category else ""
-                    title = f" {t.title}" if t.title else ""
-                    lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({t.phase}){category}{reason}")
+        if term.total_count:
+            lines.append(f"\n**Terminated trials ({term.total_count}):**")
+            for t in term.trials[:10]:
+                reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
+                title = f" {t.title}" if t.title else ""
+                phase = t.phase or "Unknown phase"
+                lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){reason}")
 
-            if term.pair_completed:
-                lines.append(f"\n_Pair-specific completed ({len(term.pair_completed)}):_")
-                for t in term.pair_completed[:10]:
-                    phase = t.phase or "Unknown phase"
-                    status = t.overall_status or ""
-                    title = f" {t.title}" if t.title else ""
-                    lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}{', ' + status if status else ''})")
+    if ct.landscape and ct.landscape.competitors:
+        lines.append(f"\n**Competitive landscape ({len(ct.landscape.competitors)} competitors):**")
+        for comp in ct.landscape.competitors[:10]:
+            lines.append(f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)")
 
     if not lines:
         lines.append("_No clinical trials data available._")
