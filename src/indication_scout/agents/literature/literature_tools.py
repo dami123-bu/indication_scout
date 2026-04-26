@@ -4,6 +4,7 @@ Uses content_and_artifact so typed Python objects are preserved on msg.artifact.
 inter-call data via a closure-scoped store dict. No InjectedState, no LangGraph state machinery.
 """
 
+import asyncio
 from datetime import date
 
 from langchain_core.tools import tool

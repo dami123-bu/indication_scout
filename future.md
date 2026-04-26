@@ -1,5 +1,30 @@
 # Future Improvements
 
+## Reconsider drug_wide and indication_wide scopes (added 2026-04-25)
+
+The current refactor (see `trial_refactor.md`) drops `drug_wide` and
+`indication_wide` from `TrialOutcomes` entirely. They were causing the same
+unrelated trials (e.g. a bupropion weight-loss futility stop) to appear under
+every candidate disease in the report, where they have no causal relation to
+the candidate.
+
+Both signals are legitimately useful at the right layer — they were just being
+computed and reported at the wrong one (per pair, repeated per candidate).
+When time allows, consider re-introducing them deliberately:
+
+- **drug_wide** (this drug × any indication, safety/efficacy terminations) is a
+  drug-level fact. Natural home: the supervisor or mechanism agent, fetched
+  once per drug and surfaced once at the top of the report — not per candidate.
+- **indication_wide** (any drug × this indication, terminations) is an
+  indication-level fact about how hard the disease area is. Natural home:
+  inside `get_landscape`, alongside the competitor list — that tool already
+  owns the indication-level view.
+
+See also the existing "Clinical Trials agent — collapse to a single precise
+search" section near the bottom of this file, which framed the same direction.
+
+---
+
 ## Clinical Trials Query Quality
 
 ### 0. MeSH resolver — ambiguous term handling

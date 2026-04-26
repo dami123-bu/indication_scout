@@ -264,25 +264,40 @@ async def _ncbi_get_json(
     params: dict[str, Any],
     indication: str,
 ) -> dict[str, Any]:
-    """GET json from NCBI with one 90s retry on rate-limit / transient failure.
+    """GET json from NCBI with up to 3 90s-spaced retries on transient failure.
 
-    On the first failure (ClientError or TimeoutError), sleep 90s and retry
-    once. A second failure re-raises so the caller's outer except can log and
-    return None as before.
+    Initial attempt + 3 retries (4 total tries). Each retry waits 90s before
+    firing. After the final attempt fails, the exception re-raises so the
+    caller's outer except can log and return None as before.
     """
-    try:
-        async with session.get(url, params=params) as resp:
-            resp.raise_for_status()
-            return await resp.json()
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.warning(
-            "MeSH resolver: NCBI request failed for '%s': %s; sleeping 90s and retrying once",
-            indication, e,
-        )
-        await asyncio.sleep(90)
-        async with session.get(url, params=params) as resp:
-            resp.raise_for_status()
-            return await resp.json()
+    max_retries = 3
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            async with session.get(url, params=params) as resp:
+                logger.debug(
+                    "_ncbi_get_json attempt=%d status=%s indication=%r",
+                    attempt + 1, resp.status, indication,
+                )
+                resp.raise_for_status()
+                return await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            last_exc = e
+            if attempt < max_retries:
+                logger.warning(
+                    "MeSH resolver: NCBI request failed for '%s': %s; sleeping 90s "
+                    "and retrying (attempt %d/%d)",
+                    indication, e, attempt + 1, max_retries,
+                )
+                await asyncio.sleep(90)
+            else:
+                logger.warning(
+                    "MeSH resolver: NCBI request failed for '%s' after %d retries: %s",
+                    indication, max_retries, e,
+                )
+    # mypy: last_exc is set whenever the loop falls through
+    assert last_exc is not None
+    raise last_exc
 
 
 async def resolve_mesh_id(indication: str) -> str | None:
@@ -309,56 +324,52 @@ async def resolve_mesh_id(indication: str) -> str | None:
     if api_key:
         esearch_params["api_key"] = api_key
 
-    try:
-        async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as session:
+        await asyncio.sleep(0.1)  # Stay under NCBI rate limit
+        esearch_data = await _ncbi_get_json(
+            session, NCBI_ESEARCH_URL, esearch_params, indication
+        )
+
+        uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+        if not uids:
+            # Fallback: retry without the [MeSH Terms] field tag so NCBI's
+            # Automatic Term Mapping can resolve descriptive phrases
+            # (e.g. "skin melanoma" → "cutaneous malignant melanoma"). Only
+            # accept the hit if ATM actually translated into a MeSH Terms
+            # query — otherwise it's a non-MeSH match we don't want.
+            retry_params = dict(esearch_params)
+            retry_params["term"] = indication
             await asyncio.sleep(0.1)  # Stay under NCBI rate limit
             esearch_data = await _ncbi_get_json(
-                session, NCBI_ESEARCH_URL, esearch_params, indication
+                session, NCBI_ESEARCH_URL, retry_params, indication
             )
-
-            uids = esearch_data.get("esearchresult", {}).get("idlist", [])
-            if not uids:
-                # Fallback: retry without the [MeSH Terms] field tag so NCBI's
-                # Automatic Term Mapping can resolve descriptive phrases
-                # (e.g. "skin melanoma" → "cutaneous malignant melanoma"). Only
-                # accept the hit if ATM actually translated into a MeSH Terms
-                # query — otherwise it's a non-MeSH match we don't want.
-                retry_params = dict(esearch_params)
-                retry_params["term"] = indication
-                await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-                esearch_data = await _ncbi_get_json(
-                    session, NCBI_ESEARCH_URL, retry_params, indication
-                )
-                translation = esearch_data.get("esearchresult", {}).get(
-                    "querytranslation", ""
-                )
-                if "[MeSH Terms]" in translation:
-                    uids = esearch_data.get("esearchresult", {}).get("idlist", [])
-                    logger.info(
-                        "MeSH resolver: ATM translated '%s' → %s",
-                        indication,
-                        translation,
-                    )
-
-            if not uids:
-                logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
-                return None
-
-            esummary_params: dict[str, Any] = {
-                "db": "mesh",
-                "id": uids[0],
-                "retmode": "json",
-            }
-            if api_key:
-                esummary_params["api_key"] = api_key
-
-            await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-            esummary_data = await _ncbi_get_json(
-                session, NCBI_ESUMMARY_URL, esummary_params, indication
+            translation = esearch_data.get("esearchresult", {}).get(
+                "querytranslation", ""
             )
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.warning("MeSH resolver: NCBI request failed for '%s': %s", indication, e)
-        return None
+            if "[MeSH Terms]" in translation:
+                uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+                logger.info(
+                    "MeSH resolver: ATM translated '%s' → %s",
+                    indication,
+                    translation,
+                )
+
+        if not uids:
+            logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
+            return None
+
+        esummary_params: dict[str, Any] = {
+            "db": "mesh",
+            "id": uids[0],
+            "retmode": "json",
+        }
+        if api_key:
+            esummary_params["api_key"] = api_key
+
+        await asyncio.sleep(0.1)  # Stay under NCBI rate limit
+        esummary_data = await _ncbi_get_json(
+            session, NCBI_ESUMMARY_URL, esummary_params, indication
+        )
 
     result = esummary_data.get("result", {})
     uid = uids[0]

@@ -326,6 +326,7 @@ class RetrievalService:
             that pass this list to semantic_search will see those PMIDs silently skipped
             by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
         """
+        await asyncio.sleep(70)
         async with PubMedClient(cache_dir=self.cache_dir) as client:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
