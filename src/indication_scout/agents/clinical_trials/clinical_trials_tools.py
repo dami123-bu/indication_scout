@@ -2,16 +2,20 @@ import logging
 from datetime import date
 
 from langchain_core.tools import tool
-from indication_scout.constants import DEFAULT_CACHE_DIR
+from indication_scout.constants import (
+    DEFAULT_CACHE_DIR,
+    NEGATION_PREFIXES,
+    STOP_KEYWORDS,
+)
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
 from indication_scout.models.model_clinical_trials import (
     ApprovalCheck,
-    WhitespaceResult,
+    CompletedTrialsResult,
     IndicationLandscape,
-    Trial,
-    TrialOutcomes,
+    SearchTrialsResult,
+    TerminatedTrialsResult,
 )
 from indication_scout.data_sources.fda import FDAClient
 from indication_scout.services.approval_check import extract_approved_from_labels
@@ -20,150 +24,185 @@ from indication_scout.services.disease_helper import resolve_mesh_id
 logger = logging.getLogger(__name__)
 
 
+def _classify_stop_reason(why_stopped: str | None) -> str:
+    """Keyword-based stop classification of a CT.gov why_stopped string.
+
+    Returns one of: safety, efficacy, business, enrollment, other, unknown.
+    Has a 20-char negation lookback so phrasings like "no safety concerns"
+    don't classify as safety.
+    """
+    if not why_stopped:
+        return "unknown"
+    lower = why_stopped.lower()
+    for keyword, category in STOP_KEYWORDS.items():
+        if keyword in lower:
+            idx = lower.index(keyword)
+            prefix = lower[max(0, idx - 20) : idx]
+            if any(neg in prefix for neg in NEGATION_PREFIXES):
+                neg_end = max(
+                    prefix.rfind(neg) + len(neg)
+                    for neg in NEGATION_PREFIXES
+                    if neg in prefix
+                )
+                between = prefix[neg_end:]
+                if not any(sep in between for sep in (",", "-", ".", ";")):
+                    continue
+            return category
+    return "other"
+
+
 def build_clinical_trials_tools(
     date_before: date | None = None,
 ) -> list:
 
     @tool(response_format="content_and_artifact")
-    async def get_terminated(
+    async def search_trials(
         drug: str, indication: str
-    ) -> tuple[str, TrialOutcomes]:
-        """Get trial-outcome evidence for a drug and indication, split by scope.
+    ) -> tuple[str, SearchTrialsResult]:
+        """All-status trials for a drug × indication pair.
 
-        Runs four queries and returns them in a TrialOutcomes with four scope-labelled lists:
-        (1) drug_wide — this drug, ANY indication, safety/efficacy stop_category only. Reflects
-            the drug's overall failure history.
-        (2) indication_wide — this indication, ANY drug. Shows historical attrition in the
-            disease area.
-        (3) pair_specific — this drug AND this indication, TERMINATED. All stop_categories
-            retained. Safety/efficacy here means the exact hypothesis has been directly tested
-            and stopped early.
-        (4) pair_completed — this drug AND this indication, COMPLETED. Catches trials that ran
-            to protocol end (a Phase 3 that finishes but misses its primary endpoint is
-            COMPLETED, not TERMINATED). Inspect these for likely outcome — a completed Phase 3
-            in a disease area without subsequent regulatory progression is a strong signal the
-            endpoint was missed.
+        Returns total count for the pair, per-status counts (recruiting,
+        active, withdrawn), and the top 50 trials by enrollment. The TERMINATED
+        and COMPLETED counts live on get_terminated and get_completed
+        respectively — call those for those scopes.
 
-        When reporting, keep the scopes separate — do not sum them.
+        Whitespace verdict: total_count == 0 means no trials of this drug in
+        this indication.
         """
-        mesh_id = await resolve_mesh_id(indication)
-        if mesh_id is None:
-            logger.warning(
-                "get_terminated: could not resolve MeSH id for indication '%s'; "
-                "returning empty TrialOutcomes",
-                indication,
-            )
-            return (
-                f"Trial outcomes for {drug} × {indication}: MeSH unresolved, skipped.",
-                TrialOutcomes(),
-            )
-
-        async with ClinicalTrialsClient() as client:
-            outcomes = await client.get_terminated(
-                drug,
-                indication,
-                date_before=date_before,
-                sort="EnrollmentCount:desc",
-                target_mesh_id=mesh_id,
-            )
-
-        pair_safety_efficacy = [
-            t for t in outcomes.pair_specific
-            if t.stop_category in {"safety", "efficacy"}
-        ]
-        pair_completed_phase3 = [
-            t for t in outcomes.pair_completed
-            if "3" in (t.phase or "")
-        ]
-        content = (
-            f"Trial outcomes for {drug} × {indication}: "
-            f"{len(outcomes.drug_wide)} drug-wide safety/efficacy failures "
-            f"(across all indications), "
-            f"{len(outcomes.indication_wide)} indication-specific terminations "
-            f"(any drug in this space), "
-            f"{len(outcomes.pair_specific)} pair-specific terminations "
-            f"(this drug in this indication; "
-            f"{len(pair_safety_efficacy)} safety/efficacy), "
-            f"{len(outcomes.pair_completed)} pair-specific completed trials "
-            f"({len(pair_completed_phase3)} Phase 3)"
-        )
-        return content, outcomes
-
-    @tool(response_format="content_and_artifact")
-    async def search_trials(drug: str, indication: str) -> tuple[str, list[Trial]]:
-        """Search for clinical trials matching a drug and indication.
-
-        Returns trial records including phase, status, enrollment, sponsor, interventions, and
-        outcomes. Use when detect_whitespace shows trials exist and you need details.
-
-        Only trials with a start date before the session cutoff are returned.
-        """
-        mesh_id = await resolve_mesh_id(indication)
-        if mesh_id is None:
+        resolved = await resolve_mesh_id(indication)
+        if resolved is None:
             logger.warning(
                 "search_trials: could not resolve MeSH id for indication '%s'; "
-                "returning empty list",
+                "returning empty SearchTrialsResult",
                 indication,
             )
             return (
-                f"Searched on {drug}-{indication}: MeSH unresolved, skipped.",
-                [],
+                f"Search for {drug} × {indication}: MeSH unresolved, skipped.",
+                SearchTrialsResult(),
             )
+        _mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
-            trials = await client.search_trials(
+            result = await client.search_trials(
                 drug,
-                indication,
+                mesh_term,
                 date_before=date_before,
-                sort="EnrollmentCount:desc",
-                target_mesh_id=mesh_id,
             )
 
-        return f"Searched on {drug}-{indication} and found {len(trials)} trials", trials
+        shown = len(result.trials)
+        cap_note = (
+            "; top 50 shown" if shown < result.total_count else ""
+        )
+        by = result.by_status
+        content = (
+            f"Search for {drug} × {indication}: {result.total_count} trials "
+            f"(recruiting={by.get('RECRUITING', 0)}, "
+            f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
+            f"withdrawn={by.get('WITHDRAWN', 0)})"
+            f"{cap_note}"
+        )
+        return content, result
 
     @tool(response_format="content_and_artifact")
-    async def detect_whitespace(
+    async def get_completed(
         drug: str, indication: str
-    ) -> tuple[str, WhitespaceResult]:
-        """Check if a drug-indication pair has been explored in clinical trials.
-        Returns whitespace signal: whether trials exist for this exact pair, how many trials exist
-        for the drug alone and indication alone, and (when whitespace exists) other drugs being
-        tested for the same indication. This should almost always be the first tool called.
+    ) -> tuple[str, CompletedTrialsResult]:
+        """COMPLETED trials for a drug × indication pair.
+
+        Returns total completed, Phase 3 count, and the top 50 completed
+        trials by enrollment. A completed Phase 3 trial that did not lead
+        to subsequent regulatory progression is a strong signal that the
+        primary endpoint was not met.
         """
-        mesh_id = await resolve_mesh_id(indication)
-        if mesh_id is None:
+        resolved = await resolve_mesh_id(indication)
+        if resolved is None:
             logger.warning(
-                "detect_whitespace: could not resolve MeSH id for indication '%s'; "
-                "returning empty WhitespaceResult",
+                "get_completed: could not resolve MeSH id for indication '%s'; "
+                "returning empty CompletedTrialsResult",
                 indication,
             )
             return (
-                f"Whitespace check for {drug} × {indication}: MeSH unresolved, skipped.",
-                WhitespaceResult(),
+                f"Completed for {drug} × {indication}: MeSH unresolved, skipped.",
+                CompletedTrialsResult(),
             )
+        _mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
-            whitespace = await client.detect_whitespace(
+            result = await client.get_completed_trials(
                 drug,
-                indication,
+                mesh_term,
                 date_before=date_before,
-                target_mesh_id=mesh_id,
             )
 
-        return (
-            f"Whitespace check for {drug} × {indication}: {whitespace.is_whitespace}",
-            whitespace,
+        shown = len(result.trials)
+        cap_note = "; top 50 shown" if shown < result.total_count else ""
+        content = (
+            f"Completed for {drug} × {indication}: {result.total_count} total "
+            f"({result.phase3_count} Phase 3){cap_note}"
         )
+        return content, result
+
+    @tool(response_format="content_and_artifact")
+    async def get_terminated(
+        drug: str, indication: str
+    ) -> tuple[str, TerminatedTrialsResult]:
+        """TERMINATED trials for a drug × indication pair.
+
+        Returns total terminated and the top 50 terminated trials by enrollment.
+        Each Trial carries `why_stopped` text. A safety/efficacy stop on
+        this exact pair is direct evidence the hypothesis was tested and
+        stopped early; business/enrollment stops are sponsor decisions and
+        neutral on drug performance.
+
+        The stop-category counts in the content string are computed from
+        the trials shown, not the full population, and may undercount when
+        more than 50 terminations exist for the pair.
+        """
+        resolved = await resolve_mesh_id(indication)
+        if resolved is None:
+            logger.warning(
+                "get_terminated: could not resolve MeSH id for indication '%s'; "
+                "returning empty TerminatedTrialsResult",
+                indication,
+            )
+            return (
+                f"Terminated for {drug} × {indication}: MeSH unresolved, skipped.",
+                TerminatedTrialsResult(),
+            )
+        _mesh_id, mesh_term = resolved
+
+        async with ClinicalTrialsClient() as client:
+            result = await client.get_terminated_trials(
+                drug,
+                mesh_term,
+                date_before=date_before,
+            )
+
+        shown = len(result.trials)
+        safety_efficacy = sum(
+            1 for t in result.trials
+            if _classify_stop_reason(t.why_stopped) in {"safety", "efficacy"}
+        )
+        cap_note = (
+            f"; top 50 shown (stop-category counts cover the {shown} shown only)"
+            if shown < result.total_count
+            else ""
+        )
+        content = (
+            f"Terminated for {drug} × {indication}: {result.total_count} total "
+            f"({safety_efficacy} safety/efficacy in shown set){cap_note}"
+        )
+        return content, result
 
     @tool(response_format="content_and_artifact")
     async def get_landscape(indication: str) -> tuple[str, IndicationLandscape]:
-        """Get the competitive landscape for a indication.
+        """Get the competitive landscape for an indication.
 
         Returns top 10 competitors grouped by sponsor + drug, ranked by phase then enrollment,
         plus phase distribution and recent starts. Use to understand how crowded the space is.
         """
-        mesh_id = await resolve_mesh_id(indication)
-        if mesh_id is None:
+        resolved = await resolve_mesh_id(indication)
+        if resolved is None:
             logger.warning(
                 "get_landscape: could not resolve MeSH id for indication '%s'; "
                 "returning empty IndicationLandscape",
@@ -173,6 +212,7 @@ def build_clinical_trials_tools(
                 f"Landscape for {indication}: MeSH unresolved, skipped.",
                 IndicationLandscape(),
             )
+        mesh_id, _ = resolved
 
         async with ClinicalTrialsClient() as client:
             landscape = await client.get_landscape(
@@ -194,8 +234,8 @@ def build_clinical_trials_tools(
 
         Resolves all known trade/generic names for the drug via ChEMBL, then checks current FDA
         labels for any label whose approved indications cover the given indication. Use this
-        whenever pair_completed contains any trial — it is the only tool that can tell you whether
-        a completed trial led to approval.
+        whenever the completed scope contains any trial — it is the only tool that can tell you
+        whether a completed trial led to approval.
 
         When is_approved is True, the drug IS approved for this indication — this is NOT a
         repurposing opportunity. When False, the indication was not found on FDA labels (which
@@ -269,10 +309,10 @@ def build_clinical_trials_tools(
         return "Analysis complete.", summary
 
     return [
-        detect_whitespace,
         search_trials,
-        get_landscape,
+        get_completed,
         get_terminated,
+        get_landscape,
         check_fda_approval,
         finalize_analysis,
     ]

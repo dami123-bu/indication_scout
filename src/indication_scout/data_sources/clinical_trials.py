@@ -1,12 +1,12 @@
 """
 ClinicalTrials.gov REST API v2 client.
 
-Five methods:
-  1. get_trial         — Fetch a single trial by NCT ID
-  2. search_trials     — Trial Agent: drug + indication → trial records
-  3. detect_whitespace — Trial Agent: is this drug-indication pair unexplored?
-  4. get_landscape     — Landscape Agent: competitive map for an indication
-  5. get_terminated    — Critique Agent: what has failed in this space?
+Pair-scoped query methods follow a count + top-50 exemplars pattern:
+  1. get_trial               — Fetch a single trial by NCT ID
+  2. search_trials           — All-status trials for a drug × indication pair
+  3. get_completed_trials    — COMPLETED trials for a drug × indication pair
+  4. get_terminated_trials   — TERMINATED trials for a drug × indication pair
+  5. get_landscape           — Competitive map for an indication
 """
 
 from __future__ import annotations
@@ -20,11 +20,9 @@ from indication_scout.config import get_settings
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
     CLINICAL_TRIALS_COUNT_PAGE_CAP,
+    CLINICAL_TRIALS_FETCH_MAX,
     CLINICAL_TRIALS_LANDSCAPE_FETCH_CAP,
     CLINICAL_TRIALS_RECENT_START_YEAR,
-    CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
-    NEGATION_PREFIXES,
-    STOP_KEYWORDS,
     VACCINE_NAME_KEYWORDS,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
@@ -32,41 +30,23 @@ from indication_scout.data_sources.base_client import BaseClient, DataSourceErro
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
+
+
+def _mesh_cond(mesh_term: str) -> str:
+    """Format a MeSH preferred term as a CT.gov server-side condition filter."""
+    return f'AREA[ConditionMeshTerm]"{mesh_term}"'
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
-    IndicationDrug,
+    CompletedTrialsResult,
     IndicationLandscape,
     Intervention,
     MeshTerm,
     PrimaryOutcome,
     RecentStart,
-    TerminatedTrial,
+    SearchTrialsResult,
+    TerminatedTrialsResult,
     Trial,
-    TrialOutcomes,
-    WhitespaceResult,
 )
-
-
-def _classify_stop_reason(why_stopped: str | None) -> str:
-    """Keyword-based stop classification. LLM refinement happens at the agent layer."""
-    if not why_stopped:
-        return "unknown"
-    lower = why_stopped.lower()
-    for keyword, category in STOP_KEYWORDS.items():
-        if keyword in lower:
-            idx = lower.index(keyword)
-            prefix = lower[max(0, idx - 20) : idx]
-            if any(neg in prefix for neg in NEGATION_PREFIXES):
-                neg_end = max(
-                    prefix.rfind(neg) + len(neg)
-                    for neg in NEGATION_PREFIXES
-                    if neg in prefix
-                )
-                between = prefix[neg_end:]
-                if not any(sep in between for sep in (",", "-", ".", ";")):
-                    continue
-            return category
-    return "other"
 
 
 class ClinicalTrialsClient(BaseClient):
@@ -98,142 +78,69 @@ class ClinicalTrialsClient(BaseClient):
         return self._parse_trial(data)
 
     # ------------------------------------------------------------------
-    # Public: search_trials
+    # Public: search_trials (all-status pair query: counts + top-50)
     # ------------------------------------------------------------------
 
     async def search_trials(
         self,
         drug: str,
-        indication: str | None = None,
+        mesh_term: str,
         date_before: date | None = None,
-        phase_filter: str | None = None,
-        sort: str | None = None,
-        target_mesh_id: str | None = None,
-    ) -> list[Trial]:
-        """Search for trials matching drug and optional indication.
+    ) -> SearchTrialsResult:
+        """All-status trials for a drug × indication pair.
 
-        If target_mesh_id is provided, results are post-filtered to trials
-        whose mesh_conditions or mesh_ancestors contain that D-number.
+        Indication is filtered server-side via CT.gov's
+        `AREA[ConditionMeshTerm]"<mesh_term>"` syntax (precise descriptor
+        match — no ancestor/descendant fuzziness, no free-text noise).
+        Drug side stays free-text via `query.intr` so trials whose
+        intervention isn't MeSH-tagged are still caught.
+
+        Issues four cheap count calls (total + RECRUITING +
+        ACTIVE_NOT_RECRUITING + WITHDRAWN) plus one fetch of up to
+        CLINICAL_TRIALS_FETCH_MAX records sorted by enrollment desc. The
+        same query.cond filter is used for counts and fetch, so
+        `len(trials) <= total_count` always.
+
+        TERMINATED and COMPLETED counts are NOT reported here — those live
+        on get_terminated_trials and get_completed_trials respectively to
+        avoid surfacing the same number from two places.
         """
-        trials, _ = await self._paginated_search(
+        cond = _mesh_cond(mesh_term)
+        total_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before
+        )
+        recruiting_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
+            status_filter="RECRUITING",
+        )
+        active_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
+            status_filter="ACTIVE_NOT_RECRUITING",
+        )
+        withdrawn_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
+            status_filter="WITHDRAWN",
+        )
+        fetch_task = self._paginated_search(
             drug=drug,
-            indication=indication,
+            indication=cond,
             date_before=date_before,
-            phase_filter=phase_filter,
-            max_results=_settings.clinical_trials_search_max,
-            sort=sort,
-        )
-        if target_mesh_id:
-            trials = self._filter_by_mesh(trials, target_mesh_id)
-        return trials
-
-    # ------------------------------------------------------------------
-    # Public: detect_whitespace
-    # ------------------------------------------------------------------
-
-    async def detect_whitespace(
-        self,
-        drug: str,
-        indication: str,
-        date_before: date | None = None,
-        target_mesh_id: str | None = None,
-    ) -> WhitespaceResult:
-        """Is this drug-indication pair being explored in clinical trials?
-
-        Runs three concurrent queries:
-          - Exact match: trials with both drug AND indication (max 50)
-          - Drug-only count: total trials with this drug (any indication)
-          - Indication-only count: total trials with this indication (any drug)
-
-        If no exact matches (whitespace exists), fetches indication trials and
-        populates indication_drugs with other drugs being tested for this indication:
-          - Filters to Phase 2+ trials only (excludes noisy Phase 1 data)
-          - Ranks by phase (descending) then active status (recruiting preferred)
-          - Deduplicates by drug_name, keeping the highest-ranked trial per drug
-          - Returns top 50 unique drugs
-
-        This tells the Trial Agent what competitors exist in the indication space
-        when the queried drug has no trials there.
-        """
-        # All three are independent — run concurrently
-        exact_task = self._paginated_search(
-            drug=drug,
-            indication=indication,
-            date_before=date_before,
-            max_results=_settings.clinical_trials_whitespace_exact_max,
-        )
-        # Drug-only count is never MeSH-filtered (no indication to filter against).
-        drug_count_task = self._count_trials(
-            drug=drug, indication=None, date_before=date_before
-        )
-        indication_count_task = self._count_trials(
-            drug=None,
-            indication=indication,
-            date_before=date_before,
-            target_mesh_id=target_mesh_id,
+            max_results=CLINICAL_TRIALS_FETCH_MAX,
+            sort="EnrollmentCount:desc",
         )
 
-        (exact_trials, _), drug_count, indication_count = await asyncio.gather(
-            exact_task, drug_count_task, indication_count_task
+        total, recruiting, active, withdrawn, (trials, _) = await asyncio.gather(
+            total_task, recruiting_task, active_task, withdrawn_task, fetch_task,
         )
 
-        if target_mesh_id:
-            exact_trials = self._filter_by_mesh(exact_trials, target_mesh_id)
-
-        # Indication drugs: only populated when whitespace exists
-        # Restrict to Phase 2+ for meaningful efficacy signal
-        indication_drugs: list[IndicationDrug] = []
-        if not exact_trials:
-            indication_trials, _ = await self._fetch_all_indication_trials(
-                indication,
-                date_before=date_before,
-                max_results=_settings.clinical_trials_whitespace_indication_max,
-                phase_filter=CLINICAL_TRIALS_WHITESPACE_PHASE_FILTER,
-            )
-
-            if target_mesh_id:
-                indication_trials = self._filter_by_mesh(
-                    indication_trials, target_mesh_id
-                )
-
-            # Collect drug/biologic trials as candidates
-            candidates: list[IndicationDrug] = []
-            for t in indication_trials:
-                drug_name, _ = self._primary_drug(t)
-                if drug_name != "Unknown":
-                    candidates.append(IndicationDrug.from_trial(t, drug_name))
-
-            # Rank: most advanced phase first, then by active status
-            active_statuses = {
-                "RECRUITING",
-                "ACTIVE_NOT_RECRUITING",
-                "ENROLLING_BY_INVITATION",
-            }
-            candidates.sort(
-                key=lambda cd: (
-                    self._phase_rank(cd.phase),
-                    cd.status in active_statuses,
-                ),
-                reverse=True,
-            )
-
-            # Deduplicate by drug_name, keeping highest-ranked entry
-            seen_drugs: set[str] = set()
-            unique_candidates: list[IndicationDrug] = []
-            for cd in candidates:
-                if cd.drug_name not in seen_drugs:
-                    seen_drugs.add(cd.drug_name)
-                    unique_candidates.append(cd)
-
-            indication_drugs = unique_candidates[:_settings.clinical_trials_whitespace_top_drugs]
-
-        return WhitespaceResult(
-            is_whitespace=len(exact_trials) == 0,
-            no_data=drug_count == 0 and indication_count == 0,
-            exact_match_count=len(exact_trials),
-            drug_only_trials=drug_count,
-            indication_only_trials=indication_count,
-            indication_drugs=indication_drugs,
+        return SearchTrialsResult(
+            total_count=total,
+            by_status={
+                "RECRUITING": recruiting,
+                "ACTIVE_NOT_RECRUITING": active,
+                "WITHDRAWN": withdrawn,
+            },
+            trials=trials,
         )
 
     # ------------------------------------------------------------------
@@ -306,110 +213,85 @@ class ClinicalTrialsClient(BaseClient):
         return self._aggregate_landscape(trials, total_count=total_count, top_n=top_n)
 
     # ------------------------------------------------------------------
-    # Public: get_terminated
+    # Public: get_terminated_trials (TERMINATED pair query: count + top-50)
     # ------------------------------------------------------------------
 
-    async def get_terminated(
+    async def get_terminated_trials(
         self,
         drug: str,
-        indication: str,
+        mesh_term: str,
         date_before: date | None = None,
-        sort: str | None = None,
-        target_mesh_id: str | None = None,
-    ) -> TrialOutcomes:
-        """Trial-outcome evidence for a drug and indication, split by scope.
+    ) -> TerminatedTrialsResult:
+        """TERMINATED trials for a drug × indication pair.
 
-        Runs four concurrent queries:
-          - Drug query: safety/efficacy terminations for this drug (any indication).
-            Filtered to stop_category in {safety, efficacy} only.
-          - Indication query: what has failed in this indication space (any drug),
-            capped at clinical_trials_terminated_indication_max.
-          - Pair-terminated query: this drug AND this indication, status
-            TERMINATED. All stop_categories kept.
-          - Pair-completed query: this drug AND this indication, status
-            COMPLETED. Catches Phase 3 trials that ran to protocol end but
-            failed — ClinicalTrials.gov marks those COMPLETED, not TERMINATED.
-        Returns a TrialOutcomes with four scope-labelled lists.
+        Indication is filtered server-side via `AREA[ConditionMeshTerm]`.
+        One count call (total terminated) plus one fetch of up to
+        CLINICAL_TRIALS_FETCH_MAX TERMINATED records sorted by enrollment
+        desc. Each returned Trial carries `why_stopped`; stop-category
+        classification happens at the tool layer (no separate model field).
         """
-        drug_params = self._build_search_params(
-            drug=drug,
-            date_before=date_before,
+        cond = _mesh_cond(mesh_term)
+        total_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
             status_filter="TERMINATED",
-            sort=sort,
         )
-        drug_params["pageSize"] = _settings.clinical_trials_terminated_drug_page_size
-        indication_params = self._build_search_params(
-            indication=indication,
-            date_before=date_before,
-            status_filter="TERMINATED",
-            sort=sort,
-        )
-        pair_terminated_params = self._build_search_params(
+        fetch_task = self._paginated_search(
             drug=drug,
-            indication=indication,
+            indication=cond,
             date_before=date_before,
+            max_results=CLINICAL_TRIALS_FETCH_MAX,
+            sort="EnrollmentCount:desc",
             status_filter="TERMINATED",
-            sort=sort,
         )
-        pair_completed_params = self._build_search_params(
-            drug=drug,
-            indication=indication,
-            date_before=date_before,
+
+        total, (trials, _) = await asyncio.gather(total_task, fetch_task)
+
+        return TerminatedTrialsResult(total_count=total, trials=trials)
+
+    # ------------------------------------------------------------------
+    # Public: get_completed_trials (COMPLETED pair query: count + top-50)
+    # ------------------------------------------------------------------
+
+    async def get_completed_trials(
+        self,
+        drug: str,
+        mesh_term: str,
+        date_before: date | None = None,
+    ) -> CompletedTrialsResult:
+        """COMPLETED trials for a drug × indication pair.
+
+        Indication is filtered server-side via `AREA[ConditionMeshTerm]`.
+        Two count calls (total completed + completed Phase 3) plus one
+        fetch of up to CLINICAL_TRIALS_FETCH_MAX COMPLETED records sorted
+        by enrollment desc.
+
+        Phase 3 is the only phase the supervisor's summary cites — Phase 1
+        / 2 / 4 counts are intentionally not surfaced.
+        """
+        cond = _mesh_cond(mesh_term)
+        total_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
             status_filter="COMPLETED",
-            sort=sort,
         )
-        drug_data, indication_data, pair_term_data, pair_comp_data = await asyncio.gather(
-            self._rest_get(self.BASE_URL, drug_params),
-            self._rest_get(self.BASE_URL, indication_params),
-            self._rest_get(self.BASE_URL, pair_terminated_params),
-            self._rest_get(self.BASE_URL, pair_completed_params),
+        phase3_task = self._count_trials_total(
+            drug=drug, indication=cond, date_before=date_before,
+            status_filter="COMPLETED", phase_filter="PHASE3",
+        )
+        fetch_task = self._paginated_search(
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
+            max_results=CLINICAL_TRIALS_FETCH_MAX,
+            sort="EnrollmentCount:desc",
+            status_filter="COMPLETED",
         )
 
-        # Drug query: only safety/efficacy terminations are meaningful signal.
-        # Drug-only query is not MeSH-filtered (no indication to filter against).
-        drug_results = [
-            self._parse_terminated_trial(s) for s in drug_data.get("studies", [])
-        ]
-        drug_results = [
-            t for t in drug_results if t.stop_category in {"safety", "efficacy"}
-        ]
+        total, phase3, (trials, _) = await asyncio.gather(
+            total_task, phase3_task, fetch_task,
+        )
 
-        # Indication query: parse to Trial, MeSH-filter, then wrap. Cap after.
-        indication_trials = [
-            self._parse_trial(s) for s in indication_data.get("studies", [])
-        ]
-        if target_mesh_id:
-            indication_trials = self._filter_by_mesh(indication_trials, target_mesh_id)
-        indication_results = [
-            self._terminated_from_trial(t) for t in indication_trials
-        ][:_settings.clinical_trials_terminated_indication_max]
-
-        # Pair-terminated: all stop_categories retained; MeSH-filter before wrapping
-        pair_terminated_trials = [
-            self._parse_trial(s) for s in pair_term_data.get("studies", [])
-        ]
-        if target_mesh_id:
-            pair_terminated_trials = self._filter_by_mesh(
-                pair_terminated_trials, target_mesh_id
-            )
-        pair_terminated_results = [
-            self._terminated_from_trial(t) for t in pair_terminated_trials
-        ]
-
-        # Pair-completed: trials that ran to protocol end; MeSH-filter before returning
-        pair_completed_results = [
-            self._parse_trial(s) for s in pair_comp_data.get("studies", [])
-        ]
-        if target_mesh_id:
-            pair_completed_results = self._filter_by_mesh(
-                pair_completed_results, target_mesh_id
-            )
-
-        return TrialOutcomes(
-            drug_wide=drug_results,
-            indication_wide=indication_results,
-            pair_specific=pair_terminated_results,
-            pair_completed=pair_completed_results,
+        return CompletedTrialsResult(
+            total_count=total, phase3_count=phase3, trials=trials,
         )
 
     # ------------------------------------------------------------------
@@ -450,6 +332,7 @@ class ClinicalTrialsClient(BaseClient):
         indication: str | None = None,
         date_before: date | None = None,
         phase_filter: str | None = None,
+        status_filter: str | None = None,
         max_results: int | None = None,
         max_pages: int | None = None,
         sort: str | None = None,
@@ -475,6 +358,7 @@ class ClinicalTrialsClient(BaseClient):
                 indication=indication,
                 date_before=date_before,
                 phase_filter=phase_filter,
+                status_filter=status_filter,
                 page_token=page_token,
                 sort=sort,
             )
@@ -548,6 +432,34 @@ class ClinicalTrialsClient(BaseClient):
             params["sort"] = sort
 
         return params
+
+    async def _count_trials_total(
+        self,
+        *,
+        drug: str | None = None,
+        indication: str | None = None,
+        date_before: date | None = None,
+        status_filter: str | None = None,
+        phase_filter: str | None = None,
+    ) -> int:
+        """Single-call exact count via CT.gov v2 `countTotal=true&pageSize=1`.
+
+        Used by the new pair-scoped query methods. Free-text condition match
+        (no MeSH filtering) — counts are slightly noisier than a MeSH-precise
+        walk would be, but the cost is one HTTP call instead of up to 1000
+        record fetches, and the noise is acceptable for "how busy is this
+        space" framing.
+        """
+        params = self._build_search_params(
+            drug=drug,
+            indication=indication,
+            date_before=date_before,
+            status_filter=status_filter,
+            phase_filter=phase_filter,
+        )
+        params["pageSize"] = 1
+        data = await self._rest_get(self.BASE_URL, params)
+        return data.get("totalCount", 0)
 
     async def _count_trials(
         self,
@@ -673,31 +585,6 @@ class ClinicalTrialsClient(BaseClient):
             ),
             primary_outcomes=primary_outcomes,
             references=pmids,
-        )
-
-    def _parse_terminated_trial(self, study: dict) -> TerminatedTrial:
-        """Parse a study into a TerminatedTrial with stop classification."""
-        return self._terminated_from_trial(self._parse_trial(study))
-
-    def _terminated_from_trial(self, trial: Trial) -> TerminatedTrial:
-        """Wrap an already-parsed Trial as a TerminatedTrial with stop classification."""
-        drug_name, _ = self._primary_drug(trial)
-        if drug_name == "Unknown":
-            drug_name = None
-
-        return TerminatedTrial(
-            nct_id=trial.nct_id,
-            title=trial.title,
-            drug_name=drug_name,
-            indication=trial.indications[0] if trial.indications else None,
-            mesh_conditions=trial.mesh_conditions,
-            phase=trial.phase,
-            why_stopped=trial.why_stopped,
-            stop_category=_classify_stop_reason(trial.why_stopped),
-            enrollment=trial.enrollment,
-            sponsor=trial.sponsor,
-            start_date=trial.start_date,
-            termination_date=trial.completion_date,
         )
 
     # ------------------------------------------------------------------

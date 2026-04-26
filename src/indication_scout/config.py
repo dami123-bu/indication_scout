@@ -67,13 +67,7 @@ class Settings(BaseSettings):
     rag_disease_concurrency: int
 
     # Clinical trials
-    clinical_trials_search_max: int
-    clinical_trials_whitespace_exact_max: int
-    clinical_trials_whitespace_indication_max: int
-    clinical_trials_whitespace_top_drugs: int
     clinical_trials_landscape_max_trials: int
-    clinical_trials_terminated_drug_page_size: int
-    clinical_trials_terminated_indication_max: int
 
     # Mechanism
     mechanism_signal_threshold: float

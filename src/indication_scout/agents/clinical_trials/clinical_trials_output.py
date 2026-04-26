@@ -2,39 +2,43 @@ from pydantic import BaseModel, Field
 
 from indication_scout.models.model_clinical_trials import (
     ApprovalCheck,
-    WhitespaceResult,
-    Trial,
+    CompletedTrialsResult,
     IndicationLandscape,
-    TrialOutcomes,
+    SearchTrialsResult,
+    TerminatedTrialsResult,
 )
 
 
 class ClinicalTrialsOutput(BaseModel):
     """Final assembled output from a single clinical trials agent run."""
 
-    whitespace: WhitespaceResult | None = Field(
+    search: SearchTrialsResult | None = Field(
         default=None,
         description=(
-            "Whitespace analysis: trial counts and competing drugs for the indication."
+            "All-status trial query for the pair: total + per-status counts "
+            "(recruiting / active / withdrawn) + top 50 trials by enrollment."
+        ),
+    )
+
+    completed: CompletedTrialsResult | None = Field(
+        default=None,
+        description=(
+            "COMPLETED trial query for the pair: total + Phase 3 count + "
+            "top 50 trials by enrollment."
+        ),
+    )
+
+    terminated: TerminatedTrialsResult | None = Field(
+        default=None,
+        description=(
+            "TERMINATED trial query for the pair: total + top 50 trials by "
+            "enrollment. Stop-category counts are computed at the tool layer."
         ),
     )
 
     landscape: IndicationLandscape | None = Field(
         default=None,
-        description=("Competitive landscape for the indication."),
-    )
-
-    trials: list[Trial] = Field(
-        default_factory=list,
-        description=("Trials matching the drug-indication pair."),
-    )
-
-    terminated: TrialOutcomes = Field(
-        default_factory=TrialOutcomes,
-        description=(
-            "Trial-outcome evidence split by scope: drug_wide, indication_wide, "
-            "pair_specific (terminated), pair_completed."
-        ),
+        description="Competitive landscape for the indication.",
     )
 
     approval: ApprovalCheck | None = Field(

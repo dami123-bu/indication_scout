@@ -300,18 +300,23 @@ async def _ncbi_get_json(
     raise last_exc
 
 
-async def resolve_mesh_id(indication: str) -> str | None:
-    """Resolve an indication string to its canonical MeSH descriptor ID.
+async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
+    """Resolve an indication string to its canonical MeSH descriptor.
 
     Basic strategy: NCBI esearch on MeSH db with `"{indication}"[MeSH Terms]`,
-    then esummary on the first hit to get the D-number (`ds_meshui`). Returns
-    None if nothing resolves. Does NOT cache None results.
+    then esummary on the first hit to get the D-number (`ds_meshui`) and the
+    MeSH preferred term (`ds_meshterms[0]`). Returns (descriptor_id,
+    preferred_term) or None if nothing resolves. Does NOT cache None results.
 
+    The preferred term is the canonical MeSH descriptor name (e.g.
+    "Depressive Disorder"), suitable for CT.gov's `AREA[ConditionMeshTerm]`
+    server-side filter. The remaining entries in `ds_meshterms` are entry
+    terms / synonyms.
     """
-    cache_params = {"indication": indication.strip().lower()}
+    cache_params = {"indication": indication.strip().lower(), "v": 2}
     cached = cache_get("mesh_resolver", cache_params, DEFAULT_CACHE_DIR)
     if cached is not None:
-        return cached
+        return tuple(cached) if isinstance(cached, list) else cached
 
     api_key = get_settings().ncbi_api_key
 
@@ -375,20 +380,24 @@ async def resolve_mesh_id(indication: str) -> str | None:
     uid = uids[0]
     record = result.get(uid, {})
     mesh_id = record.get("ds_meshui")
+    mesh_terms = record.get("ds_meshterms") or []
+    preferred_term = mesh_terms[0] if mesh_terms else None
 
-    if not mesh_id:
+    if not mesh_id or not preferred_term:
         logger.warning(
-            "MeSH resolver: esummary returned no ds_meshui for '%s' (uid=%s)",
-            indication,
-            uid,
+            "MeSH resolver: esummary missing ds_meshui or ds_meshterms for "
+            "'%s' (uid=%s, mesh_id=%r, preferred_term=%r)",
+            indication, uid, mesh_id, preferred_term,
         )
         return None
+
+    resolved = (mesh_id, preferred_term)
 
     cache_set(
         "mesh_resolver",
         cache_params,
-        mesh_id,
+        resolved,
         DEFAULT_CACHE_DIR,
         ttl=MESH_RESOLVER_TTL_SECONDS,
     )
-    return mesh_id
+    return resolved
