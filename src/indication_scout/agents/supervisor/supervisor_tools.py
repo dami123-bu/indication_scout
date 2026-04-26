@@ -27,6 +27,9 @@ from indication_scout.agents.clinical_trials.clinical_trials_agent import (
 from indication_scout.agents.clinical_trials.clinical_trials_output import (
     ClinicalTrialsOutput,
 )
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    _classify_stop_reason,
+)
 from indication_scout.agents.literature.literature_agent import (
     build_literature_agent,
     run_literature_agent,
@@ -138,9 +141,15 @@ def build_supervisor_tools(
             if output.evidence_summary
             else "no data"
         )
-        summary = (
+        header = (
             f"Literature for {drug_name} × {disease_name}: "
-            f"{len(output.pmids)} PMIDs, strength={strength}"
+            f"{len(output.pmids)} PMIDs, strength={strength}."
+        )
+        sub_agent_summary = output.summary or ""
+        summary = (
+            f"{header}\n\n{sub_agent_summary}".strip()
+            if sub_agent_summary
+            else header
         )
         return summary, output
 
@@ -161,47 +170,64 @@ def build_supervisor_tools(
         output = await run_clinical_trials_agent(ct_agent, drug_name, disease_name)
         logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
 
-        active_statuses = {
-            "RECRUITING",
-            "ACTIVE_NOT_RECRUITING",
-            "ENROLLING_BY_INVITATION",
-            "NOT_YET_RECRUITING",
-        }
-        stopped_statuses = {"TERMINATED", "WITHDRAWN", "SUSPENDED"}
-        n_active = 0
-        n_completed = 0
-        n_stopped = 0
-        for t in output.trials:
-            status = (t.overall_status or "").upper()
-            if status in active_statuses:
-                n_active += 1
-            elif status == "COMPLETED":
-                n_completed += 1
-            elif status in stopped_statuses:
-                n_stopped += 1
-        pair_safety_efficacy = sum(
-            1 for t in output.terminated.pair_specific
-            if t.stop_category in {"safety", "efficacy"}
+        # Short-circuit cases: the clinical trials sub-agent stops calling
+        # trial tools when the FDA check returns a definitive answer. In
+        # those cases, search/completed/terminated are None — surface the
+        # approval status to the supervisor instead of zeros.
+        approval = output.approval
+        if approval is not None and approval.is_approved:
+            summary = (
+                f"Clinical trials for {drug_name} × {disease_name}: "
+                f"{drug_name} is FDA-approved for {disease_name} — not a "
+                f"repurposing opportunity."
+            )
+            return summary, output
+        if approval is not None and approval.label_found is False:
+            summary = (
+                f"Clinical trials for {drug_name} × {disease_name}: "
+                f"no FDA label found for {drug_name} (drug may be withdrawn, "
+                f"never approved, or approved outside the US); approval status "
+                f"unknown, trial analysis skipped."
+            )
+            return summary, output
+
+        # Normal path: counts come from the new exact-count tools (countTotal
+        # API). Each scope owns its own count; no cross-scope summing.
+        search = output.search
+        completed = output.completed
+        terminated = output.terminated
+
+        n_total = search.total_count if search else 0
+        n_recruiting = search.by_status.get("RECRUITING", 0) if search else 0
+        n_active_not_recruiting = (
+            search.by_status.get("ACTIVE_NOT_RECRUITING", 0) if search else 0
         )
-        pair_completed_phase3 = sum(
-            1 for t in output.terminated.pair_completed
-            if "3" in (t.phase or "")
+        n_withdrawn = search.by_status.get("WITHDRAWN", 0) if search else 0
+        n_completed = completed.total_count if completed else 0
+        n_completed_phase3 = completed.phase3_count if completed else 0
+        n_terminated = terminated.total_count if terminated else 0
+        # safety/efficacy classification is computed from the top-50 shown
+        # terminated trials; if total_count > len(trials) this is a floor.
+        n_safety_efficacy_shown = (
+            sum(
+                1 for t in terminated.trials
+                if _classify_stop_reason(t.why_stopped) in {"safety", "efficacy"}
+            )
+            if terminated else 0
         )
-        summary = (
+        header = (
             f"Clinical trials for {drug_name} × {disease_name}: "
-            f"{n_active} active, {n_completed} completed, "
-            f"{n_stopped} terminated/withdrawn/suspended. "
-            f"Outcome evidence — "
-            f"{len(output.terminated.drug_wide)} {drug_name} trials terminated "
-            f"for safety/efficacy across all indications; "
-            f"{len(output.terminated.indication_wide)} trials terminated in "
-            f"{disease_name} historically (any drug); "
-            f"{len(output.terminated.pair_specific)} {drug_name} trials in "
-            f"{disease_name} stopped early "
-            f"({pair_safety_efficacy} for safety/efficacy); "
-            f"{len(output.terminated.pair_completed)} {drug_name} trials in "
-            f"{disease_name} ran to completion "
-            f"({pair_completed_phase3} of those Phase 3)."
+            f"{n_total} total ({n_recruiting} recruiting, "
+            f"{n_active_not_recruiting} active, {n_withdrawn} withdrawn). "
+            f"{n_completed} completed ({n_completed_phase3} Phase 3). "
+            f"{n_terminated} terminated "
+            f"({n_safety_efficacy_shown} safety/efficacy in shown set)."
+        )
+        sub_agent_summary = output.summary or ""
+        summary = (
+            f"{header}\n\n{sub_agent_summary}".strip()
+            if sub_agent_summary
+            else header
         )
         return summary, output
 
@@ -236,10 +262,16 @@ def build_supervisor_tools(
             )
 
         n_targets = len(output.drug_targets)
-        summary = (
+        header = (
             f"Mechanism analysis for {drug_name}: {n_targets} targets, "
             f"{len(output.candidates)} mechanism candidates "
             f"({len(promoted)} new to allowlist)."
+        )
+        sub_agent_summary = output.summary or ""
+        summary = (
+            f"{header}\n\n{sub_agent_summary}".strip()
+            if sub_agent_summary
+            else header
         )
         return summary, output
 

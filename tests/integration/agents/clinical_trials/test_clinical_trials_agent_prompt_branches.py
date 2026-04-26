@@ -71,7 +71,7 @@ async def test_approved_short_circuit_semaglutide_nash(clinical_trials_agent):
     assert output.approval.is_approved is True
     assert output.approval.label_found is True
     assert output.approval.matched_indication == "NASH"
-    assert output.approval.drug_names_checked == [
+    assert set(output.approval.drug_names_checked) == {
         "semaglutide",
         "nn-9535",
         "nn9535",
@@ -81,7 +81,7 @@ async def test_approved_short_circuit_semaglutide_nash(clinical_trials_agent):
         "rybelsus",
         "semaglutida",
         "wegovy",
-    ]
+    }
 
     # --- Summary (LLM-generated; assertions reflect prompt rules) ---
     summary_lower = output.summary.lower()
@@ -122,13 +122,13 @@ async def test_no_label_short_circuit_atabecestat_alzheimer(clinical_trials_agen
     assert output.approval.is_approved is False
     assert output.approval.label_found is False
     assert output.approval.matched_indication is None
-    assert output.approval.drug_names_checked == [
+    assert set(output.approval.drug_names_checked) == {
         "atabecestat",
         "jnj-54861911",
         "jnj-54861911-aaa",
         "rsc- 385896",
         "rsc-385896",
-    ]
+    }
 
     # --- Summary (LLM-generated; assertions reflect prompt rules) ---
     summary_lower = output.summary.lower()
@@ -187,13 +187,14 @@ async def test_confirmed_failure_count_scaled_atorvastatin_alzheimer(
     assert output.approval.label_found is True
     assert output.approval.matched_indication is None
 
-    # --- pair_completed Phase 3 count (deterministic) ---
-    pair_completed_phase3 = [
-        t for t in output.terminated.pair_completed if "3" in (t.phase or "")
-    ]
-    assert len(pair_completed_phase3) >= 2, (
+    # --- completed Phase 3 count (deterministic) ---
+    # CompletedTrialsResult.phase3_count is an exact server-side count of
+    # completed Phase 3 trials for this drug × indication pair (independent
+    # of the top-50 trials sample).
+    assert output.completed is not None
+    assert output.completed.phase3_count >= 2, (
         f"Expected at least 2 completed Phase 3 trials for atorvastatin × AD "
-        f"to exercise the ≥2 branch; got {len(pair_completed_phase3)}."
+        f"to exercise the ≥2 branch; got {output.completed.phase3_count}."
     )
 
     # --- Summary (LLM-generated) ---

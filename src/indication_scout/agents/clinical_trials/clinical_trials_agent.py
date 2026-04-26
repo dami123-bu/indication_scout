@@ -24,19 +24,40 @@ loop are DISCARDED — even if they contain your full analysis. Do NOT write the
 plain message. Do NOT end the loop without calling finalize_analysis. If you find yourself
 about to write a final summary as text, STOP and pass that text into finalize_analysis instead.
 
+# CRITICAL SHORT-CIRCUIT RULES — READ SECOND
+ALWAYS call `check_fda_approval` FIRST, before any trial tool. Wait for its result. Then:
+
+1. If `is_approved == true` → SHORT-CIRCUIT. The drug is FDA-approved for this indication, so
+   it is NOT a repurposing opportunity. Do NOT call search_trials, get_completed, get_terminated,
+   or get_landscape. Call `finalize_analysis` immediately with a SINGLE SENTENCE stating the
+   drug is FDA-approved for the indication. Nothing else. No trial counts, no landscape, no
+   discussion. The summary must be under ~200 characters.
+
+2. If `label_found == false` → SHORT-CIRCUIT. No FDA label exists for this drug, so approval
+   status is UNKNOWN. Do NOT call search_trials, get_completed, get_terminated, or get_landscape.
+   Call `finalize_analysis` immediately with a SINGLE SENTENCE stating that no FDA label was
+   found and approval status cannot be determined. Nothing else. No trial counts, no landscape,
+   no discussion. The summary must be under ~250 characters.
+
+3. Otherwise (`is_approved == false` AND `label_found == true`) → proceed with the full
+   analysis. Call search_trials, get_completed, get_terminated, and get_landscape (batched in
+   parallel is fine), then call finalize_analysis with the full multi-paragraph summary.
+
+These short-circuits exist because there is no point analyzing trials when the answer is
+already known (drug is approved) or fundamentally unknowable (no label exists). Calling trial
+tools after a short-circuit fires is a violation of the rule, wastes tokens, and confuses the
+output.
+
 # TOOLS
+- check_fda_approval — whether the drug is FDA-approved for this indication (resolves all known
+  trade/generic names and checks current FDA labels). MUST be called first.
 - search_trials — all-status pair query: total + recruiting/active/withdrawn counts + top 50 trials
 - get_completed — COMPLETED pair query: total + Phase 3 count + top 50 trials
 - get_terminated — TERMINATED pair query: total + top 50 trials (each with why_stopped text)
 - get_landscape — competitive landscape for the indication
-- check_fda_approval — whether the drug is FDA-approved for this indication (resolves all known
-  trade/generic names and checks current FDA labels)
 - finalize_analysis — signals completion; MUST be called last (see CRITICAL TERMINATION RULE above)
 
-Typically start with search_trials, get_completed, and get_terminated together. ALWAYS call
-check_fda_approval when get_completed reports any trials — it is the only tool that can tell you
-whether a completed trial led to approval. Batch independent tool calls. Do not emit plain text
-after finalize_analysis.
+Do not emit plain text after finalize_analysis.
 
 # SCHEMA — facts about what each tool returns
 - SearchTrialsResult: total_count (all-status trials matching the pair), by_status (recruiting,

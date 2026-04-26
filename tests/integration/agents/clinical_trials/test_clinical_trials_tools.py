@@ -2,12 +2,12 @@
 
 Hits real NCBI (MeSH resolver) and real ClinicalTrials.gov.
 
-Verifies that the tool layer resolves the indication to a MeSH D-number and
-forwards it to the client so that the artifact only contains trials whose
-mesh_conditions or mesh_ancestors include that D-number — i.e. Essie-driven
-noise (glaucoma, portal, pulmonary hypertension) is dropped.
+Verifies that the tool layer resolves the indication to a MeSH preferred term
+and forwards it to the client, which then uses CT.gov's server-side
+`AREA[ConditionMeshTerm]` filter so that returned counts and trials are both
+restricted to the systemic-hypertension descriptor (D006973).
 
-Expected values verified by a live run on 2026-04-19 with:
+Expected values verified live on 2026-04-25 with:
   drug=semaglutide, indication=hypertension, date_before=2025-01-01
 """
 
@@ -19,7 +19,10 @@ import pytest
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
-from indication_scout.models.model_clinical_trials import ApprovalCheck
+from indication_scout.models.model_clinical_trials import (
+    ApprovalCheck,
+    SearchTrialsResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +30,12 @@ _CUTOFF = date(2025, 1, 1)
 _HYPERTENSION_MESH_ID = "D006973"
 
 
-async def test_search_trials_tool_forwards_resolved_mesh_id():
-    """search_trials tool: resolves hypertension → D006973 and forwards it so
-    the returned trials are restricted to the systemic-hypertension subtree.
-
-    Baseline (without forwarding, live run 2026-04-19): 5 trials including
-    NCT06792422, NCT06361823, NCT06027567 whose MeSH tags do NOT contain
-    D006973. After forwarding, only the 2 D006973-tagged trials remain.
+async def test_search_trials_tool_uses_server_side_mesh_filter():
+    """search_trials tool: resolves hypertension → ('D006973', 'Hypertension')
+    and forwards the preferred term to the client, which builds
+    `AREA[ConditionMeshTerm]"Hypertension"` server-side. The returned
+    SearchTrialsResult.total_count and .trials are both filtered to that
+    descriptor — no client-side _filter_by_mesh post-walk.
     """
     tools = build_clinical_trials_tools(date_before=_CUTOFF)
     search_trials = next(t for t in tools if t.name == "search_trials")
@@ -47,16 +49,31 @@ async def test_search_trials_tool_forwards_resolved_mesh_id():
         }
     )
 
-    assert msg.content == "Searched on semaglutide-hypertension and found 2 trials"
+    # Content string format: "Search for {drug} × {indication}: {N} trials
+    # (recruiting=..., active=..., withdrawn=...)" — no truncation note when
+    # shown == total.
+    assert "Search for semaglutide × hypertension: 2 trials" in msg.content
+    assert "recruiting=2" in msg.content
+    assert "active=0" in msg.content
+    assert "withdrawn=0" in msg.content
 
-    trials = msg.artifact
-    assert len(trials) == 2
+    result = msg.artifact
+    assert isinstance(result, SearchTrialsResult)
+    assert result.total_count == 2
+    assert result.by_status == {
+        "RECRUITING": 2,
+        "ACTIVE_NOT_RECRUITING": 0,
+        "WITHDRAWN": 0,
+    }
+    assert len(result.trials) == 2
 
-    nct_ids = {t.nct_id for t in trials}
+    nct_ids = {t.nct_id for t in result.trials}
     assert nct_ids == {"NCT06132477", "NCT05746039"}
 
-    # Every returned trial has D006973 in mesh_conditions or mesh_ancestors.
-    for t in trials:
+    # Every returned trial carries D006973 in either mesh_conditions or
+    # mesh_ancestors — confirming the server-side `AREA[ConditionMeshTerm]`
+    # filter restricted results to the Hypertension descriptor subtree.
+    for t in result.trials:
         cond_ids = {m.id for m in t.mesh_conditions}
         anc_ids = {m.id for m in t.mesh_ancestors}
         assert _HYPERTENSION_MESH_ID in (cond_ids | anc_ids), (
@@ -64,8 +81,8 @@ async def test_search_trials_tool_forwards_resolved_mesh_id():
             f"mesh_conditions={cond_ids} and mesh_ancestors={anc_ids}"
         )
 
-    # Spot-check the D006973-in-mesh_conditions trial in detail.
-    direct = next(t for t in trials if t.nct_id == "NCT06132477")
+    # Spot-check the trial with D006973 directly in mesh_conditions.
+    direct = next(t for t in result.trials if t.nct_id == "NCT06132477")
     assert direct.phase == "Phase 4"
     assert direct.overall_status == "RECRUITING"
     assert direct.enrollment == 150
@@ -73,8 +90,8 @@ async def test_search_trials_tool_forwards_resolved_mesh_id():
     assert direct.start_date == "2024-02-01"
     assert _HYPERTENSION_MESH_ID in {m.id for m in direct.mesh_conditions}
 
-    # Spot-check the D006973-in-mesh_ancestors-only trial.
-    ancestor_only = next(t for t in trials if t.nct_id == "NCT05746039")
+    # Spot-check the trial with D006973 only in mesh_ancestors.
+    ancestor_only = next(t for t in result.trials if t.nct_id == "NCT05746039")
     assert ancestor_only.phase == "Phase 1/Phase 2"
     assert ancestor_only.overall_status == "RECRUITING"
     assert ancestor_only.enrollment == 8
@@ -89,18 +106,42 @@ async def test_search_trials_tool_forwards_resolved_mesh_id():
 # ------------------------------------------------------------------
 
 
-_SEMAGLUTIDE_EXPECTED_NAMES = {"semaglutide", "ozempic", "wegovy", "rybelsus"}
+# Verified live on 2026-04-25: ChEMBL resolves semaglutide to 9 drug names —
+# the four brand/INN forms plus ChEMBL/Novo Nordisk research codes and the
+# Spanish INN. Lock the full set so a regression in the resolver surfaces here.
+_SEMAGLUTIDE_EXPECTED_NAMES = {
+    "semaglutide",
+    "semaglutida",
+    "ozempic",
+    "wegovy",
+    "rybelsus",
+    "nn-9535",
+    "nn9535",
+    "nnc 0113-0217",
+    "nnc-0113-0217",
+}
 
 
 @pytest.mark.parametrize(
-    "indication,is_approved,matched_indication,content_substring",
+    "indication,is_approved,matched_indication,expected_content",
     [
-        ("NASH", True, "NASH", "APPROVED"),
-        ("alzheimer disease", False, None, "not on FDA label"),
+        (
+            "NASH",
+            True,
+            "NASH",
+            "FDA approval check for semaglutide × NASH: APPROVED (checked 9 drug names)",
+        ),
+        (
+            "alzheimer disease",
+            False,
+            None,
+            "FDA approval check for semaglutide × alzheimer disease: "
+            "not on FDA label (checked 9 drug names)",
+        ),
     ],
 )
 async def test_check_fda_approval_semaglutide(
-    indication, is_approved, matched_indication, content_substring
+    indication, is_approved, matched_indication, expected_content
 ):
     """End-to-end: ChEMBL resolution, openFDA label fetch, and LLM approval
     extraction for semaglutide.
@@ -109,6 +150,9 @@ async def test_check_fda_approval_semaglutide(
     - alzheimer disease: label exists, indication not on it → is_approved=False.
     matched_indication is the caller's input verbatim when is_approved is True,
     otherwise None.
+
+    Numbers verified live on 2026-04-25: ChEMBL resolves to 9 drug names for
+    semaglutide.
     """
     tools = build_clinical_trials_tools(date_before=None)
     check_fda_approval = next(t for t in tools if t.name == "check_fda_approval")
@@ -126,5 +170,5 @@ async def test_check_fda_approval_semaglutide(
     assert msg.artifact.is_approved is is_approved
     assert msg.artifact.label_found is True
     assert msg.artifact.matched_indication == matched_indication
-    assert _SEMAGLUTIDE_EXPECTED_NAMES.issubset(set(msg.artifact.drug_names_checked))
-    assert content_substring in msg.content
+    assert set(msg.artifact.drug_names_checked) == _SEMAGLUTIDE_EXPECTED_NAMES
+    assert msg.content == expected_content
