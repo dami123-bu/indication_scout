@@ -16,7 +16,11 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
-from indication_scout.services.approval_check import get_fda_approved_disease_mapping
+from indication_scout.data_sources.fda import FDAClient
+from indication_scout.services.approval_check import (
+    get_fda_approved_disease_mapping,
+    list_approved_indications_from_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,34 @@ def build_supervisor_tools(
             entry["drug_aliases"] = await get_all_drug_names(chembl_id, svc.cache_dir)
         except Exception as e:
             logger.warning("find_candidates: get_all_drug_names failed for %s: %s", chembl_id, e)
+
+        # Seed approved_indications from the drug's own FDA label, independent of
+        # any candidate list. Without this, an approved indication that doesn't
+        # appear among OpenTargets competitor diseases (e.g. semaglutide × MASH)
+        # never reaches the briefing and the supervisor cannot reason about
+        # subset/superset relationships against it.
+        seed_aliases = entry["drug_aliases"] or [drug_name]
+        try:
+            async with FDAClient(cache_dir=svc.cache_dir) as fda_client:
+                label_texts = await fda_client.get_all_label_indications(seed_aliases)
+            seeded = await list_approved_indications_from_labels(
+                label_texts=label_texts,
+                cache_dir=svc.cache_dir,
+            )
+            if seeded:
+                existing = {ind.lower().strip() for ind in entry["approved_indications"]}
+                for ind in seeded:
+                    if ind.lower().strip() not in existing:
+                        entry["approved_indications"].append(ind)
+                logger.warning(
+                    "[TOOL] find_candidates seeded %d approved indication(s) from label: %s",
+                    len(seeded), seeded,
+                )
+        except Exception as e:
+            logger.warning(
+                "find_candidates: label-derived approved-indication seed failed for %s: %s",
+                drug_name, e,
+            )
 
         # FDA approval check — drop competitor diseases already approved for this drug
         fda_approved_lower: set[str] = set()

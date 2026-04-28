@@ -152,6 +152,81 @@ async def dedup_survivors(diseases: list[str]) -> set[str]:
     return kept
 
 
+async def list_approved_indications_from_labels(
+    label_texts: list[str],
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+) -> list[str]:
+    """Extract the approved indications named in FDA label text, no candidate list.
+
+    Companion to extract_approved_from_labels. That function asks "which of
+    THESE candidates are approved per the label?" — useful for filtering a
+    candidate list. This function asks "what indications does the label
+    approve?" — useful for seeding the supervisor's drug-level briefing with
+    approvals discovered up front, before any candidate list exists.
+
+    Args:
+        label_texts: Raw indications_and_usage strings from openFDA.
+        cache_dir: Cache directory for storing LLM results.
+
+    Returns:
+        Deduplicated list of approved indication names extracted from the
+        label text. Empty list if label_texts is empty, the LLM response is
+        not parseable JSON, or the LLM returns a non-list. Order-preserving.
+    """
+    if not label_texts:
+        return []
+
+    # cache_params = {"label_texts": sorted(label_texts)}
+    # cached = cache_get("fda_label_indications", cache_params, cache_dir)
+    # if cached is not None:
+    #     return list(cached)
+
+    template = (_PROMPTS_DIR / "list_label_indications.txt").read_text()
+    prompt = template.format(label_texts="\n---\n".join(label_texts))
+
+    response = await query_llm(prompt)
+    stripped = strip_markdown_fences(response)
+
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        logger.error(
+            "list_approved_indications_from_labels: failed to parse LLM response: %s",
+            response,
+        )
+        return []
+
+    if not isinstance(parsed, list):
+        logger.error(
+            "list_approved_indications_from_labels: LLM returned non-list: %s",
+            type(parsed),
+        )
+        return []
+
+    indications: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        indications.append(cleaned)
+
+    # cache_set(
+    #     "fda_label_indications",
+    #     cache_params,
+    #     indications,
+    #     cache_dir,
+    #     ttl=CACHE_TTL,
+    # )
+    return indications
+
+
 async def extract_approved_from_labels(
     label_texts: list[str],
     candidate_diseases: list[str],

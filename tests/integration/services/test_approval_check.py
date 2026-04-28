@@ -2,9 +2,12 @@
 
 import pytest
 
+from indication_scout.data_sources.chembl import get_all_drug_names
+from indication_scout.data_sources.fda import FDAClient
 from indication_scout.services.approval_check import (
     get_all_fda_approved_diseases,
     get_fda_approved_disease_mapping,
+    list_approved_indications_from_labels,
     remove_approved_from_labels,
 )
 
@@ -138,3 +141,107 @@ async def test_get_fda_approved_disease_mapping_empty_inputs(
         cache_dir=test_cache_dir,
     )
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "drug_aliases, must_contain_substrings",
+    [
+        # Semaglutide aliases (Ozempic = T2DM; Wegovy = chronic weight management
+        # / obesity + cardiovascular risk reduction; Wegovy 2024 expansion = MASH).
+        # We do not pin exact strings because the LLM controls phrasing — instead
+        # we assert that each well-known approved indication has at least one
+        # substring match in the returned list.
+        (
+            ["Ozempic", "Wegovy", "semaglutide"],
+            [
+                ["diabetes"],            # T2DM approval
+                ["weight", "obesity"],   # chronic weight management / obesity
+            ],
+        ),
+        # Metformin: established T2DM approval. Single, unambiguous indication
+        # makes this a low-noise sanity check that the path runs end-to-end.
+        (
+            ["metformin"],
+            [["diabetes"]],
+        ),
+    ],
+)
+async def test_list_approved_indications_from_labels_real_drug(
+    test_cache_dir, drug_aliases, must_contain_substrings
+):
+    """End-to-end: fetch real openFDA labels and extract approved indications via the LLM.
+
+    Asserts that each expected approval appears (case-insensitively) somewhere
+    in the returned list — at least one of the substrings in each group must
+    match at least one returned indication.
+    """
+    async with FDAClient(cache_dir=test_cache_dir) as client:
+        label_texts = await client.get_all_label_indications(drug_aliases)
+
+    assert label_texts, f"openFDA returned no label text for {drug_aliases}"
+
+    indications = await list_approved_indications_from_labels(
+        label_texts=label_texts,
+        cache_dir=test_cache_dir,
+    )
+
+    assert isinstance(indications, list)
+    assert all(isinstance(x, str) and x for x in indications), indications
+    assert len(indications) >= 1, f"no indications extracted: {indications}"
+
+    lowered = [i.lower() for i in indications]
+    for substring_group in must_contain_substrings:
+        assert any(
+            any(sub in ind for sub in substring_group) for ind in lowered
+        ), (
+            f"none of {substring_group} found in extracted indications "
+            f"{indications} for {drug_aliases}"
+        )
+
+
+async def test_list_approved_indications_from_labels_manual(test_cache_dir):
+    """Manual hand-test slot — edit drug_aliases / expectations in place.
+
+    Same shape as test_list_approved_indications_from_labels_real_drug but
+    unparametrized so you can tweak the drug, the expected substring groups,
+    and the cache path freely without disturbing the regression cases.
+    """
+    # drug_aliases = ["dasatinib"]
+    drug_aliases = await get_all_drug_names("CHEMBL941", test_cache_dir)
+    # must_contain_substrings = [
+    #     ["diabetes"],
+    #     ["weight", "obesity"],
+    # ]
+
+    async with FDAClient(cache_dir=test_cache_dir) as client:
+        label_texts = await client.get_all_label_indications(drug_aliases)
+
+    assert label_texts, f"openFDA returned no label text for {drug_aliases}"
+
+    indications = await list_approved_indications_from_labels(
+        label_texts=label_texts,
+        cache_dir=test_cache_dir,
+    )
+    assert indications
+
+    # assert isinstance(indications, list)
+    # assert all(isinstance(x, str) and x for x in indications), indications
+    # assert len(indications) >= 1, f"no indications extracted: {indications}"
+    #
+    # lowered = [i.lower() for i in indications]
+    # for substring_group in must_contain_substrings:
+    #     assert any(
+    #         any(sub in ind for sub in substring_group) for ind in lowered
+    #     ), (
+    #         f"none of {substring_group} found in extracted indications "
+    #         f"{indications} for {drug_aliases}"
+    #     )
+
+
+async def test_list_approved_indications_from_labels_empty_input(test_cache_dir):
+    """Empty label_texts short-circuits without an LLM call and returns []."""
+    result = await list_approved_indications_from_labels(
+        label_texts=[],
+        cache_dir=test_cache_dir,
+    )
+    assert result == []
