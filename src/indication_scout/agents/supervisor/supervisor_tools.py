@@ -15,7 +15,7 @@ from typing import Literal
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from indication_scout.data_sources.chembl import resolve_drug_name
+from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.services.approval_check import get_fda_approved_disease_mapping
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,63 @@ def build_supervisor_tools(
     # allowed_diseases: lowercase disease name → (canonical_name, source)
     allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
 
+    # Drug-level shared store. Populated by sub-agents as they run; surfaced
+    # to the supervisor via get_drug_briefing. Keyed by drug name (normalized).
+    # See supervisor_ideas.md for design rationale.
+    drug_facts: dict[str, dict] = {}
+
+    def _drug_key(drug_name: str) -> str:
+        return drug_name.lower().strip()
+
+    def _ensure_drug_entry(drug_name: str) -> dict:
+        key = _drug_key(drug_name)
+        if key not in drug_facts:
+            drug_facts[key] = {
+                "drug_name": drug_name,           # original casing for display
+                "drug_aliases": [],               # ChEMBL trade/generic names
+                "approved_indications": [],       # list of indication strings
+                "mechanism_targets": [],          # list of (gene, action_type)
+                "mechanism_disease_associations": [],  # list of (gene, disease, score)
+            }
+        return drug_facts[key]
+
+    def _render_briefing(drug_name: str) -> str:
+        """Render drug_facts[drug_name] as a markdown briefing."""
+        entry = drug_facts.get(_drug_key(drug_name))
+        if entry is None:
+            return f"DRUG INTAKE: {drug_name}\n- (no facts collected yet)"
+
+        lines = [f"DRUG INTAKE: {entry['drug_name']}"]
+
+        if entry["drug_aliases"]:
+            lines.append(f"- Trade/generic names: {', '.join(entry['drug_aliases'])}")
+        else:
+            lines.append("- Trade/generic names: (not yet resolved)")
+
+        if entry["approved_indications"]:
+            lines.append("- FDA-approved indications:")
+            for ind in entry["approved_indications"]:
+                lines.append(f"  - {ind}")
+        else:
+            lines.append("- FDA-approved indications: (none discovered in this run)")
+
+        if entry["mechanism_targets"]:
+            target_strs = [f"{g} ({a})" for g, a in entry["mechanism_targets"]]
+            lines.append(f"- Targets: {', '.join(target_strs)}")
+        else:
+            lines.append("- Targets: (mechanism agent has not run)")
+
+        if entry["mechanism_disease_associations"]:
+            lines.append("- Top mechanism-disease associations:")
+            # cap at 10 to keep briefing terse
+            for g, d, s in entry["mechanism_disease_associations"][:10]:
+                # Hide score when it's the placeholder (not surfaced by
+                # MechanismCandidate). Show otherwise.
+                score_str = f" (score {s:.2f})" if s > 0 else ""
+                lines.append(f"  - {g} → {d}{score_str}")
+
+        return "\n".join(lines)
+
     @tool(response_format="content_and_artifact")
     async def find_candidates(drug_name: str) -> tuple[str, list[str]]:
         """Surface candidate diseases for repurposing this drug.
@@ -73,6 +130,14 @@ def build_supervisor_tools(
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
         competitors = await svc.get_drug_competitors(chembl_id)
         diseases = list(competitors.keys())
+
+        # Drug-level intake: populate the shared store with aliases and any
+        # FDA-approved indications discovered during the candidate filter.
+        entry = _ensure_drug_entry(drug_name)
+        try:
+            entry["drug_aliases"] = await get_all_drug_names(chembl_id, svc.cache_dir)
+        except Exception as e:
+            logger.warning("find_candidates: get_all_drug_names failed for %s: %s", chembl_id, e)
 
         # FDA approval check — drop competitor diseases already approved for this drug
         fda_approved_lower: set[str] = set()
@@ -88,6 +153,15 @@ def build_supervisor_tools(
                     "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
                     len(fda_approved), fda_approved,
                 )
+                # Record the approved indications in the shared store. These were
+                # discovered as side effect of candidate filtering — even though
+                # they're dropped from the candidate list, the supervisor needs
+                # to see them to reason about subset/superset relationships
+                # (e.g. CML approval makes "myeloid leukemia" candidate ambiguous).
+                existing = {ind.lower().strip() for ind in entry["approved_indications"]}
+                for ind in fda_approved:
+                    if ind.lower().strip() not in existing:
+                        entry["approved_indications"].append(ind)
             fda_approved_lower = {d.lower().strip() for d in fda_approved}
 
         diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
@@ -176,6 +250,14 @@ def build_supervisor_tools(
         # approval status to the supervisor instead of zeros.
         approval = output.approval
         if approval is not None and approval.is_approved:
+            # Drug-level write-through: capture the approved indication so
+            # the supervisor's briefing reflects what we discovered while
+            # analyzing this candidate.
+            entry = _ensure_drug_entry(drug_name)
+            matched = approval.matched_indication or disease_name
+            existing = {ind.lower().strip() for ind in entry["approved_indications"]}
+            if matched.lower().strip() not in existing:
+                entry["approved_indications"].append(matched)
             summary = (
                 f"Clinical trials for {drug_name} × {disease_name}: "
                 f"{drug_name} is FDA-approved for {disease_name} — not a "
@@ -261,6 +343,37 @@ def build_supervisor_tools(
                 len(promoted), promoted,
             )
 
+        # Drug-level write-through: populate mechanism_targets and
+        # mechanism_disease_associations in the shared store. Captured per-MoA
+        # so the briefing can show "ABL1 (INHIBITOR), KIT (INHIBITOR)".
+        entry = _ensure_drug_entry(drug_name)
+        target_pairs: list[tuple[str, str]] = []
+        seen_target_pairs: set[tuple[str, str]] = set()
+        for moa in output.mechanisms_of_action:
+            for sym in moa.target_symbols:
+                pair = (sym, moa.action_type or "UNKNOWN")
+                if pair not in seen_target_pairs:
+                    seen_target_pairs.add(pair)
+                    target_pairs.append(pair)
+        entry["mechanism_targets"] = target_pairs
+
+        # Mechanism candidates already carry the high-score target→disease
+        # associations the agent surfaced. We don't have the raw scores on the
+        # candidate model — record the pair without a score for now.
+        assocs: list[tuple[str, str, float]] = []
+        seen_assoc_pairs: set[tuple[str, str]] = set()
+        for cand in output.candidates:
+            pair_key = (cand.target_symbol, cand.disease_name)
+            if pair_key in seen_assoc_pairs:
+                continue
+            seen_assoc_pairs.add(pair_key)
+            # Score not surfaced on MechanismCandidate; use 0.0 as a placeholder.
+            # The supervisor only needs to know "this gene is associated with
+            # this disease per OT mechanism evidence" — the briefing renderer
+            # will hide the score if it's the placeholder.
+            assocs.append((cand.target_symbol, cand.disease_name, 0.0))
+        entry["mechanism_disease_associations"] = assocs
+
         n_targets = len(output.drug_targets)
         header = (
             f"Mechanism analysis for {drug_name}: {n_targets} targets, "
@@ -275,6 +388,18 @@ def build_supervisor_tools(
         )
         return summary, output
 
+    @tool
+    def get_drug_briefing(drug_name: str) -> str:
+        """Return the accumulated drug-level briefing for this drug.
+
+        Read-only view of facts collected by find_candidates, analyze_mechanism,
+        and analyze_clinical_trials during this run: ChEMBL aliases, FDA-approved
+        indications discovered, mechanism targets, and mechanism disease
+        associations. Call this before finalize_supervisor to check whether any
+        candidate is related to an approved indication (subset/superset/sibling).
+        """
+        return _render_briefing(drug_name)
+
     @tool(response_format="content_and_artifact")
     async def finalize_supervisor(summary: str) -> tuple[str, str]:
         """Signal that the repurposing analysis is complete.
@@ -284,4 +409,11 @@ def build_supervisor_tools(
         """
         return "Supervisor analysis complete.", summary
 
-    return [find_candidates, analyze_mechanism, analyze_literature, analyze_clinical_trials, finalize_supervisor]
+    return [
+        find_candidates,
+        analyze_mechanism,
+        analyze_literature,
+        analyze_clinical_trials,
+        get_drug_briefing,
+        finalize_supervisor,
+    ]

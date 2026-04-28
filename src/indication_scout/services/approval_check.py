@@ -20,7 +20,7 @@ from indication_scout.data_sources.chembl import (
     resolve_drug_name,
 )
 from indication_scout.data_sources.fda import FDAClient
-from indication_scout.services.llm import query_small_llm, strip_markdown_fences
+from indication_scout.services.llm import query_llm, query_small_llm, strip_markdown_fences
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -332,7 +332,7 @@ async def get_fda_approved_disease_mapping(
         candidate_diseases=json.dumps(uncurated),
     )
 
-    response = await query_small_llm(prompt)
+    response = await query_llm(prompt)
     stripped = strip_markdown_fences(response)
 
     try:
