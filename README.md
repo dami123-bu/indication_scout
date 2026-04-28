@@ -94,7 +94,16 @@ Replace `<password>` with the value of `DB_PASSWORD` from your `.env` file.
 
 ## Usage
 
-> **Note:** The CLI entry point (`scout find -d "metformin"`) is defined in `pyproject.toml` but the CLI module (`indication_scout.cli.cli`) has not been implemented yet. The API can be started with:
+### CLI
+
+```bash
+scout find -d "metformin"                          # writes <drug>_<timestamp>.{md,json} to ./snapshots
+scout find -d "metformin" --out-dir reports/       # custom output directory
+scout find -d "metformin" --no-write               # print the markdown report to stdout
+scout --help
+```
+
+### API
 
 ```bash
 uvicorn indication_scout.api.main:app --reload

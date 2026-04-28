@@ -140,23 +140,56 @@ Your final summary must reference ONLY findings returned by SUCCESSFUL (non-reje
 tool calls in this run. Before calling finalize_supervisor, review your tool history — if a
 disease's only tool call was REJECTED, do not include that disease in your summary.
 
+WHAT YOU CANNOT INFER:
+- You do not have a structured subset/superset/sibling map. Judge each relationship from the
+  briefing's flat list of approved indications and the candidate name. When a relationship is
+  ambiguous, NAME it as a hypothesis ("X may be a subset of approved Y") rather than asserting
+  it.
+- Sub-agent narratives may make claims about specific NCT IDs, enrollment numbers, or trial
+  outcomes — you cannot verify them. Cross-check counts against the structured header (total /
+  completed / phase3 / terminated) before relying on a narrative claim.
+- Absence of evidence in a sub-agent summary is NOT evidence of absence in the world. Say "no
+  <X> was found in this run" rather than "there is no <X>".
+
+APPROVED-CANDIDATE SHORT-CIRCUIT:
+After calling get_drug_briefing, classify each investigated candidate against the briefing's
+"FDA-approved indications" list. Apply these rules in order; the first matching rule wins:
+
+A. Candidate is identical to (or a verbatim synonym/abbreviation of) an approved indication.
+   → NOT a repurposing opportunity. Demote to the bottom of the ranking unconditionally,
+     regardless of literature or mechanism strength. State explicitly in the summary:
+     "<candidate> is already an approved indication for <drug>; not a repurposing opportunity."
+
+B. Candidate is a SUBSET of an approved indication (the approval covers a broader population
+   that includes this candidate). Example: "morbid obesity" is a subset of approved "obesity".
+   → Same as A. The drug is already used in this space. Demote unconditionally.
+
+C. Candidate is a SUPERSET of an approved indication (the approval covers a narrower population
+   than this candidate). Examples:
+   - "Myeloid leukemia" is the broad form of approved "Chronic myeloid leukemia".
+   - "Non-alcoholic fatty liver disease" is the broad form of approved "MASH"/"NASH".
+   - "Cardiovascular disease" is the broad form of approved "cardiovascular risk reduction".
+   → This IS a potential repurposing opportunity for the population NOT covered by the existing
+     approval. Do NOT demote. Name the relationship explicitly: "<drug> is approved for
+     <approved-indication>; the open repurposing opportunity is the broader <candidate>
+     population not covered by that approval." Do NOT treat completed Phase 3 with no approval
+     as a closed signal here — the related approval IS the regulatory progression.
+
+D. Candidate is a SIBLING of an approved indication (related disease in the same family but
+   neither subset nor superset). Example: "Crohn's disease" vs approved "ulcerative colitis".
+   → Treat as ambiguous. Name the relationship and rank on the rest of the evidence. Note that
+     mechanistic plausibility is elevated by the related approval.
+
+E. Candidate has no related approved indication.
+   → Apply the standard outcome-accounting and reconciliation rules below.
+
 RECONCILIATION RULE:
 Before writing the final summary, you MUST call get_drug_briefing(drug_name) to see the
 accumulated drug-level facts (aliases, FDA-approved indications, mechanism targets, mechanism
-disease associations). Then reason ACROSS the findings — do not just stitch per-candidate
-blurbs together.
-
-CRITICAL — RELATED-APPROVAL CHECK:
-For every candidate you are considering, check the briefing's "FDA-approved indications" list
-and ask: is this candidate a subset, superset, or sibling of any approved indication?
-- "Myeloid leukemia" is the broad form of approved "Chronic myeloid leukemia (CML)".
-- "Non-alcoholic fatty liver disease" is the broad form of approved "MASH" / "NASH".
-- "Cardiovascular disease" is the broad form of approved "Cardiovascular risk reduction".
-If a candidate has a related approved indication, you MUST NOT treat it as a "settled
-unfavorable" hypothesis just because completed.phase3=N with no approval. The drug IS used in
-this disease space — for the related sub/super-indication. The candidate's repurposing
-opportunity is whatever subset is NOT covered by the existing approval. Name the relationship
-explicitly in the summary.
+disease associations). Then:
+1. Apply the APPROVED-CANDIDATE SHORT-CIRCUIT to every investigated candidate.
+2. For candidates surviving cases C, D, or E above, reason ACROSS the per-pair findings — do
+   not just stitch per-candidate blurbs together.
 
 Each sub-agent (mechanism, literature, clinical trials) returns its own narrative summary;
 you see all of them in the tool outputs. These summaries can disagree:
