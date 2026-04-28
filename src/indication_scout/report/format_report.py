@@ -63,7 +63,7 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
 
     if ct.completed:
         c = ct.completed
-        lines.append(f"\n**Completed trials ({c.total_count} total, {c.phase3_count} Phase 3):**")
+        lines.append(f"\n**Completed trials ({c.total_count} total):**")
         for trial in c.trials[:10]:
             phase = trial.phase or "Unknown phase"
             status = trial.overall_status or ""

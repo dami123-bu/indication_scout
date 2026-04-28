@@ -262,7 +262,7 @@ async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
 
 
 async def test_get_completed_returns_completed_trials_result_artifact():
-    """get_completed returns a CompletedTrialsResult artifact and reports phase3 count in content."""
+    """get_completed returns a CompletedTrialsResult artifact and reports total count in content."""
     trial = Trial(
         nct_id="NCT04111111",
         title="Phase 3 Study",
@@ -274,7 +274,7 @@ async def test_get_completed_returns_completed_trials_result_artifact():
             Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
         ],
     )
-    mock_result = CompletedTrialsResult(total_count=12, phase3_count=3, trials=[trial])
+    mock_result = CompletedTrialsResult(total_count=12, trials=[trial])
     mock_client = _mock_client(get_completed_trials=mock_result)
     tools = build_clinical_trials_tools(date_before=None)
 
@@ -308,11 +308,9 @@ async def test_get_completed_returns_completed_trials_result_artifact():
     )
     assert isinstance(msg.artifact, CompletedTrialsResult)
     assert msg.artifact.total_count == 12
-    assert msg.artifact.phase3_count == 3
     assert len(msg.artifact.trials) == 1
     assert msg.artifact.trials[0].nct_id == "NCT04111111"
     assert "12 total" in msg.content
-    assert "3 Phase 3" in msg.content
     # only 1 shown of 12 → cap note present
     assert "top 50 shown" in msg.content
 
@@ -379,7 +377,6 @@ async def test_get_completed_returns_empty_when_resolver_returns_none():
 
     assert isinstance(msg.artifact, CompletedTrialsResult)
     assert msg.artifact.total_count == 0
-    assert msg.artifact.phase3_count == 0
     assert msg.artifact.trials == []
     assert "MeSH unresolved" in msg.content
     client_factory.assert_not_called()
@@ -862,9 +859,7 @@ async def test_get_terminated_drops_eligibility_only_trial_and_recomputes_safety
 
 
 async def test_get_completed_drops_eligibility_only_trial():
-    """Filter is applied to get_completed: dropped trial is removed and total_count decremented.
-    phase3_count is unfiltered (separate count call) and may overstate after filtering.
-    """
+    """Filter is applied to get_completed: dropped trial is removed and total_count decremented."""
     real_trial = Trial(
         nct_id="NCT00000555",
         title="Real dasatinib completion",
@@ -883,9 +878,7 @@ async def test_get_completed_drops_eligibility_only_trial():
         sponsor="Taiwan University",
         interventions=[],
     )
-    mock_result = CompletedTrialsResult(
-        total_count=2, phase3_count=1, trials=[real_trial, noise_trial]
-    )
+    mock_result = CompletedTrialsResult(total_count=2, trials=[real_trial, noise_trial])
     mock_client = _mock_client(get_completed_trials=mock_result)
     tools = build_clinical_trials_tools(date_before=None)
 
@@ -913,11 +906,9 @@ async def test_get_completed_drops_eligibility_only_trial():
         )
 
     assert msg.artifact.total_count == 1
-    assert msg.artifact.phase3_count == 1
     assert len(msg.artifact.trials) == 1
     assert msg.artifact.trials[0].nct_id == "NCT00000555"
     assert "1 total" in msg.content
-    assert "1 Phase 3" in msg.content
     assert "dropped 1 non-intervention trials" in msg.content
 
 

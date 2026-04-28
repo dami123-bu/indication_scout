@@ -102,12 +102,12 @@ async def test_count_trials_total_passes_status_and_phase_filters():
 
 
 # ------------------------------------------------------------------
-# search_trials — 4 counts + 1 fetch, MeSH server-side
+# search_trials — 5 counts + 1 fetch, MeSH server-side
 # ------------------------------------------------------------------
 
 
 async def test_search_trials_assembles_counts_and_fetch():
-    """search_trials fans out four count calls plus one fetch and returns a SearchTrialsResult."""
+    """search_trials fans out five count calls plus one fetch and returns a SearchTrialsResult."""
     client = ClinicalTrialsClient()
     fake_trial = Trial(
         nct_id="NCT11111111",
@@ -121,7 +121,7 @@ async def test_search_trials_assembles_counts_and_fetch():
         patch.object(
             client,
             "_count_trials_total",
-            new=AsyncMock(side_effect=[131, 12, 4, 1]),
+            new=AsyncMock(side_effect=[131, 12, 4, 1, 7]),
         ) as mock_count,
         patch.object(
             client,
@@ -136,12 +136,13 @@ async def test_search_trials_assembles_counts_and_fetch():
         "RECRUITING": 12,
         "ACTIVE_NOT_RECRUITING": 4,
         "WITHDRAWN": 1,
+        "UNKNOWN": 7,
     }
     assert len(result.trials) == 1
     assert result.trials[0].nct_id == "NCT11111111"
 
-    # 4 counts: total + recruiting + active + withdrawn
-    assert mock_count.await_count == 4
+    # 5 counts: total + recruiting + active + withdrawn + unknown
+    assert mock_count.await_count == 5
     # 1 fetch with EnrollmentCount:desc sort and the FETCH_MAX cap
     assert mock_fetch.await_count == 1
     fetch_kwargs = mock_fetch.await_args.kwargs
@@ -180,8 +181,8 @@ async def test_search_trials_uses_same_mesh_cond_for_count_and_fetch():
 # ------------------------------------------------------------------
 
 
-async def test_get_completed_trials_returns_total_phase3_and_trials():
-    """get_completed_trials issues total + Phase 3 count calls and a COMPLETED fetch."""
+async def test_get_completed_trials_returns_total_and_trials():
+    """get_completed_trials issues one total count call and a COMPLETED fetch."""
     client = ClinicalTrialsClient()
     fake_trial = Trial(
         nct_id="NCT22222222",
@@ -195,7 +196,7 @@ async def test_get_completed_trials_returns_total_phase3_and_trials():
         patch.object(
             client,
             "_count_trials_total",
-            new=AsyncMock(side_effect=[20, 5]),
+            new=AsyncMock(return_value=20),
         ) as mock_count,
         patch.object(
             client,
@@ -206,18 +207,13 @@ async def test_get_completed_trials_returns_total_phase3_and_trials():
         result = await client.get_completed_trials("semaglutide", "Diabetes Mellitus, Type 2")
 
     assert result.total_count == 20
-    assert result.phase3_count == 5
     assert len(result.trials) == 1
     assert result.trials[0].nct_id == "NCT22222222"
 
-    assert mock_count.await_count == 2
-    # First count: completed total. Second count: completed Phase 3.
-    first_call_kwargs = mock_count.await_args_list[0].kwargs
-    second_call_kwargs = mock_count.await_args_list[1].kwargs
-    assert first_call_kwargs["status_filter"] == "COMPLETED"
-    assert first_call_kwargs.get("phase_filter") is None
-    assert second_call_kwargs["status_filter"] == "COMPLETED"
-    assert second_call_kwargs["phase_filter"] == "PHASE3"
+    assert mock_count.await_count == 1
+    count_kwargs = mock_count.await_args.kwargs
+    assert count_kwargs["status_filter"] == "COMPLETED"
+    assert count_kwargs.get("phase_filter") is None
 
     assert mock_fetch.await_count == 1
     fetch_kwargs = mock_fetch.await_args.kwargs

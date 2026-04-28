@@ -220,8 +220,8 @@ def build_clinical_trials_tools(
             else ""
         )
         content = (
-            f"Completed for {drug} × {indication}: {result.total_count} total "
-            f"({result.phase3_count} Phase 3){cap_note}{filter_note}"
+            f"Completed for {drug} × {indication}: {result.total_count} total"
+            f"{cap_note}{filter_note}"
         )
         return content, result
 

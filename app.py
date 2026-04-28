@@ -296,8 +296,7 @@ with tab_trials:
 
             if ct.completed and ct.completed.trials:
                 st.markdown(
-                    f"#### Completed trials ({ct.completed.total_count} total, "
-                    f"{ct.completed.phase3_count} Phase 3)"
+                    f"#### Completed trials ({ct.completed.total_count} total)"
                 )
                 completed_rows = [
                     {

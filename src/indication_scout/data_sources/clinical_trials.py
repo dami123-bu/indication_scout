@@ -240,21 +240,14 @@ class ClinicalTrialsClient(BaseClient):
         """COMPLETED trials for a drug × indication pair.
 
         Indication is filtered server-side via `AREA[ConditionMeshTerm]`.
-        Two count calls (total completed + completed Phase 3) plus one
-        fetch of up to CLINICAL_TRIALS_FETCH_MAX COMPLETED records sorted
-        by enrollment desc.
-
-        Phase 3 is the only phase the supervisor's summary cites — Phase 1
-        / 2 / 4 counts are intentionally not surfaced.
+        One count call (total completed) plus one fetch of up to
+        CLINICAL_TRIALS_FETCH_MAX COMPLETED records sorted by enrollment desc.
+        Phase information is read off each returned Trial.
         """
         cond = _mesh_cond(mesh_term)
         total_task = self._count_trials_total(
             drug=drug, indication=cond, date_before=date_before,
             status_filter="COMPLETED",
-        )
-        phase3_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
-            status_filter="COMPLETED", phase_filter="PHASE3",
         )
         fetch_task = self._paginated_search(
             drug=drug,
@@ -265,13 +258,9 @@ class ClinicalTrialsClient(BaseClient):
             status_filter="COMPLETED",
         )
 
-        total, phase3, (trials, _) = await asyncio.gather(
-            total_task, phase3_task, fetch_task,
-        )
+        total, (trials, _) = await asyncio.gather(total_task, fetch_task)
 
-        return CompletedTrialsResult(
-            total_count=total, phase3_count=phase3, trials=trials,
-        )
+        return CompletedTrialsResult(total_count=total, trials=trials)
 
     # ------------------------------------------------------------------
     # Private: indication-level fetching (no drug filter)

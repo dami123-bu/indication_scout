@@ -118,12 +118,11 @@ def test_fmt_clinical_trials_completed_renders_count_and_top_trials():
     out = ClinicalTrialsOutput(
         completed=CompletedTrialsResult(
             total_count=7,
-            phase3_count=2,
             trials=[trial],
         )
     )
     rendered = _fmt_clinical_trials(out)
-    assert "**Completed trials (7 total, 2 Phase 3):**" in rendered
+    assert "**Completed trials (7 total):**" in rendered
     assert (
         "[NCT04567890](https://clinicaltrials.gov/study/NCT04567890) — Semaglutide in NASH (Phase 3, Completed)"
         in rendered
@@ -136,7 +135,7 @@ def test_fmt_clinical_trials_completed_caps_at_ten():
         for i in range(15)
     ]
     out = ClinicalTrialsOutput(
-        completed=CompletedTrialsResult(total_count=15, phase3_count=0, trials=trials)
+        completed=CompletedTrialsResult(total_count=15, trials=trials)
     )
     rendered = _fmt_clinical_trials(out)
     assert "NCT00000009" in rendered

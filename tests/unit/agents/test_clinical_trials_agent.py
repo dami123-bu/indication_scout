@@ -75,7 +75,6 @@ ACTIVE_SEARCH = SearchTrialsResult(
 
 COMPLETED = CompletedTrialsResult(
     total_count=8,
-    phase3_count=2,
     trials=[
         Trial(
             nct_id="NCT04111111",
@@ -266,7 +265,6 @@ async def test_run_clinical_trials_agent_active_trials_path():
 
     assert isinstance(output.completed, CompletedTrialsResult)
     assert output.completed.total_count == 8
-    assert output.completed.phase3_count == 2
     assert len(output.completed.trials) == 1
     assert output.completed.trials[0].nct_id == "NCT04111111"
 

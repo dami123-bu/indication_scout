@@ -187,14 +187,15 @@ async def test_confirmed_failure_count_scaled_atorvastatin_alzheimer(
     assert output.approval.label_found is True
     assert output.approval.matched_indication is None
 
-    # --- completed Phase 3 count (deterministic) ---
-    # CompletedTrialsResult.phase3_count is an exact server-side count of
-    # completed Phase 3 trials for this drug × indication pair (independent
-    # of the top-50 trials sample).
+    # --- completed Phase 3 count (derived from shown trials list) ---
+    # Phase 3 is read off each trial in the returned list. This is a floor
+    # when total_count exceeds the shown 50, but for atorvastatin × AD the
+    # full programme fits comfortably within the cap.
     assert output.completed is not None
-    assert output.completed.phase3_count >= 2, (
+    phase3 = sum(1 for t in output.completed.trials if t.phase == "Phase 3")
+    assert phase3 >= 2, (
         f"Expected at least 2 completed Phase 3 trials for atorvastatin × AD "
-        f"to exercise the ≥2 branch; got {output.completed.phase3_count}."
+        f"to exercise the ≥2 branch; got {phase3}."
     )
 
     # --- Summary (LLM-generated) ---

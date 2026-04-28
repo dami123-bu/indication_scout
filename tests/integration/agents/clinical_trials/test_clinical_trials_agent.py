@@ -61,7 +61,7 @@ async def test_riluzole_als_clinical_trials_agent(clinical_trials_agent):
 
     Verifies:
     - search: total_count, by_status, top-50 trial set
-    - completed: total_count, phase3_count
+    - completed: total_count
     - terminated: total_count
     - landscape: competitors match expected entries exactly
     - summary: non-empty and contains expected content
@@ -111,7 +111,6 @@ async def test_riluzole_als_clinical_trials_agent(clinical_trials_agent):
     # --- completed (COMPLETED pair query) ---
     assert output.completed is not None
     assert output.completed.total_count == 25
-    assert output.completed.phase3_count == 5
     # Top-50 cap not hit (25 < 50), so all 25 are shown.
     assert len(output.completed.trials) == 25
 

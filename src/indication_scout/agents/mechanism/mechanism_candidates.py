@@ -14,7 +14,7 @@ from collections import Counter
 from collections.abc import Iterable
 
 from indication_scout.agents.mechanism.mechanism_output import MechanismCandidate
-from indication_scout.constants import GOF_ACTION_TYPES, LOF_ACTION_TYPES
+from indication_scout.constants import BROADENING_BLOCKLIST, GOF_ACTION_TYPES, LOF_ACTION_TYPES
 
 # Minimum fraction of direction-labeled evidence records that must agree on a (dirT, dirTrait) pair for
 # it to count as the consensus direction. OT evidence often contains one or two outlier records
@@ -133,6 +133,8 @@ def select_top_candidates(
         ):
             continue
         if _is_approved(row.get("disease_name", ""), approved_lower):
+            continue
+        if row.get("disease_name", "").lower().strip() in BROADENING_BLOCKLIST:
             continue
         positives.append(row)
 

@@ -277,7 +277,7 @@ def test_search_trials_result_coerce_nones():
 
 
 def test_completed_trials_result_all_fields():
-    """CompletedTrialsResult stores total, phase3_count, and trials list."""
+    """CompletedTrialsResult stores total and trials list."""
     trial = Trial(
         nct_id="NCT00000002",
         title="T2",
@@ -287,11 +287,9 @@ def test_completed_trials_result_all_fields():
     )
     result = CompletedTrialsResult(
         total_count=12,
-        phase3_count=3,
         trials=[trial],
     )
     assert result.total_count == 12
-    assert result.phase3_count == 3
     assert len(result.trials) == 1
     assert result.trials[0].nct_id == "NCT00000002"
 
@@ -300,17 +298,13 @@ def test_completed_trials_result_defaults():
     """CompletedTrialsResult() yields the documented zero-state defaults."""
     result = CompletedTrialsResult()
     assert result.total_count == 0
-    assert result.phase3_count == 0
     assert result.trials == []
 
 
 def test_completed_trials_result_coerce_nones():
     """CompletedTrialsResult coerces None values for fields with non-None defaults."""
-    result = CompletedTrialsResult(
-        total_count=None, phase3_count=None, trials=None
-    )
+    result = CompletedTrialsResult(total_count=None, trials=None)
     assert result.total_count == 0
-    assert result.phase3_count == 0
     assert result.trials == []
 
 

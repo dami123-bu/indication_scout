@@ -97,8 +97,8 @@ class SearchTrialsResult(BaseModel):
 
     `total_count` is the exact number of trials matching the pair (via
     countTotal). `by_status` carries per-status counts for RECRUITING,
-    ACTIVE_NOT_RECRUITING, and WITHDRAWN. TERMINATED and COMPLETED counts
-    live on TerminatedTrialsResult and CompletedTrialsResult to avoid
+    ACTIVE_NOT_RECRUITING, WITHDRAWN, and UNKNOWN. TERMINATED and COMPLETED
+    counts live on TerminatedTrialsResult and CompletedTrialsResult to avoid
     double-counting. `trials` is the top 50 by enrollment for the agent
     to inspect.
     """
@@ -119,13 +119,11 @@ class SearchTrialsResult(BaseModel):
 class CompletedTrialsResult(BaseModel):
     """Status=COMPLETED trial query for a drug × indication pair.
 
-    `total_count` is all completed trials for the pair. `phase3_count` is
-    the subset of those that are Phase 3 — the only phase the supervisor's
-    summary actually uses. `trials` is the top 50 by enrollment.
+    `total_count` is all completed trials for the pair. `trials` is the top
+    50 by enrollment; the agent reads phase information off each trial.
     """
 
     total_count: int = 0
-    phase3_count: int = 0
     trials: list[Trial] = []
 
     @model_validator(mode="before")

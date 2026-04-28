@@ -96,7 +96,7 @@ mechanistic / literature / trial evidence behind the ranking, and brief reasonin
 
 Reference only findings from successful tool calls. Cross-check sub-agent narrative claims
 against structured counts before relying on them. Use plain English — never internal field
-names like "phase3_count" or "by_status." When sub-agents disagree, name the conflict and
+names like "total_count" or "by_status." When sub-agents disagree, name the conflict and
 explain which you weight more heavily.
 
 If a candidate's only tool call was REJECTED, exclude it from the summary entirely."""
