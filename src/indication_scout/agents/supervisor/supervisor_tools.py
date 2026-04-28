@@ -34,6 +34,7 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     _classify_stop_reason,
 )
+from indication_scout.models.model_clinical_trials import Trial
 from indication_scout.agents.literature.literature_agent import (
     build_literature_agent,
     run_literature_agent,
@@ -45,6 +46,31 @@ from indication_scout.agents.mechanism.mechanism_agent import (
 )
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.services.retrieval import RetrievalService
+
+
+def _phase3_completion_years(trials: list[Trial]) -> list[int]:
+    """Extract sorted, deduplicated completion years from Phase 3 trials.
+
+    Pulls the leading 4-digit year from each Phase 3 trial's completion_date.
+    Trials that are not Phase 3, lack a completion_date, or whose
+    completion_date does not start with a 4-digit year are skipped.
+    Returns ascending years with duplicates removed.
+
+    Note: input is the top-50-by-enrollment shown trials, not the full
+    Phase 3 set, so the result is a sample when phase3_count exceeds the
+    number of Phase 3 trials in `trials`.
+    """
+    years: set[int] = set()
+    for t in trials:
+        if t.phase != "Phase 3":
+            continue
+        if not t.completion_date:
+            continue
+        head = t.completion_date[:4]
+        if not head.isdigit():
+            continue
+        years.add(int(head))
+    return sorted(years)
 
 
 def build_supervisor_tools(
@@ -319,6 +345,17 @@ def build_supervisor_tools(
         n_withdrawn = search.by_status.get("WITHDRAWN", 0) if search else 0
         n_completed = completed.total_count if completed else 0
         n_completed_phase3 = completed.phase3_count if completed else 0
+        # Phase 3 completion years are extracted from the top-50 shown trials.
+        # When phase3_count exceeds the number of shown Phase 3 trials, the
+        # year list is a sample — flag that in the header so the supervisor
+        # does not over-interpret a partial picture.
+        phase3_years = _phase3_completion_years(completed.trials) if completed else []
+        n_phase3_in_shown = (
+            sum(1 for t in completed.trials if t.phase == "Phase 3") if completed else 0
+        )
+        years_truncated = (
+            n_completed_phase3 > n_phase3_in_shown if completed else False
+        )
         n_terminated = terminated.total_count if terminated else 0
         # safety/efficacy classification is computed from the top-50 shown
         # terminated trials; if total_count > len(trials) this is a floor.
@@ -329,11 +366,19 @@ def build_supervisor_tools(
             )
             if terminated else 0
         )
+        if phase3_years:
+            years_str = ", ".join(str(y) for y in phase3_years)
+            phase3_clause = (
+                f"{n_completed_phase3} Phase 3, completed "
+                f"{years_str}{' [sample]' if years_truncated else ''}"
+            )
+        else:
+            phase3_clause = f"{n_completed_phase3} Phase 3"
         header = (
             f"Clinical trials for {drug_name} × {disease_name}: "
             f"{n_total} total ({n_recruiting} recruiting, "
             f"{n_active_not_recruiting} active, {n_withdrawn} withdrawn). "
-            f"{n_completed} completed ({n_completed_phase3} Phase 3). "
+            f"{n_completed} completed ({phase3_clause}). "
             f"{n_terminated} terminated "
             f"({n_safety_efficacy_shown} safety/efficacy in shown set)."
         )

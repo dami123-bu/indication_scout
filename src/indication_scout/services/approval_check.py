@@ -176,10 +176,10 @@ async def list_approved_indications_from_labels(
     if not label_texts:
         return []
 
-    # cache_params = {"label_texts": sorted(label_texts)}
-    # cached = cache_get("fda_label_indications", cache_params, cache_dir)
-    # if cached is not None:
-    #     return list(cached)
+    cache_params = {"label_texts": sorted(label_texts)}
+    cached = cache_get("fda_label_indications", cache_params, cache_dir)
+    if cached is not None:
+        return list(cached)
 
     template = (_PROMPTS_DIR / "list_label_indications.txt").read_text()
     prompt = template.format(label_texts="\n---\n".join(label_texts))
@@ -217,13 +217,13 @@ async def list_approved_indications_from_labels(
         seen.add(key)
         indications.append(cleaned)
 
-    # cache_set(
-    #     "fda_label_indications",
-    #     cache_params,
-    #     indications,
-    #     cache_dir,
-    #     ttl=CACHE_TTL,
-    # )
+    cache_set(
+        "fda_label_indications",
+        cache_params,
+        indications,
+        cache_dir,
+        ttl=CACHE_TTL,
+    )
     return indications
 
 

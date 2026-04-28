@@ -56,11 +56,16 @@ restricted to THIS drug × THIS indication:
   withdrawn counts) + top 50 trials by enrollment. Use total_count and by_status for "is this
   space active?" and the trial list for specific exemplars.
 - completed — total_count (completed trials for the pair) + phase3_count (subset that are
-  Phase 3, exact count) + top 50 trials. A non-zero phase3_count without subsequent regulatory
-  progression (no approval, no subsequent Phase 3) is strong evidence the primary endpoint was
-  missed. Treat as closed unless the sub-agent explicitly indicates the readout was positive.
-  Do NOT describe a completed Phase 3 as "sustained clinical interest" — it is a settled
-  question.
+  Phase 3, exact count) + top 50 trials. The header also surfaces the completion years of the
+  Phase 3 trials in the shown set (e.g. "3 Phase 3, completed 2014, 2017, 2019"). When the
+  marker "[sample]" appears, more Phase 3 trials exist than fit in the shown set and the years
+  are a partial picture. A non-zero phase3_count without subsequent regulatory progression (no
+  approval, no subsequent Phase 3) is strong evidence the primary endpoint was missed. Treat as
+  closed unless the sub-agent explicitly indicates the readout was positive. Do NOT describe a
+  completed Phase 3 as "sustained clinical interest" — it is a settled question. Use the
+  completion years to distinguish a stale settled question (completion years more than ~5 years
+  ago, no follow-up) from a recent readout still in regulatory pipeline (completion within the
+  last 1-2 years).
 - terminated — total_count (terminated trials for the pair) + top 50 trials, each carrying
   why_stopped text. The clinical trials sub-agent's summary surfaces a count of those classified
   as safety/efficacy stops in the shown set. A non-zero safety/efficacy count means the exact

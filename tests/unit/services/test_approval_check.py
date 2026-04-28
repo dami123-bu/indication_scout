@@ -296,4 +296,3 @@ async def test_list_approved_indications_caches_result(tmp_path):
     assert second == ["obesity"]
     mock_llm.assert_awaited_once()
 
-
