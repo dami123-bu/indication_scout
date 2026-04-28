@@ -62,6 +62,7 @@ async def test_search_trials_returns_search_trials_result_artifact():
         why_stopped=None,
         indications=["Breast Cancer"],
         interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Trastuzumab"),
             Intervention(intervention_type="Drug", intervention_name="Capecitabine"),
         ],
         sponsor="Hoffmann-La Roche",
@@ -84,6 +85,10 @@ async def test_search_trials_returns_search_trials_result_artifact():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["trastuzumab", "herceptin"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -120,7 +125,9 @@ async def test_search_trials_returns_search_trials_result_artifact():
     assert t.why_stopped is None
     assert t.indications == ["Breast Cancer"]
     assert t.interventions[0].intervention_type == "Drug"
-    assert t.interventions[0].intervention_name == "Capecitabine"
+    assert t.interventions[0].intervention_name == "Trastuzumab"
+    assert t.interventions[1].intervention_type == "Drug"
+    assert t.interventions[1].intervention_name == "Capecitabine"
     assert t.sponsor == "Hoffmann-La Roche"
     assert t.enrollment == 157
     assert t.start_date == "2005-08"
@@ -141,6 +148,10 @@ async def test_search_trials_passes_date_before():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D000505", "Alopecia Areata")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["tofacitinib"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -203,6 +214,9 @@ async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
         phase="Phase 2",
         overall_status="RECRUITING",
         sponsor="S",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Bupropion"),
+        ],
     )
     mock_result = SearchTrialsResult(
         total_count=131,
@@ -216,6 +230,10 @@ async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D003866", "Depressive Disorder")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["bupropion", "wellbutrin"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -252,10 +270,11 @@ async def test_get_completed_returns_completed_trials_result_artifact():
         overall_status="COMPLETED",
         sponsor="Sponsor",
         enrollment=500,
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
+        ],
     )
-    mock_result = CompletedTrialsResult(
-        total_count=12, phase3_count=3, trials=[trial]
-    )
+    mock_result = CompletedTrialsResult(total_count=12, phase3_count=3, trials=[trial])
     mock_client = _mock_client(get_completed_trials=mock_result)
     tools = build_clinical_trials_tools(date_before=None)
 
@@ -263,6 +282,10 @@ async def test_get_completed_returns_completed_trials_result_artifact():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D003924", "Diabetes Mellitus, Type 2")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["semaglutide", "ozempic"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -297,15 +320,17 @@ async def test_get_completed_returns_completed_trials_result_artifact():
 async def test_get_completed_passes_date_before():
     """get_completed forwards date_before from closure into the client call."""
     cutoff = date(2020, 1, 1)
-    mock_client = _mock_client(
-        get_completed_trials=CompletedTrialsResult()
-    )
+    mock_client = _mock_client(get_completed_trials=CompletedTrialsResult())
     tools = build_clinical_trials_tools(date_before=cutoff)
 
     with (
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D000001", "Test Term")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["drug_x"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -375,6 +400,9 @@ async def test_get_terminated_returns_terminated_trials_result_artifact():
         why_stopped="Serious adverse events observed",
         sponsor="Novo Nordisk",
         enrollment=40,
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
+        ],
     )
     business_trial = Trial(
         nct_id="NCT04012256",
@@ -384,6 +412,9 @@ async def test_get_terminated_returns_terminated_trials_result_artifact():
         why_stopped="The trial was terminated for strategic reasons.",
         sponsor="Novo Nordisk",
         enrollment=20,
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
+        ],
     )
     mock_result = TerminatedTrialsResult(
         total_count=2, trials=[safety_trial, business_trial]
@@ -395,6 +426,10 @@ async def test_get_terminated_returns_terminated_trials_result_artifact():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D050177", "Overweight")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["semaglutide", "ozempic"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -435,6 +470,9 @@ async def test_get_terminated_content_notes_cap_when_total_exceeds_shown():
         overall_status="TERMINATED",
         why_stopped="Lack of efficacy",
         sponsor="S",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Drug_x"),
+        ],
     )
     mock_result = TerminatedTrialsResult(total_count=80, trials=[trial])
     mock_client = _mock_client(get_terminated_trials=mock_result)
@@ -444,6 +482,10 @@ async def test_get_terminated_content_notes_cap_when_total_exceeds_shown():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D050177", "Overweight")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["drug_x"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -474,6 +516,10 @@ async def test_get_terminated_passes_date_before():
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
             new=AsyncMock(return_value=("D000001", "Test Term")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["drug_x"]),
         ),
         patch(
             "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
@@ -525,6 +571,445 @@ async def test_get_terminated_returns_empty_when_resolver_returns_none():
     assert msg.artifact.trials == []
     assert "MeSH unresolved" in msg.content
     client_factory.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# Intervention-name filter (Essie noise mitigation)
+# ------------------------------------------------------------------
+
+
+async def test_search_trials_drops_trial_where_drug_only_in_eligibility():
+    """A trial returning from CT.gov whose drug appears only in eligibility/exclusion
+    text (not in the parsed interventions list as a Drug/Biological) is dropped from
+    the artifact, the total_count is decremented, and the content string flags the drop.
+    Reproduces the dasatinib × GIST NCT00688766 (IPI-504 / retaspimycin) false positive.
+    """
+    real_trial = Trial(
+        nct_id="NCT00000111",
+        title="Real dasatinib GIST trial",
+        phase="Phase 2",
+        overall_status="COMPLETED",
+        sponsor="S",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
+        ],
+    )
+    noise_trial = Trial(
+        nct_id="NCT00688766",
+        title="IPI-504 in GIST after imatinib/sunitinib failure",
+        phase="Phase 3",
+        overall_status="TERMINATED",
+        sponsor="Infinity",
+        interventions=[
+            Intervention(
+                intervention_type="Drug",
+                intervention_name="retaspimycin hydrochloride (IPI-504)",
+            ),
+            Intervention(intervention_type="Drug", intervention_name="placebo"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=2,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[real_trial, noise_trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D046152", "Gastrointestinal Stromal Tumors")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["dasatinib", "sprycel", "bms-354825"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "dasatinib", "indication": "gist"},
+                id="tc_filter_search",
+                type="tool_call",
+            )
+        )
+
+    assert isinstance(msg.artifact, SearchTrialsResult)
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT00000111"
+    assert "1 trials" in msg.content
+    assert "dropped 1 non-intervention trials" in msg.content
+
+
+async def test_search_trials_drops_observational_trial_with_no_interventions():
+    """An observational adherence study (no Drug/Biological interventions) returned
+    by CT.gov because the drug name appears in the description is dropped.
+    Reproduces dasatinib × GIST NCT03880617 (CML/GIST adherence study).
+    """
+    noise_trial = Trial(
+        nct_id="NCT03880617",
+        title="Distress, Medication Adherence and Care Needs in CML and GIST",
+        phase="Not Applicable",
+        overall_status="COMPLETED",
+        sponsor="Taiwan University",
+        interventions=[],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=1,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[noise_trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D046152", "Gastrointestinal Stromal Tumors")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["dasatinib", "sprycel"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "dasatinib", "indication": "gist"},
+                id="tc_filter_obs",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
+    assert "0 trials" in msg.content
+    assert "dropped 1 non-intervention trials" in msg.content
+
+
+async def test_search_trials_keeps_trial_matched_by_trade_name_alias():
+    """A trial whose intervention is recorded under a trade name (e.g. Sprycel
+    for dasatinib) is kept when the alias list includes that trade name."""
+    trial = Trial(
+        nct_id="NCT00000222",
+        title="Sprycel study",
+        phase="Phase 2",
+        overall_status="RECRUITING",
+        sponsor="BMS",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Sprycel 100 mg"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=1,
+        by_status={"RECRUITING": 1, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D046152", "Gastrointestinal Stromal Tumors")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["dasatinib", "sprycel", "bms-354825"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "dasatinib", "indication": "gist"},
+                id="tc_filter_trade",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT00000222"
+    assert "dropped" not in msg.content
+
+
+async def test_search_trials_skips_filter_when_alias_resolution_fails():
+    """When _resolve_drug_aliases returns None (drug not in ChEMBL), the filter
+    is skipped and trials are returned unfiltered. Better unfiltered than empty."""
+    trial = Trial(
+        nct_id="NCT00000333",
+        title="Some trial",
+        phase="Phase 2",
+        overall_status="RECRUITING",
+        sponsor="S",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Some Other Drug"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=1,
+        by_status={"RECRUITING": 1, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D000001", "Test Term")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "obscuredrug", "indication": "test"},
+                id="tc_filter_skip",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert "dropped" not in msg.content
+
+
+async def test_get_terminated_drops_eligibility_only_trial_and_recomputes_safety():
+    """Filter is applied to get_terminated: dropped trials are removed from the
+    safety/efficacy stop count and from total_count."""
+    real_trial = Trial(
+        nct_id="NCT00000444",
+        title="Real dasatinib termination",
+        phase="Phase 2",
+        overall_status="TERMINATED",
+        why_stopped="Lack of efficacy",
+        sponsor="S",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
+        ],
+    )
+    noise_trial = Trial(
+        nct_id="NCT00688766",
+        title="IPI-504 in GIST",
+        phase="Phase 3",
+        overall_status="TERMINATED",
+        why_stopped="Sponsor decision",
+        sponsor="Infinity",
+        interventions=[
+            Intervention(
+                intervention_type="Drug",
+                intervention_name="retaspimycin hydrochloride (IPI-504)",
+            ),
+        ],
+    )
+    mock_result = TerminatedTrialsResult(
+        total_count=2, trials=[real_trial, noise_trial]
+    )
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D046152", "Gastrointestinal Stromal Tumors")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["dasatinib", "sprycel"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "dasatinib", "indication": "gist"},
+                id="tc_filter_term",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT00000444"
+    assert "1 total" in msg.content
+    assert "1 safety/efficacy" in msg.content
+    assert "dropped 1 non-intervention trials" in msg.content
+
+
+async def test_get_completed_drops_eligibility_only_trial():
+    """Filter is applied to get_completed: dropped trial is removed and total_count decremented.
+    phase3_count is unfiltered (separate count call) and may overstate after filtering.
+    """
+    real_trial = Trial(
+        nct_id="NCT00000555",
+        title="Real dasatinib completion",
+        phase="Phase 3",
+        overall_status="COMPLETED",
+        sponsor="BMS",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
+        ],
+    )
+    noise_trial = Trial(
+        nct_id="NCT03880617",
+        title="Adherence study mentioning dasatinib",
+        phase="Not Applicable",
+        overall_status="COMPLETED",
+        sponsor="Taiwan University",
+        interventions=[],
+    )
+    mock_result = CompletedTrialsResult(
+        total_count=2, phase3_count=1, trials=[real_trial, noise_trial]
+    )
+    mock_client = _mock_client(get_completed_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D046152", "Gastrointestinal Stromal Tumors")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["dasatinib", "sprycel"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "dasatinib", "indication": "gist"},
+                id="tc_filter_completed",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert msg.artifact.phase3_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT00000555"
+    assert "1 total" in msg.content
+    assert "1 Phase 3" in msg.content
+    assert "dropped 1 non-intervention trials" in msg.content
+
+
+# ------------------------------------------------------------------
+# _trial_intervenes_with_drug (alias matching unit)
+# ------------------------------------------------------------------
+
+
+def test_trial_intervenes_with_drug_matches_whole_word_substring():
+    """Whole-word substring match: aliases bounded by non-alphanumeric chars or string edges."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_intervenes_with_drug,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        interventions=[
+            Intervention(
+                intervention_type="Drug", intervention_name="Dasatinib 100 mg"
+            ),
+        ],
+    )
+    assert _trial_intervenes_with_drug(trial, ["dasatinib"]) is True
+
+
+def test_trial_intervenes_with_drug_rejects_eligibility_only_drug():
+    """A trial with no intervention whose name contains the alias is rejected."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_intervenes_with_drug,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        interventions=[
+            Intervention(
+                intervention_type="Drug",
+                intervention_name="retaspimycin hydrochloride (IPI-504)",
+            ),
+        ],
+    )
+    assert _trial_intervenes_with_drug(trial, ["dasatinib", "sprycel"]) is False
+
+
+def test_trial_intervenes_with_drug_rejects_partial_substring():
+    """Short aliases must match as whole words — 'asa' must not match 'asacol'."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_intervenes_with_drug,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Asacol"),
+        ],
+    )
+    assert _trial_intervenes_with_drug(trial, ["asa"]) is False
+
+
+def test_trial_intervenes_with_drug_rejects_non_drug_intervention_type():
+    """A behavioral/device intervention whose name happens to mention the drug is not a match."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_intervenes_with_drug,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        interventions=[
+            Intervention(
+                intervention_type="Behavioral",
+                intervention_name="Counseling on dasatinib adherence",
+            ),
+        ],
+    )
+    assert _trial_intervenes_with_drug(trial, ["dasatinib"]) is False
+
+
+def test_trial_intervenes_with_drug_matches_biological_type():
+    """Biological intervention type (e.g. monoclonal antibody) is treated equivalently to Drug."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_intervenes_with_drug,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        interventions=[
+            Intervention(
+                intervention_type="Biological",
+                intervention_name="Trastuzumab",
+            ),
+        ],
+    )
+    assert _trial_intervenes_with_drug(trial, ["trastuzumab", "herceptin"]) is True
 
 
 # ------------------------------------------------------------------
@@ -801,7 +1286,10 @@ async def test_check_fda_approval_indication_match_is_case_insensitive():
         msg = await _get_tool(tools, "check_fda_approval").ainvoke(
             LCToolCall(
                 name="check_fda_approval",
-                args={"drug": "semaglutide", "indication": "  type 2 diabetes mellitus  "},
+                args={
+                    "drug": "semaglutide",
+                    "indication": "  type 2 diabetes mellitus  ",
+                },
                 id="tc_fda3",
                 type="tool_call",
             )

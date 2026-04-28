@@ -1,7 +1,9 @@
 import logging
+import re
 from datetime import date
 
 from langchain_core.tools import tool
+
 from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     NEGATION_PREFIXES,
@@ -10,18 +12,72 @@ from indication_scout.constants import (
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.clinical_trials import ClinicalTrialsClient
+from indication_scout.data_sources.fda import FDAClient
 from indication_scout.models.model_clinical_trials import (
     ApprovalCheck,
     CompletedTrialsResult,
     IndicationLandscape,
     SearchTrialsResult,
     TerminatedTrialsResult,
+    Trial,
 )
-from indication_scout.data_sources.fda import FDAClient
 from indication_scout.services.approval_check import extract_approved_from_labels
 from indication_scout.services.disease_helper import resolve_mesh_id
 
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_drug_aliases(drug: str) -> list[str] | None:
+    """Resolve a drug name to its full lowercased alias list via ChEMBL.
+
+    Returns None if resolution fails — callers should treat this as
+    "skip the alias filter" rather than "drop everything."
+    """
+    try:
+        chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
+    except DataSourceError:
+        logger.warning(
+            "intervention filter: could not resolve '%s' to ChEMBL id; "
+            "skipping alias filter",
+            drug,
+        )
+        return None
+    names = await get_all_drug_names(chembl_id, DEFAULT_CACHE_DIR)
+    if not names:
+        logger.warning(
+            "intervention filter: no aliases for ChEMBL id '%s' (drug=%s); "
+            "skipping alias filter",
+            chembl_id,
+            drug,
+        )
+        return None
+    return names
+
+
+def _trial_intervenes_with_drug(trial: Trial, aliases: list[str]) -> bool:
+    """Return True iff the trial has a Drug/Biological intervention whose name
+    contains one of the drug's aliases as a whole-word token.
+
+    CT.gov's Essie search engine matches `query.intr` against eligibility
+    criteria, descriptions, and other free-text fields — so a search for
+    "dasatinib" pulls in trials that exclude dasatinib (eligibility) or
+    merely mention it (observational adherence studies). The intervention
+    list is the authoritative record of what is actually being administered.
+    """
+    for interv in trial.interventions:
+        if interv.intervention_type not in ("Drug", "Biological"):
+            continue
+        name_lower = interv.intervention_name.lower()
+        for alias in aliases:
+            if not alias:
+                continue
+            # Whole-word match: alias surrounded by non-alphanumeric
+            # boundaries (or string edges). Prevents 3-char codes from
+            # matching inside unrelated words.
+            pattern = rf"(?:^|[^a-z0-9]){re.escape(alias)}(?:[^a-z0-9]|$)"
+            if re.search(pattern, name_lower):
+                return True
+    return False
 
 
 def _classify_stop_reason(why_stopped: str | None) -> str:
@@ -89,9 +145,21 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
+        aliases = await _resolve_drug_aliases(drug)
+        dropped = 0
+        if aliases is not None:
+            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
+            dropped = len(result.trials) - len(kept)
+            result.trials = kept
+            result.total_count = max(0, result.total_count - dropped)
+
         shown = len(result.trials)
-        cap_note = (
-            "; top 50 shown" if shown < result.total_count else ""
+        cap_note = "; top 50 shown" if shown < result.total_count else ""
+        filter_note = (
+            f"; dropped {dropped} non-intervention trials (drug appeared in "
+            f"eligibility/description only)"
+            if dropped
+            else ""
         )
         by = result.by_status
         content = (
@@ -100,7 +168,7 @@ def build_clinical_trials_tools(
             f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
             f"withdrawn={by.get('WITHDRAWN', 0)}, "
             f"unknown={by.get('UNKNOWN', 0)})"
-            f"{cap_note}"
+            f"{cap_note}{filter_note}"
         )
         return content, result
 
@@ -135,11 +203,25 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
+        aliases = await _resolve_drug_aliases(drug)
+        dropped = 0
+        if aliases is not None:
+            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
+            dropped = len(result.trials) - len(kept)
+            result.trials = kept
+            result.total_count = max(0, result.total_count - dropped)
+
         shown = len(result.trials)
         cap_note = "; top 50 shown" if shown < result.total_count else ""
+        filter_note = (
+            f"; dropped {dropped} non-intervention trials (drug appeared in "
+            f"eligibility/description only)"
+            if dropped
+            else ""
+        )
         content = (
             f"Completed for {drug} × {indication}: {result.total_count} total "
-            f"({result.phase3_count} Phase 3){cap_note}"
+            f"({result.phase3_count} Phase 3){cap_note}{filter_note}"
         )
         return content, result
 
@@ -179,9 +261,18 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
+        aliases = await _resolve_drug_aliases(drug)
+        dropped = 0
+        if aliases is not None:
+            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
+            dropped = len(result.trials) - len(kept)
+            result.trials = kept
+            result.total_count = max(0, result.total_count - dropped)
+
         shown = len(result.trials)
         safety_efficacy = sum(
-            1 for t in result.trials
+            1
+            for t in result.trials
             if _classify_stop_reason(t.why_stopped) in {"safety", "efficacy"}
         )
         cap_note = (
@@ -189,9 +280,15 @@ def build_clinical_trials_tools(
             if shown < result.total_count
             else ""
         )
+        filter_note = (
+            f"; dropped {dropped} non-intervention trials (drug appeared in "
+            f"eligibility/description only)"
+            if dropped
+            else ""
+        )
         content = (
             f"Terminated for {drug} × {indication}: {result.total_count} total "
-            f"({safety_efficacy} safety/efficacy in shown set){cap_note}"
+            f"({safety_efficacy} safety/efficacy in shown set){cap_note}{filter_note}"
         )
         return content, result
 
