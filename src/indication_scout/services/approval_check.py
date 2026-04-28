@@ -20,7 +20,12 @@ from indication_scout.data_sources.chembl import (
     resolve_drug_name,
 )
 from indication_scout.data_sources.fda import FDAClient
-from indication_scout.services.llm import query_llm, query_small_llm, strip_markdown_fences
+from indication_scout.services.llm import (
+    parse_last_json_array,
+    parse_last_json_object,
+    query_llm,
+    query_small_llm,
+)
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -66,19 +71,11 @@ async def remove_approved_from_labels(
     )
 
     response = await query_small_llm(prompt)
-    stripped = strip_markdown_fences(response)
+    parsed = parse_last_json_array(response)
 
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
+    if parsed is None:
         logger.error(
             "remove_approved_from_labels: failed to parse LLM response: %s", response
-        )
-        return set(candidate_diseases)
-
-    if not isinstance(parsed, list):
-        logger.error(
-            "remove_approved_from_labels: LLM returned non-list: %s", type(parsed)
         )
         return set(candidate_diseases)
 
@@ -123,16 +120,10 @@ async def dedup_survivors(diseases: list[str]) -> set[str]:
     prompt = template.format(diseases=", ".join(diseases))
 
     response = await query_small_llm(prompt)
-    stripped = strip_markdown_fences(response)
+    parsed = parse_last_json_array(response)
 
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
+    if parsed is None:
         logger.error("dedup_survivors: failed to parse LLM response: %s", response)
-        return set(diseases)
-
-    if not isinstance(parsed, list):
-        logger.error("dedup_survivors: LLM returned non-list: %s", type(parsed))
         return set(diseases)
 
     input_lower_map = {d.lower(): d for d in diseases}
@@ -185,21 +176,12 @@ async def list_approved_indications_from_labels(
     prompt = template.format(label_texts="\n---\n".join(label_texts))
 
     response = await query_llm(prompt)
-    stripped = strip_markdown_fences(response)
+    parsed = parse_last_json_array(response)
 
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
+    if parsed is None:
         logger.error(
             "list_approved_indications_from_labels: failed to parse LLM response: %s",
             response,
-        )
-        return []
-
-    if not isinstance(parsed, list):
-        logger.error(
-            "list_approved_indications_from_labels: LLM returned non-list: %s",
-            type(parsed),
         )
         return []
 
@@ -260,20 +242,11 @@ async def extract_approved_from_labels(
     )
 
     response = await query_small_llm(prompt)
+    parsed = parse_last_json_array(response)
 
-    stripped = strip_markdown_fences(response)
-
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
+    if parsed is None:
         logger.error(
             "extract_approved_from_labels: failed to parse LLM response: %s", response
-        )
-        return set()
-
-    if not isinstance(parsed, list):
-        logger.error(
-            "extract_approved_from_labels: LLM returned non-list: %s", type(parsed)
         )
         return set()
 
@@ -408,21 +381,12 @@ async def get_fda_approved_disease_mapping(
     )
 
     response = await query_llm(prompt)
-    stripped = strip_markdown_fences(response)
+    parsed = parse_last_json_object(response)
 
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
+    if parsed is None:
         logger.error(
             "get_fda_approved_disease_mapping: failed to parse LLM response: %s",
             response,
-        )
-        return result
-
-    if not isinstance(parsed, dict):
-        logger.error(
-            "get_fda_approved_disease_mapping: LLM returned non-dict: %s",
-            type(parsed),
         )
         return result
 

@@ -475,6 +475,48 @@ Estimated effort: medium — touches the data-source method signature, the
 agent's tool definitions, the agent's prompt, and downstream supervisor
 prompts that reason about completed/terminated counts.
 
+## LLM API call reduction (added 2026-04-28)
+
+Disease normalization is already batched where it matters
+(`_normalize_disease_groups` in `retrieval.py` collapses ~15 competitor
+diseases into one LLM call via `llm_normalize_disease_batch`). Singular
+`llm_normalize_disease` calls remain inside `normalize_for_pubmed`, but those
+are per-pair and cached by `raw_term`, so repeat-drug runs cost zero. Not a
+hot path.
+
+The real LLM-call multiplier is the **sub-agents themselves**. Each literature
+ReAct loop and each clinical_trials ReAct loop runs multiple turns with
+multiple tool calls. With 5 candidates × 2 sub-agents × N turns each, a
+supervisor run is 30+ LLM calls from sub-agent scaffolding alone. Disease
+normalization is rounding error against this.
+
+Real targets when API cost matters:
+
+1. **Sub-agent output caching by (drug, disease) pair.** The literature and
+   clinical_trials sub-agents do nearly identical work for repeat (drug,
+   disease) pairs across runs. Cache the typed `LiteratureOutput` /
+   `ClinicalTrialsOutput` artifact keyed by (drug, disease, evidence-cutoff
+   date). A repeat dasatinib run becomes ~free for any candidate analyzed
+   before. Tradeoff: stale results when new trials/papers land — needs a TTL
+   or explicit invalidation.
+
+2. **Anthropic prompt caching for sub-agent system prompts.** Each sub-agent
+   has a stable, multi-paragraph system prompt that is sent every turn of
+   every ReAct loop. With prompt caching enabled, only the per-call deltas
+   count against tokens. Largest token win, no behavior change. Effort: small
+   (one SDK call kwarg change in `services/llm.py`).
+
+3. **Reduce sub-agent ReAct turn count.** The literature agent's tool sequence
+   is roughly fixed (resolve → queries → fetch → semantic_search → synthesize)
+   but the LLM picks the order each time, sometimes loops or backtracks. A
+   deterministic pipeline (call tools in fixed order, no LLM-in-the-loop until
+   the synthesis step) would cut turns by ~50%. Tradeoff: less adaptive,
+   harder to extend with new tools. Worth doing if (1) and (2) aren't enough.
+
+Order of effort: (2) << (1) < (3). Do (2) first whenever caching becomes a
+priority — it's a one-line change with no behavioral risk. (1) needs cache
+infrastructure and an invalidation story. (3) is a redesign of each sub-agent.
+
 ------
 
 APPENDIX

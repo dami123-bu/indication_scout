@@ -154,8 +154,11 @@ async def test_get_fda_approved_disease_mapping_empty_inputs(
         (
             ["Ozempic", "Wegovy", "semaglutide"],
             [
-                ["diabetes"],            # T2DM approval
-                ["weight", "obesity"],   # chronic weight management / obesity
+                ["diabetes"],                            # T2DM approval
+                ["weight", "obesity"],                   # chronic weight management / obesity
+                ["cardiovascular", "cv"],                # 2020 MACE risk reduction approval
+                ["kidney", "renal"],                     # 2025 FLOW / CKD approval
+                ["mash", "steatohepatitis", "fatty liver"],  # 2024 Wegovy MASH approval
             ],
         ),
         # Metformin: established T2DM approval. Single, unambiguous indication
