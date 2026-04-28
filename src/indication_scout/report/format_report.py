@@ -16,9 +16,6 @@ def _fmt_literature(lit: LiteratureOutput) -> str:
         es = lit.evidence_summary
         lines.append(f"**Evidence strength:** {es.strength}")
         lines.append(f"**Study count:** {es.study_count}")
-        if es.study_types:
-            lines.append(f"**Study types:** {', '.join(es.study_types)}")
-        lines.append(f"**Adverse effects reported:** {'Yes' if es.has_adverse_effects else 'No'}")
         if es.summary:
             lines.append(f"\n{es.summary}")
         if es.key_findings:

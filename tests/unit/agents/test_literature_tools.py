@@ -48,9 +48,7 @@ SEMANTIC_RESULTS = [
 EVIDENCE = EvidenceSummary(
     strength="moderate",
     study_count=2,
-    study_types=["RCT"],
     key_findings=["Metformin reduces tumor growth"],
-    has_adverse_effects=False,
     supporting_pmids=["111", "222"],
     summary="Moderate evidence supports metformin in colorectal cancer based on 2 RCTs.",
 )
@@ -401,9 +399,7 @@ async def test_synthesize_reads_abstracts_from_store_and_returns_evidence():
     assert isinstance(msg.artifact, EvidenceSummary)
     assert msg.artifact.strength == "moderate"
     assert msg.artifact.study_count == 2
-    assert msg.artifact.study_types == ["RCT"]
     assert msg.artifact.key_findings == ["Metformin reduces tumor growth"]
-    assert msg.artifact.has_adverse_effects is False
     assert msg.artifact.supporting_pmids == ["111", "222"]
     assert (
         msg.artifact.summary

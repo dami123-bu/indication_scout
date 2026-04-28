@@ -54,29 +54,25 @@ possible. Do not emit plain text after finalize_analysis.
   topically close to the query — it does NOT mean the abstract reports efficacy, is a clinical
   study, or supports repurposing. Low similarity means topically distant, not "negative result."
 - EvidenceSummary (from synthesize): summary (LLM-written narrative over the top abstracts),
-  study_count (how many abstracts were judged relevant), study_types (e.g. "in vitro,"
-  "case report," "RCT" — as classified by the synthesizer from abstract text), strength
+  study_count (how many abstracts were judged relevant), strength
   (one of "strong" / "moderate" / "weak" / "none" — the synthesizer's own judgment over the
-  retrieved abstracts), has_adverse_effects (boolean flag from abstract text), key_findings
+  retrieved abstracts), key_findings
   (bullet list extracted from abstracts), supporting_pmids (PMIDs cited in key_findings).
   EvidenceSummary does NOT contain: trial registry data, FDA approval status, p-values,
   endpoint outcomes, or any signal beyond what the retrieved abstracts state.
 
 # REPORTING — what the summary must and must not say
-- Lead with what the EvidenceSummary actually contains: study_count, study_types, and the
+- Lead with what the EvidenceSummary actually contains: study_count and the
   strength label produced by synthesize. Do not invent a strength judgment of your own that
   conflicts with EvidenceSummary.strength.
 - Cite key_findings when present. If supporting_pmids is non-empty, you may reference the PMIDs
   inline, but do not list raw PMIDs as the bulk of the summary — paraphrase the finding.
 - Distinguish abstract-level signal from clinical signal. Abstracts include in vitro, animal,
-  case reports, reviews, and opinion pieces. When study_types makes the level clear, name it
-  (e.g. "preclinical reports," "a single case report," "a randomized trial"). Do not upgrade
+  case reports, reviews, and opinion pieces. Do not upgrade
   preclinical or case-report evidence into clinical claims.
-- has_adverse_effects == true → mention that adverse effects were reported in the retrieved
-  abstracts. Attribute to the abstracts, not to the drug in general.
 - Never surface internal field names, tool names, or implementation details in the summary —
   no "EvidenceSummary," "DrugProfile," "AbstractResult," "ChEMBL ID," "chembl_id," "pgvector,"
-  "similarity," "supporting_pmids," "study_count," "study_types," "strength," "fetch_and_cache,"
+  "similarity," "supporting_pmids," "study_count," "strength," "fetch_and_cache,"
   "semantic_search," "synthesize," "expand_search_terms." Use plain English: "the retrieved
   abstracts," "the literature we found," "the drug's known targets," "the drug's mechanism."
 - Do not report query counts ("we ran 12 queries") or PMID counts ("we cached 240 PMIDs") as

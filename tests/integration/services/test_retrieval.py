@@ -587,7 +587,7 @@ async def test_synthesize_negative_candidate(svc, db_session_truncating):
 
 
 async def test_synthesize_contraindication(svc, db_session_truncating):
-    """Bupropion + hypertension should flag adverse effects."""
+    """Bupropion + hypertension should synthesize as a contraindication (no support)."""
     queries = ["bupropion AND hypertension"]
     pmids = await svc.fetch_and_cache(queries, db_session_truncating)
     top_5 = await svc.semantic_search(
@@ -597,5 +597,4 @@ async def test_synthesize_contraindication(svc, db_session_truncating):
     result = await svc.synthesize("CHEMBL894", "hypertension", top_5)
 
     assert result.strength == "none"
-    assert result.has_adverse_effects is True
     assert result.supporting_pmids == []

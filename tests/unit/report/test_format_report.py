@@ -243,9 +243,7 @@ def test_format_report_full_assembly():
                     evidence_summary=EvidenceSummary(
                         summary="Multiple Phase 2 trials show histological improvement.",
                         study_count=4,
-                        study_types=["RCT", "meta-analysis"],
                         strength="moderate",
-                        has_adverse_effects=True,
                         key_findings=["MASH resolution in ~60% of patients"],
                         supporting_pmids=["12345678"],
                     )

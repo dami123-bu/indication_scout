@@ -80,7 +80,6 @@ async def _process_disease(
     )
 
     logger.info("  Strength: %s", evidence.strength)
-    logger.info("  Adverse: %s", evidence.has_adverse_effects)
     logger.info("  Summary: %s...", evidence.summary[:100])
 
     return disease, evidence
@@ -155,8 +154,7 @@ async def run_rag(
 
     logger.info("=== Final Ranking for %s ===", drug_name)
     for disease, summary in sorted_results:
-        flag = "ADVERSE" if summary.has_adverse_effects else "OK"
-        logger.info("  [%s] %s: %s", flag, disease, summary.strength)
+        logger.info("  %s: %s", disease, summary.strength)
 
     return results
 

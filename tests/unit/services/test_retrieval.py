@@ -1093,9 +1093,7 @@ _SAMPLE_LLM_RESPONSE = json.dumps(
     {
         "summary": "Two studies support metformin for colorectal cancer.",
         "study_count": 2,
-        "study_types": ["RCT", "preclinical"],
         "strength": "moderate",
-        "has_adverse_effects": False,
         "key_findings": [
             "Significant CRC risk reduction in RCT (PMID: 11111111)",
             "AMPK-mediated apoptosis in colon cancer cells (PMID: 22222222)",
@@ -1198,9 +1196,7 @@ async def test_synthesize_parses_llm_response(svc):
     assert isinstance(result, EvidenceSummary)
     assert result.summary == "Two studies support metformin for colorectal cancer."
     assert result.study_count == 2
-    assert result.study_types == ["RCT", "preclinical"]
     assert result.strength == "moderate"
-    assert result.has_adverse_effects is False
     assert result.key_findings == [
         "Significant CRC risk reduction in RCT (PMID: 11111111)",
         "AMPK-mediated apoptosis in colon cancer cells (PMID: 22222222)",
