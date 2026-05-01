@@ -173,6 +173,25 @@ ChEMBL/DrugBank already have synonym lists. Pass the top N synonyms as an OR que
 This addresses false whitespace signals caused by trials registered under brand names
 or salt forms rather than the INN.
 
+### 2. Phase 3
+Put in something about pivotal trials in the final synthesis
+A pivotal study is a clinical trial whose results form the primary basis for a regulatory approval decision (FDA, EMA, etc.).
+
+Key characteristics:
+
+Phase 3 (occasionally Phase 2 in rare disease / oncology / accelerated approval contexts)
+Adequate and well-controlled — randomized, blinded, with a pre-specified primary endpoint
+Powered to demonstrate efficacy on that endpoint with statistical significance
+Conducted under an IND with the design pre-agreed with the regulator (often via End-of-Phase-2 meeting / SPA)
+The FDA typically requires two independent pivotal trials ("substantial evidence of effectiveness", FDCA §505(d)), though one pivotal + confirmatory evidence is accepted in some cases (e.g. rare diseases, oncology with strong effect size).
+
+Example: For dupilumab in eosinophilic esophagitis, the pivotal trial was LIBERTY EoE TREET (NCT03633617) — a Phase 3 randomized placebo-controlled trial whose Part A and Part B results supported the May 2022 approval.
+
+Distinct from:
+
+Supportive studies — Phase 2 dose-finding, PK/PD, mechanism studies cited alongside but not the basis for approval
+Post-marketing studies (Phase 4) — run after approval to confirm safety/effectiveness in broader populations
+
 ## Literature Agent — Adaptive Search
 
 The MVP uses a fixed call sequence with no retry logic. Once time allows, add:

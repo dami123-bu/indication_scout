@@ -4,11 +4,15 @@ Uses LangGraph's prebuilt create_react_agent for the agent loop. After the run, 
 history to pull typed artifacts off the ToolMessages and assembles them into a LiteratureOutput.
 """
 
+import logging
+
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.literature.literature_tools import build_literature_tools
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 You are a biomedical literature researcher assessing whether a drug could be repurposed for a new
@@ -122,6 +126,7 @@ async def run_literature_agent(
     agent, drug_name: str, disease_name: str
 ) -> LiteratureOutput:
     """Invoke the agent and assemble a LiteratureOutput from the run."""
+    logger.warning("Starting literature agent run for drug=%s disease=%s", drug_name, disease_name)
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
     )
@@ -148,6 +153,24 @@ async def run_literature_agent(
             artifacts[field_map[msg.name]] = msg.artifact
 
     summary = artifacts.get("summary") or ""
+
+    if not artifacts["queries"]:
+        logger.warning("Literature agent produced no expanded search queries for %s/%s",
+                       drug_name, disease_name)
+    if not artifacts["pmids"]:
+        logger.warning("Literature agent fetched no PMIDs for %s/%s", drug_name, disease_name)
+    if artifacts["evidence"] is None:
+        logger.warning("Literature agent produced no EvidenceSummary for %s/%s",
+                       drug_name, disease_name)
+    if not summary:
+        logger.warning("Literature agent finished without a finalize_analysis summary for %s/%s",
+                       drug_name, disease_name)
+
+    logger.warning(
+        "Literature agent run complete for %s/%s: queries=%d pmids=%d abstracts=%d",
+        drug_name, disease_name,
+        len(artifacts["queries"]), len(artifacts["pmids"]), len(artifacts["abstracts"]),
+    )
 
     return LiteratureOutput(
         search_results=artifacts["queries"],
