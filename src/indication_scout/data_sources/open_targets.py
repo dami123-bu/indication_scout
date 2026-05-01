@@ -9,7 +9,9 @@ Plus convenience accessors for specific target data slices.
 """
 
 import asyncio
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -60,6 +62,93 @@ logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
+# Per-target evidences cache. One file per target_id holds
+# {efo_id: {records, cached_at, ttl}}. Replaces the prior `target_evidences`
+# namespace which fanned out one file per (target_id, efo_id) pair.
+# TTL is per-pair so adding a new efo_id later does not reset existing
+# entries' freshness. Reads are concurrent-safe; writes are serialized
+# in get_target_evidences (one merge+write after all fetches gather).
+_TARGET_EVIDENCES_NS = "target_evidences"
+
+
+def _target_evidences_path(target_id: str, cache_dir: Path) -> Path:
+    """Return the per-target cache file path for the evidences namespace."""
+    return cache_dir / _TARGET_EVIDENCES_NS / f"{target_id}.json"
+
+
+def _load_target_evidences(
+    target_id: str, cache_dir: Path
+) -> dict[str, dict[str, Any]]:
+    """Load the per-target evidences file as {efo_id: {records, cached_at, ttl}}.
+
+    Returns an empty dict if the file is missing or unparseable. Expired
+    entries are dropped lazily; the file is rewritten only when a caller
+    invokes _save_target_evidences.
+    """
+    path = _target_evidences_path(target_id, cache_dir)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    entries = raw.get("entries")
+    if not isinstance(entries, dict):
+        return {}
+
+    fresh: dict[str, dict[str, Any]] = {}
+    now = datetime.now()
+    for efo_id, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            cached_at = datetime.fromisoformat(entry["cached_at"])
+            ttl = int(entry.get("ttl", CACHE_TTL))
+            records = entry["records"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (now - cached_at).total_seconds() > ttl:
+            continue
+        if not isinstance(records, list):
+            continue
+        fresh[efo_id] = {
+            "records": records,
+            "cached_at": entry["cached_at"],
+            "ttl": ttl,
+        }
+    return fresh
+
+
+def _save_target_evidences(
+    target_id: str,
+    new_records: dict[str, list[dict[str, Any]]],
+    cache_dir: Path,
+    ttl: int = CACHE_TTL,
+) -> None:
+    """Merge new_records into the per-target file and write it back.
+
+    Existing unexpired entries are preserved; new EFO entries overwrite any
+    prior entry for the same efo_id (refreshing its cached_at).
+    """
+    if not new_records:
+        return
+    path = _target_evidences_path(target_id, cache_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _load_target_evidences(target_id, cache_dir)
+    now_iso = datetime.now().isoformat()
+    for efo_id, records in new_records.items():
+        existing[efo_id] = {
+            "records": records,
+            "cached_at": now_iso,
+            "ttl": ttl,
+        }
+    payload = {
+        "ns": _TARGET_EVIDENCES_NS,
+        "target_id": target_id,
+        "entries": existing,
+    }
+    path.write_text(json.dumps(payload, default=str, indent=2))
+
 
 class CompetitorRawData(TypedDict):
     diseases: dict[str, set[str]]
@@ -95,8 +184,9 @@ class OpenTargetsClient(BaseClient):
     async def get_drug(self, chembl_id: str) -> DrugData:
         """Fetch drug data by ChEMBL ID, enriched with ATC codes from ChEMBL.
 
-        Also warms the ChEMBL drug-names cache (and the drug_name_to_chembl reverse
-        index) so downstream lookups via get_all_drug_names don't re-hit the API.
+        Also warms the chembl_id_to_names cache (which doubles as the reverse
+        index for resolve_drug_name) so downstream lookups via get_all_drug_names
+        don't re-hit the API.
         """
         cached = cache_get("drug", {"chembl_id": chembl_id}, self.cache_dir)
         if cached:
@@ -326,29 +416,48 @@ class OpenTargetsClient(BaseClient):
         Fans out per-efo so each (target, disease) pair gets its own
         200-record budget from OT. Batched queries share that budget
         across all efoIds, which starves rare diseases when they're
-        batched with common ones. Per-efo calls run in parallel via
-        asyncio.gather and are cached individually.
+        batched with common ones. Per-efo fetches run in parallel via
+        asyncio.gather.
+
+        Cache is one file per target_id (`target_evidences/<target_id>.json`)
+        holding {efo_id: records}. Reads happen once at the top; writes are
+        batched into a single merge+rewrite after all fresh fetches complete,
+        so concurrent EFO fetches for the same target cannot stomp the file.
         """
         if not efo_ids:
             return {}
 
-        results = await asyncio.gather(
-            *[self._fetch_evidences_single(target_id, efo) for efo in efo_ids]
-        )
-        return dict(zip(efo_ids, results))
+        cached = _load_target_evidences(target_id, self.cache_dir)
+
+        results: dict[str, list[EvidenceRecord]] = {}
+        missing: list[str] = []
+        for efo_id in efo_ids:
+            entry = cached.get(efo_id)
+            if entry is None:
+                missing.append(efo_id)
+            else:
+                results[efo_id] = [
+                    EvidenceRecord.model_validate(r) for r in entry["records"]
+                ]
+
+        if missing:
+            fresh = await asyncio.gather(
+                *[self._fetch_evidences_single(target_id, efo) for efo in missing]
+            )
+            new_serialized: dict[str, list[dict[str, Any]]] = {}
+            for efo_id, records in zip(missing, fresh):
+                results[efo_id] = records
+                new_serialized[efo_id] = [r.model_dump() for r in records]
+            _save_target_evidences(
+                target_id, new_serialized, self.cache_dir, ttl=CACHE_TTL
+            )
+
+        return {efo_id: results[efo_id] for efo_id in efo_ids}
 
     async def _fetch_evidences_single(
         self, target_id: str, efo_id: str
     ) -> list[EvidenceRecord]:
-        """Fetch evidence records for a single (target, disease) pair."""
-        cached = cache_get(
-            "target_evidences",
-            {"target_id": target_id, "efo_id": efo_id},
-            self.cache_dir,
-        )
-        if cached is not None:
-            return [EvidenceRecord.model_validate(e) for e in cached]
-
+        """Fetch evidence records for a single (target, disease) pair (no cache)."""
         data = await self._graphql(
             self.BASE_URL,
             EVIDENCES_QUERY,
@@ -361,14 +470,6 @@ class OpenTargetsClient(BaseClient):
         # Only keep records whose disease_id matches what we asked for —
         # defends against the API returning cross-linked disease rows.
         records = [r for r in records if r.disease_id == efo_id]
-
-        cache_set(
-            "target_evidences",
-            {"target_id": target_id, "efo_id": efo_id},
-            [r.model_dump() for r in records],
-            self.cache_dir,
-            ttl=CACHE_TTL,
-        )
         return records
 
     async def get_disease_drugs(self, disease_id: str) -> list[DrugSummary]:

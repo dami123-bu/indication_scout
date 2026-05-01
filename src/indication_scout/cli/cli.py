@@ -38,8 +38,15 @@ async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
     )
     from indication_scout.constants import DEFAULT_CACHE_DIR
     from indication_scout.db.session import get_db
+    from indication_scout.helpers.drug_helpers import normalize_drug_name
     from indication_scout.report.format_report import format_report
     from indication_scout.services.retrieval import RetrievalService
+
+    # Normalize at the entry point so every downstream consumer (cache keys,
+    # tools, sub-agents, snapshot filename, logs) sees a consistent lowercased
+    # form. Anything that needs the original casing must be captured before
+    # this point.
+    drug = normalize_drug_name(drug)
 
     llm = ChatAnthropic(
         model="claude-sonnet-4-6",

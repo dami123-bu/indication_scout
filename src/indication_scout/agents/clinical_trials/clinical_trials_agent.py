@@ -4,6 +4,8 @@ Uses LangGraph's prebuilt create_react_agent for the agent loop. After the run, 
 history to pull typed artifacts off the ToolMessages and assembles them into a ClinicalTrialsOutput.
 """
 
+import logging
+
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
@@ -13,6 +15,8 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
 from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     build_clinical_trials_tools,
 )
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 You analyze the trial record for a drug × indication pair to assess repurposing potential.
@@ -89,6 +93,9 @@ async def run_clinical_trials_agent(
     agent, drug_name: str, disease_name: str
 ) -> ClinicalTrialsOutput:
     """Invoke the agent and assemble a ClinicalTrialsOutput from the run."""
+    logger.warning(
+        "clinical_trials_agent: starting run for %s × %s", drug_name, disease_name
+    )
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
     )
@@ -114,6 +121,30 @@ async def run_clinical_trials_agent(
     for msg in result["messages"]:
         if isinstance(msg, ToolMessage) and msg.name in field_map:
             artifacts[field_map[msg.name]] = msg.artifact
+
+    tools_called = [k for k, v in artifacts.items() if v is not None]
+    logger.warning(
+        "clinical_trials_agent: %s × %s — tools called: %s",
+        drug_name,
+        disease_name,
+        tools_called,
+    )
+
+    if artifacts["approval"] is None:
+        logger.warning(
+            "clinical_trials_agent: %s × %s — check_fda_approval was not called "
+            "(prompt requires it as step 1)",
+            drug_name,
+            disease_name,
+        )
+
+    if artifacts["summary"] is None:
+        logger.warning(
+            "clinical_trials_agent: %s × %s — finalize_analysis was not called; "
+            "summary will be empty",
+            drug_name,
+            disease_name,
+        )
 
     summary = artifacts.get("summary") or ""
 

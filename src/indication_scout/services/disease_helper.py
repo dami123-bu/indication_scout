@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import random
+import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -24,7 +25,10 @@ from indication_scout.constants import (
     NCBI_ESEARCH_URL,
     NCBI_ESUMMARY_URL,
 )
-from indication_scout.data_sources.base_client import DataSourceError
+from indication_scout.data_sources.base_client import (
+    DataSourceError,
+    log_data_source_failure,
+)
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.services.llm import query_small_llm, strip_markdown_fences
 from indication_scout.utils.cache import cache_get, cache_set
@@ -275,8 +279,9 @@ async def _ncbi_get_json(
     """GET json from NCBI with up to 3 90s-spaced retries on transient failure.
 
     Initial attempt + 3 retries (4 total tries). Each retry waits 90s before
-    firing. After the final attempt fails, the exception re-raises so the
-    caller's outer except can log and return None as before.
+    firing. If all 4 attempts fail, the program exits non-zero — NCBI is
+    a hard dependency for MeSH resolution and continuing without it would
+    silently produce degraded clinical analysis.
 
     A pre-emptive jittered sleep runs before every attempt to keep concurrent
     callers from saturating NCBI's per-second rate ceiling.
@@ -305,13 +310,27 @@ async def _ncbi_get_json(
                 )
                 await asyncio.sleep(90)
             else:
-                logger.warning(
-                    "MeSH resolver: NCBI request failed for '%s' after %d retries: %s",
-                    indication, max_retries, e,
+                logger.error(
+                    "MeSH resolver: NCBI request failed for '%s' after %d retries "
+                    "(%d total attempts): %s. Exiting — NCBI is a hard dependency.",
+                    indication, max_retries, max_retries + 1, e,
                 )
-    # mypy: last_exc is set whenever the loop falls through
+    # All attempts exhausted. NCBI is unreachable / sustainedly throttling us;
+    # downstream MeSH-dependent analysis cannot proceed correctly without it.
+    # Append a timestamped record to data_source_failures.log so a later
+    # session can see *which* indication crashed the previous run, even
+    # after stderr scrolls away.
     assert last_exc is not None
-    raise last_exc
+    log_data_source_failure(
+        source="ncbi-mesh",
+        url=url,
+        context=indication,
+        error=last_exc,
+    )
+    sys.exit(
+        f"FATAL: NCBI eutils unreachable after {max_retries + 1} attempts for "
+        f"indication {indication!r}: {last_exc}"
+    )
 
 
 async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:

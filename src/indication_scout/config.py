@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     literature_top_k: int
     semantic_search_top_k: int
     pubmed_max_results: int
+    pubmed_search_default_max_results: int
+    pubmed_esummary_batch_size: int
+    pubmed_efetch_batch_size: int
     rag_llm_concurrency: int
     rag_pubmed_concurrency: int
     rag_disease_concurrency: int

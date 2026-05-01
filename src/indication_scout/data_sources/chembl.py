@@ -1,7 +1,9 @@
 """ChEMBL API client."""
 
+import json
 import logging
 
+from datetime import datetime
 from pathlib import Path
 
 from indication_scout.constants import CACHE_TTL, CHEMBL_BASE_URL, DEFAULT_CACHE_DIR, OPEN_TARGETS_BASE_URL
@@ -10,6 +12,89 @@ from indication_scout.models.model_chembl import ATCDescription, MoleculeData, M
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
+
+# Combined per-ChEMBL-ID cache. One file per parent ChEMBL ID holds
+# {"chembl_id", "names", "cached_at", "ttl"}. Replaces the prior
+# `chembl_drug_names` (chembl_id → names) and `drug_name_to_chembl`
+# (name → chembl_id) namespaces, which together produced one tiny file
+# per alias. Forward lookup is a direct file read; reverse lookup is a
+# directory scan of all per-drug files (cheap at the tens-to-hundreds
+# scale this cache reaches in practice).
+_CHEMBL_NAMES_NS = "chembl_id_to_names"
+
+
+def _chembl_names_path(chembl_id: str, cache_dir: Path) -> Path:
+    """Return the per-ChEMBL-ID cache file path."""
+    return cache_dir / _CHEMBL_NAMES_NS / f"{chembl_id}.json"
+
+
+def _load_chembl_names(chembl_id: str, cache_dir: Path) -> list[str] | None:
+    """Return the cached names list for a ChEMBL ID, or None if missing/expired."""
+    path = _chembl_names_path(chembl_id, cache_dir)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text())
+        cached_at = datetime.fromisoformat(raw["cached_at"])
+        ttl = int(raw.get("ttl", CACHE_TTL))
+        names = raw["names"]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+    if (datetime.now() - cached_at).total_seconds() > ttl:
+        return None
+    if not isinstance(names, list):
+        return None
+    return list(names)
+
+
+def _save_chembl_names(
+    chembl_id: str,
+    names: list[str],
+    cache_dir: Path,
+    ttl: int = CACHE_TTL,
+) -> None:
+    """Write the names list for a ChEMBL ID."""
+    path = _chembl_names_path(chembl_id, cache_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "ns": _CHEMBL_NAMES_NS,
+        "chembl_id": chembl_id,
+        "names": list(names),
+        "cached_at": datetime.now().isoformat(),
+        "ttl": ttl,
+    }
+    path.write_text(json.dumps(payload, default=str, indent=2))
+
+
+def _lookup_chembl_id_by_name(name: str, cache_dir: Path) -> str | None:
+    """Reverse-index lookup: scan per-drug files for a name match.
+
+    Returns the parent ChEMBL ID whose cached names list contains `name`
+    (case-insensitive), or None if no cached drug owns that alias.
+    Expired files are skipped (handled by _load_chembl_names) but not
+    pruned here — they'll be overwritten on the next get_all_drug_names
+    call for that ChEMBL ID.
+    """
+    ns_dir = cache_dir / _CHEMBL_NAMES_NS
+    if not ns_dir.exists():
+        return None
+    target = name.lower()
+    for path in ns_dir.glob("*.json"):
+        try:
+            raw = json.loads(path.read_text())
+            cached_at = datetime.fromisoformat(raw["cached_at"])
+            ttl = int(raw.get("ttl", CACHE_TTL))
+            chembl_id = raw["chembl_id"]
+            names = raw["names"]
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+        if (datetime.now() - cached_at).total_seconds() > ttl:
+            continue
+        if not isinstance(names, list):
+            continue
+        if any(isinstance(n, str) and n.lower() == target for n in names):
+            return chembl_id
+    return None
 
 
 class ChEMBLClient(BaseClient):
@@ -138,8 +223,8 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
     """Resolve a free-text drug name to a canonical (parent) ChEMBL ID.
 
     1. Checks the `resolve_drug_name` cache (previously-resolved inputs).
-    2. Checks the `drug_name_to_chembl` reverse index (populated by
-       `get_all_drug_names` — covers any synonym of a drug we've fetched before).
+    2. Scans the `chembl_id_to_names` per-drug cache files for a name match
+       (covers any synonym of a drug we've fetched before).
     3. Searches Open Targets GraphQL for the drug name → some ChEMBL ID.
     4. Fetches the molecule from ChEMBL to read parent_chembl_id.
     5. If the result is a salt (parent differs), follows to the parent.
@@ -161,7 +246,7 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
         return cached
 
     # Reverse-index hit: any synonym we've already seen maps to its parent ChEMBL ID
-    reverse_hit = cache_get("drug_name_to_chembl", {"name": normalized}, cache_dir)
+    reverse_hit = _lookup_chembl_id_by_name(normalized, cache_dir)
     if reverse_hit is not None:
         cache_set(
             "resolve_drug_name",
@@ -226,7 +311,9 @@ async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
     endpoint, collecting all synonyms from both.
 
     Filters out "component of" entries (combination products).
-    Results are cached under namespace "chembl_drug_names".
+    Results are cached under namespace "chembl_id_to_names" — one file
+    per parent ChEMBL ID containing the names list. The same file also
+    serves as the reverse index used by resolve_drug_name.
 
     Args:
         chembl_id: ChEMBL ID of the parent molecule (e.g. "CHEMBL894").
@@ -235,7 +322,7 @@ async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
     Returns:
         Deduplicated list of drug names, pref_name first. All lowercase.
     """
-    cached = cache_get("chembl_drug_names", {"chembl_id": chembl_id}, cache_dir)
+    cached = _load_chembl_names(chembl_id, cache_dir)
     if cached is not None:
         return cached
 
@@ -279,22 +366,9 @@ async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
 
     logger.info("ChEMBL drug names for %s: %d found", chembl_id, len(result))
 
-    cache_set(
-        "chembl_drug_names",
-        {"chembl_id": chembl_id},
-        result,
-        cache_dir,
-        ttl=CACHE_TTL,
-    )
-
-    # Reverse index: name → ChEMBL ID so any code can go name → all drug names
-    for name in result:
-        cache_set(
-            "drug_name_to_chembl",
-            {"name": name},
-            chembl_id,
-            cache_dir,
-            ttl=CACHE_TTL,
-        )
+    # Single per-ChEMBL-ID file. Forward lookup (chembl_id → names) is a
+    # direct read; reverse lookup (name → chembl_id) is a scan over all
+    # files in this namespace, performed by _lookup_chembl_id_by_name.
+    _save_chembl_names(chembl_id, result, cache_dir, ttl=CACHE_TTL)
 
     return result

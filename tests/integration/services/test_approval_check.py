@@ -4,11 +4,12 @@ import pytest
 
 from indication_scout.data_sources.chembl import get_all_drug_names
 from indication_scout.data_sources.fda import FDAClient
+from indication_scout.services import approval_check
 from indication_scout.services.approval_check import (
+    extract_approved_from_labels,
     get_all_fda_approved_diseases,
     get_fda_approved_disease_mapping,
     list_approved_indications_from_labels,
-    remove_approved_from_labels,
 )
 
 
@@ -30,54 +31,6 @@ async def test_semaglutide(test_cache_dir):
     )
 
     assert result
-
-
-@pytest.mark.parametrize(
-    "drug_names, candidates, expected_survivors",
-    [
-        # Morbid-obesity regression: Wegovy is approved for obesity; morbid
-        # obesity is a clinically-contained narrower subset — both should be
-        # removed. Alzheimer's and hypertension are unrelated and survive.
-        (
-            ["wegovy", "semaglutide"],
-            ["obesity", "morbid obesity", "alzheimer's disease", "hypertension"],
-            {"alzheimer's disease", "hypertension"},
-        ),
-        # NASH synonym case: NASH = MASH. Probes whether the label (if any)
-        # for semaglutide/Wegovy covers MASH and whether NASH is treated as a
-        # synonym and removed.
-        (
-            ["wegovy", "semaglutide"],
-            ["NASH", "MASH"],
-            set(),
-        ),
-        # NAFLD parent-of-MASH case: NAFLD is a broader parent of MASH; even
-        # if MASH is approved, NAFLD must survive (broader parent).
-        (
-            ["wegovy", "semaglutide"],
-            ["non-alcoholic fatty liver disease","NAFLD"],
-            {"non-alcoholic fatty liver disease"},
-        ),
-        # Parent-of-approval case: Ozempic is approved for type 2 diabetes
-        # mellitus; "diabetes mellitus" is a broader parent that includes
-        # T1DM and must survive.
-        (
-            ["ozempic"],
-            ["type 2 diabetes mellitus", "diabetes mellitus"],
-            {"diabetes mellitus"},
-        ),
-    ],
-)
-async def test_remove_approved_from_labels(
-    test_cache_dir, drug_names, candidates, expected_survivors
-):
-    """Verify the function returns live repurposing candidates (approved ones removed)."""
-    result = await remove_approved_from_labels(
-        drug_names=drug_names,
-        candidate_diseases=candidates,
-        cache_dir=test_cache_dir,
-    )
-    assert result == expected_survivors
 
 
 @pytest.mark.parametrize(
@@ -248,3 +201,81 @@ async def test_list_approved_indications_from_labels_empty_input(test_cache_dir)
         cache_dir=test_cache_dir,
     )
     assert result == []
+
+
+@pytest.mark.parametrize(
+    "drug_aliases, candidates, expected",
+    [
+        # Ozempic / semaglutide: T2DM is approved per label; AD and hypertension
+        # are not. Verbatim input casing is preserved in the returned set.
+        (
+            ["Ozempic", "semaglutide"],
+            ["type 2 diabetes mellitus", "alzheimer's disease", "hypertension"],
+            {"type 2 diabetes mellitus"},
+        ),
+        # Metformin: T2DM approved, AD not. Single, low-noise sanity case.
+        (
+            ["metformin"],
+            ["type 2 diabetes mellitus", "alzheimer's disease"],
+            {"type 2 diabetes mellitus"},
+        ),
+    ],
+)
+async def test_extract_approved_from_labels_real_drug(
+    test_cache_dir, drug_aliases, candidates, expected
+):
+    """End-to-end: fetch real openFDA labels and verify candidate-filtered approvals."""
+    async with FDAClient(cache_dir=test_cache_dir) as client:
+        label_texts = await client.get_all_label_indications(drug_aliases)
+
+    assert label_texts, f"openFDA returned no label text for {drug_aliases}"
+
+    result = await extract_approved_from_labels(
+        label_texts=label_texts,
+        candidate_diseases=candidates,
+        cache_dir=test_cache_dir,
+    )
+    assert result == expected
+
+
+async def test_extract_approved_from_labels_empty_input(test_cache_dir):
+    """Empty inputs short-circuit without an LLM call and return an empty set."""
+    assert await extract_approved_from_labels(
+        label_texts=[], candidate_diseases=["obesity"], cache_dir=test_cache_dir,
+    ) == set()
+    assert await extract_approved_from_labels(
+        label_texts=["foo"], candidate_diseases=[], cache_dir=test_cache_dir,
+    ) == set()
+
+
+async def test_get_fda_approved_disease_mapping_uses_cache(tmp_path, monkeypatch):
+    """Second call with same (drug, candidates) hits the fda_drug_disease_approval cache.
+
+    Uses an isolated tmp cache_dir (no pre-populated entries). Counts query_llm
+    invocations across two identical calls — first call invokes the LLM once,
+    second call must skip it entirely and return identical results.
+    """
+    real_query_llm = approval_check.query_llm
+    call_count = {"n": 0}
+
+    async def counting_query_llm(*args, **kwargs):
+        call_count["n"] += 1
+        return await real_query_llm(*args, **kwargs)
+
+    monkeypatch.setattr(approval_check, "query_llm", counting_query_llm)
+
+    drug_name = "ozempic"
+    candidates = ["type 2 diabetes mellitus", "hypertension"]
+    expected = {"type 2 diabetes mellitus": True, "hypertension": False}
+
+    first = await get_fda_approved_disease_mapping(
+        drug_name=drug_name, candidate_diseases=candidates, cache_dir=tmp_path,
+    )
+    assert first == expected
+    assert call_count["n"] == 1
+
+    second = await get_fda_approved_disease_mapping(
+        drug_name=drug_name, candidate_diseases=candidates, cache_dir=tmp_path,
+    )
+    assert second == expected
+    assert call_count["n"] == 1, "second call must hit cache and skip the LLM"

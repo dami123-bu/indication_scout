@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.fda import FDAClient
+from indication_scout.helpers.drug_helpers import normalize_drug_name
 from indication_scout.services.approval_check import (
     get_fda_approved_disease_mapping,
     list_approved_indications_from_labels,
@@ -79,7 +80,7 @@ def build_supervisor_tools(
         key = _drug_key(drug_name)
         if key not in drug_facts:
             drug_facts[key] = {
-                "drug_name": drug_name,           # original casing for display
+                "drug_name": key,
                 "drug_aliases": [],               # ChEMBL trade/generic names
                 "approved_indications": [],       # list of indication strings
                 "mechanism_targets": [],          # list of (gene, action_type)
@@ -131,6 +132,7 @@ def build_supervisor_tools(
         Uses Open Targets to find diseases where competitor drugs (drugs sharing the same molecular
         targets) are being developed. Returns a list of disease names ranked by competitor activity.
         """
+        drug_name = normalize_drug_name(drug_name)
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
         competitors = await svc.get_drug_competitors(chembl_id)
         diseases = list(competitors.keys())
@@ -228,6 +230,7 @@ def build_supervisor_tools(
         Investigates published evidence via PubMed, embeds and re-ranks abstracts, and produces a
         structured evidence summary with strength rating (none / weak / moderate / strong).
         """
+        drug_name = normalize_drug_name(drug_name)
         # Build a fresh agent per call so the closure-scoped store dict in literature_tools is not
         # shared across disease invocations.
         if disease_name.lower().strip() not in allowed_diseases:
@@ -268,6 +271,7 @@ def build_supervisor_tools(
         Checks ClinicalTrials.gov for existing trials, competitive landscape, and terminated
         trials (safety/efficacy red flags).
         """
+        drug_name = normalize_drug_name(drug_name)
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_clinical_trials", ClinicalTrialsOutput())
 
@@ -352,6 +356,7 @@ def build_supervisor_tools(
         Mechanism-surfaced candidates are promoted into the investigation allowlist so
         analyze_literature / analyze_clinical_trials can investigate them downstream.
         """
+        drug_name = normalize_drug_name(drug_name)
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
@@ -429,6 +434,7 @@ def build_supervisor_tools(
         associations. Call this before finalize_supervisor to check whether any
         candidate is related to an approved indication (subset/superset/sibling).
         """
+        drug_name = normalize_drug_name(drug_name)
         return _render_briefing(drug_name)
 
     @tool(response_format="content_and_artifact")

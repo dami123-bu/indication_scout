@@ -509,8 +509,8 @@ async def test_get_all_drug_names_deduplicates(tmp_path):
 
 
 async def test_get_all_drug_names_writes_cache(tmp_path):
-    """Result is written to the `chembl_drug_names` cache."""
-    from indication_scout.utils.cache import cache_get
+    """Result is written to the `chembl_id_to_names` per-drug cache file."""
+    from indication_scout.data_sources.chembl import _load_chembl_names
 
     async def mock_rest_get(url: str, params: dict):
         if "/molecule/CHEMBL2108724.json" in url:
@@ -523,16 +523,16 @@ async def test_get_all_drug_names_writes_cache(tmp_path):
         result = await get_all_drug_names("CHEMBL2108724", cache_dir=tmp_path)
 
     assert result == ["semaglutide", "ozempic", "rybelsus", "wegovy"]
-    cached = cache_get("chembl_drug_names", {"chembl_id": "CHEMBL2108724"}, tmp_path)
+    cached = _load_chembl_names("CHEMBL2108724", tmp_path)
     assert cached == result
 
 
 async def test_get_all_drug_names_cache_hit_skips_fetch(tmp_path):
     """Cache hit returns stored value without hitting the API."""
-    from indication_scout.utils.cache import cache_set
+    from indication_scout.data_sources.chembl import _save_chembl_names
 
     cached_names = ["metformin", "glucophage", "fortamet"]
-    cache_set("chembl_drug_names", {"chembl_id": "CHEMBL1431"}, cached_names, tmp_path)
+    _save_chembl_names("CHEMBL1431", cached_names, tmp_path)
 
     # No _rest_get patch — any API call would explode
     result = await get_all_drug_names("CHEMBL1431", cache_dir=tmp_path)
@@ -696,12 +696,12 @@ async def test_resolve_drug_name_caches_result(tmp_path):
     assert ot_mock.await_count == 1
 
 
-# --- reverse index drug_name_to_chembl ---
+# --- reverse index via chembl_id_to_names ---
 
 
 async def test_get_all_drug_names_writes_reverse_index(tmp_path):
-    """Every name in the result is indexed back to the parent ChEMBL ID."""
-    from indication_scout.utils.cache import cache_get
+    """Every name in the result is reachable via the reverse-index scan."""
+    from indication_scout.data_sources.chembl import _lookup_chembl_id_by_name
 
     async def mock_rest_get(url: str, params: dict):
         if "/molecule/CHEMBL2108724.json" in url:
@@ -715,7 +715,7 @@ async def test_get_all_drug_names_writes_reverse_index(tmp_path):
 
     # Every returned name should resolve back to CHEMBL2108724 via the reverse index
     for name in result:
-        cached_id = cache_get("drug_name_to_chembl", {"name": name}, tmp_path)
+        cached_id = _lookup_chembl_id_by_name(name, tmp_path)
         assert cached_id == "CHEMBL2108724", (
             f"Reverse index missing or wrong for {name!r}: got {cached_id!r}"
         )
@@ -723,11 +723,11 @@ async def test_get_all_drug_names_writes_reverse_index(tmp_path):
 
 async def test_resolve_drug_name_uses_reverse_index(tmp_path):
     """A name previously seen by get_all_drug_names resolves without hitting OT."""
-    from indication_scout.utils.cache import cache_set
+    from indication_scout.data_sources.chembl import _save_chembl_names
 
-    # Simulate a previous get_all_drug_names run having indexed "ozempic"
-    cache_set(
-        "drug_name_to_chembl", {"name": "ozempic"}, "CHEMBL2108724", tmp_path
+    # Simulate a previous get_all_drug_names run having stored these names
+    _save_chembl_names(
+        "CHEMBL2108724", ["semaglutide", "ozempic", "rybelsus"], tmp_path
     )
 
     ot_mock = AsyncMock()
@@ -750,11 +750,10 @@ async def test_resolve_drug_name_uses_reverse_index(tmp_path):
 
 async def test_resolve_drug_name_reverse_index_populates_primary_cache(tmp_path):
     """After a reverse-index hit, the primary resolve_drug_name cache is populated."""
-    from indication_scout.utils.cache import cache_get, cache_set
+    from indication_scout.data_sources.chembl import _save_chembl_names
+    from indication_scout.utils.cache import cache_get
 
-    cache_set(
-        "drug_name_to_chembl", {"name": "glucophage"}, "CHEMBL1431", tmp_path
-    )
+    _save_chembl_names("CHEMBL1431", ["metformin", "glucophage"], tmp_path)
 
     with patch(
         "indication_scout.data_sources.chembl._OTSearchClient._graphql",

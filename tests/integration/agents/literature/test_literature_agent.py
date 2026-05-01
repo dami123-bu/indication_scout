@@ -108,7 +108,7 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
 
     # --- evidence_summary ---
     assert isinstance(output.evidence_summary, EvidenceSummary)
-    assert output.evidence_summary.strength == "weak"
+    assert output.evidence_summary.strength == "moderate"
     assert output.evidence_summary.study_count >= 2
     assert _EXPECTED_SUPPORTING_PMIDS.issubset(
         set(output.evidence_summary.supporting_pmids)

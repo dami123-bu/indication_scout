@@ -30,6 +30,12 @@ from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 class PubMedClient(BaseClient):
     """Client for querying PubMed/NCBI APIs."""
 
+    # NCBI eutils is a hard dependency for literature analysis. If retries
+    # exhaust, exit the program (logged to data_source_failures.log) instead
+    # of raising a DataSourceError that downstream code may swallow into
+    # silently degraded results.
+    exit_on_retry_exhausted = True
+
     SEARCH_URL = PUBMED_SEARCH_URL
     FETCH_URL = PUBMED_FETCH_URL
     SUMMARY_URL = PUBMED_SUMMARY_URL
@@ -52,9 +58,11 @@ class PubMedClient(BaseClient):
         return params
 
     async def search(
-        self, query: str, max_results: int = 50, date_before: date | None = None
+        self, query: str, max_results: int | None = None, date_before: date | None = None
     ) -> list[str]:
         """Search PubMed and return list of PMIDs."""
+        if max_results is None:
+            max_results = get_settings().pubmed_search_default_max_results
         effective_maxdate = (date_before - timedelta(days=1)) if date_before else None
         cache_params: dict[str, Any] = {
             "query": query,
@@ -104,7 +112,7 @@ class PubMedClient(BaseClient):
         return int(count_str)
 
     async def _filter_pmids_by_date(
-        self, pmids: list[str], date_before: date, batch_size: int = 200
+        self, pmids: list[str], date_before: date, batch_size: int | None = None
     ) -> list[str]:
         """Remove PMIDs whose sortpubdate is on or after date_before.
 
@@ -112,6 +120,8 @@ class PubMedClient(BaseClient):
         PubMed's maxdate filter is not strictly respected, so this is a
         post-search guard.
         """
+        if batch_size is None:
+            batch_size = get_settings().pubmed_esummary_batch_size
         kept: list[str] = []
         for i in range(0, len(pmids), batch_size):
             batch = pmids[i : i + batch_size]
@@ -138,12 +148,14 @@ class PubMedClient(BaseClient):
         return kept
 
     async def fetch_abstracts(
-        self, pmids: list[str], batch_size: int = 100
+        self, pmids: list[str], batch_size: int | None = None
     ) -> list[PubmedAbstract]:
         """Fetch article content for given PMIDs."""
         if not pmids:
             return []
 
+        if batch_size is None:
+            batch_size = get_settings().pubmed_efetch_batch_size
         all_articles: list[PubmedAbstract] = []
 
         for i in range(0, len(pmids), batch_size):

@@ -1,5 +1,15 @@
 """Shared fixtures for integration tests."""
 
+import os
+
+# Swap to the integration constants file before any indication_scout import
+# below — get_settings() is @lru_cache'd, so the first import freezes whichever
+# CONSTANTS_FILE is active. tests/conftest.py runs first and sets this to
+# .env.constants.test for unit tests; we override that here. A genuine shell
+# override (anything other than the unit-test default) is preserved.
+if os.environ.get("CONSTANTS_FILE") in (None, ".env.constants.test"):
+    os.environ["CONSTANTS_FILE"] = ".env.constants.integration"
+
 import pytest
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
