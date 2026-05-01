@@ -4,6 +4,11 @@ from datetime import date
 
 from langchain_core.tools import tool
 
+from indication_scout.agents._trial_formatting import (
+    _format_trial_table,
+    _phase_distribution,
+)
+from indication_scout.config import get_settings
 from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     NEGATION_PREFIXES,
@@ -23,6 +28,7 @@ from indication_scout.models.model_clinical_trials import (
 )
 from indication_scout.services.approval_check import extract_approved_from_labels
 from indication_scout.services.disease_helper import resolve_mesh_id
+_settings = get_settings()
 
 logger = logging.getLogger(__name__)
 
@@ -162,13 +168,25 @@ def build_clinical_trials_tools(
             else ""
         )
         by = result.by_status
-        content = (
+        header = (
             f"Search for {drug} × {indication}: {result.total_count} trials "
             f"(recruiting={by.get('RECRUITING', 0)}, "
             f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
             f"withdrawn={by.get('WITHDRAWN', 0)}, "
             f"unknown={by.get('UNKNOWN', 0)})"
             f"{cap_note}{filter_note}"
+        )
+        phase_dist = _phase_distribution(result.trials)
+        table = _format_trial_table(
+            result.trials,
+            columns=("nct_id", "phase", "status", "mesh", "title"),
+            cap=_settings.clinical_trials_cap,
+        )
+        content = (
+            f"{header}\n"
+            f"Phase distribution (shown): {phase_dist}\n"
+            f"Trials shown (top {_settings.clinical_trials_cap} by enrollment):\n"
+            f"{table}"
         )
         return content, result
 
@@ -219,9 +237,21 @@ def build_clinical_trials_tools(
             if dropped
             else ""
         )
-        content = (
+        header = (
             f"Completed for {drug} × {indication}: {result.total_count} total"
             f"{cap_note}{filter_note}"
+        )
+        phase_dist = _phase_distribution(result.trials)
+        table = _format_trial_table(
+            result.trials,
+            columns=("nct_id", "phase", "mesh", "title"),
+            cap=_settings.clinical_trials_cap,
+        )
+        content = (
+            f"{header}\n"
+            f"Phase distribution (shown): {phase_dist}\n"
+            f"Trials shown (top {_settings.clinical_trials_cap} by enrollment):\n"
+            f"{table}"
         )
         return content, result
 
@@ -286,9 +316,23 @@ def build_clinical_trials_tools(
             if dropped
             else ""
         )
-        content = (
+        header = (
             f"Terminated for {drug} × {indication}: {result.total_count} total "
             f"({safety_efficacy} safety/efficacy in shown set){cap_note}{filter_note}"
+        )
+        phase_dist = _phase_distribution(result.trials)
+        table = _format_trial_table(
+            result.trials,
+            columns=("nct_id", "phase", "stop_reason", "mesh", "title"),
+            cap=_settings.clinical_trials_cap,
+            include_why_stopped=True,
+            stop_classifier=_classify_stop_reason,
+        )
+        content = (
+            f"{header}\n"
+            f"Phase distribution (shown): {phase_dist}\n"
+            f"Trials shown (top {_settings.clinical_trials_cap} by enrollment):\n"
+            f"{table}"
         )
         return content, result
 
@@ -402,7 +446,11 @@ def build_clinical_trials_tools(
 
         Call this as the very last step, passing your 2-3 sentence plain-text summary of the
         findings. This terminates the agent loop.
+
+        Empty or whitespace-only summaries are rejected — re-call with a real summary.
         """
+        if not summary or not summary.strip():
+            return "REJECTED: empty summary. Re-call with the full summary.", ""
         return "Analysis complete.", summary
 
     return [

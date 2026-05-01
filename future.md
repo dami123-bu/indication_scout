@@ -494,6 +494,82 @@ Estimated effort: medium — touches the data-source method signature, the
 agent's tool definitions, the agent's prompt, and downstream supervisor
 prompts that reason about completed/terminated counts.
 
+## Clinical Trials sub-agent — two-stage list → drill-down (added 2026-04-30)
+
+The clinical_trials sub-agent's tools use `@tool(response_format="content_and_artifact")`.
+LangChain serializes only `ToolMessage.content` into the API payload sent to the LLM; the
+`artifact` (the typed Pydantic object carrying the trials list, phase, why_stopped, etc.)
+stays Python-side and is invisible to the model. Today the content strings carry only
+aggregate counts ("4 total"), so the sub-agent's LLM has no per-trial visibility — yet the
+system prompt explicitly tells it to "look at the phase field on each Trial in the returned
+list" (clinical_trials_agent.py:45-46) and to "inspect search_trials.trials for any UNKNOWN
+entries with Phase 3" (clinical_trials_agent.py:69-72). Symptom: the sub-agent's prose
+contradicts the report's own trials table — claims "no Phase 3" while NCT00763867 (RELAX)
+and NCT01726049 are listed as Phase 3 right below it.
+
+A near-term content-string enrichment (per-trial NCT id + phase + title in the content
+returned by `search_trials` / `get_completed` / `get_terminated`) fixes the immediate bug
+and is what we'd ship first. This entry is about the longer-arc architectural shape.
+
+**Proposed direction: two-stage list → drill-down.**
+
+- Tools return a lightweight per-trial row by default — NCT id, phase, status, title, and
+  (for terminated) classified stop reason — enough to triage but not enough to bury the
+  prompt. The artifact still carries the full Trial objects for downstream Python.
+- Add a `get_trial_details(nct_id)` tool the sub-agent can call to fetch the full Trial
+  fields (brief_summary, primary_outcomes, enrollment, dates, references) for a specific
+  trial it has flagged as worth a closer look.
+- Update the system prompt to describe the triage-then-drill pattern explicitly so the LLM
+  doesn't try to drill on every trial.
+
+**Why this shape and not "dump everything to the LLM":**
+
+Returning fully serialized Trial JSON for every result is the seductive-but-wrong shape.
+With ≤50 trials × full Trial schema (title, brief_summary, mesh_conditions, mesh_ancestors,
+interventions, primary_outcomes, references) per tool call × multiple tool calls per
+candidate × ~15 candidates per run, the token cost is heavy (estimate: 30-80KB per tool
+call before any trimming). Worse, attention quality degrades over giant JSON dumps — more
+data does not equal better judgment past a point. The two-stage shape matches how a human
+investigator actually works: scan the list, pick the few interesting ones, dig into those.
+
+**Why not just stop at the curated content string forever:**
+
+The curated-content fix is fine for the fields we know matter (phase, title, why_stopped).
+But the LLM cannot reason over fields we did not pre-select. Example failures the
+content-string fix cannot catch: a `brief_summary` that mentions a narrower subtype the
+title omits; a `primary_outcomes` text that hints at endpoint structure; an `enrollment`
+number that signals whether a Phase 2 was adequately powered. Two-stage drill-down lets
+the LLM ask for that data only when it matters, without paying the token cost on the 90%
+of trials where it doesn't.
+
+**Costs:**
+
+- More tool calls per run → more agent loop iterations → more LLM turns. Latency goes up.
+  Mitigate by capping drill-downs per analysis (e.g. ≤3 per pair) in the prompt.
+- Sub-agent prompt grows to describe the new tool and the triage pattern.
+- Need a new `get_trial_details` data-source method or a way to fetch a single NCT id from
+  the existing CT.gov client. The full Trial is already inside the artifact for trials in
+  the top-50 — drill-down only needs to go to the network for trials past the cap.
+
+**Risk:**
+
+Medium. Touches the sub-agent prompt, adds a new tool, and changes the agent's per-run
+turn count. Test coverage should include a regression scenario where the LLM correctly
+drills on a flagged trial (e.g. an UNKNOWN-status Phase 3 candidate) and incorporates the
+detail into its prose.
+
+**Dependencies / order of work:**
+
+1. Ship the content-string enrichment first (option 2). Confirms phase data flows correctly,
+   fixes the immediate report contradiction, no architectural risk.
+2. If the LLM proves unable to reason adequately even with the enriched content (e.g. it
+   keeps missing subtype hints in titles, or fails to flag adequately powered Phase 2s),
+   then add `get_trial_details` and the prompt update.
+3. Same architectural pattern likely applies to the literature sub-agent's PubMed tools —
+   abstracts on triage, full text on drill-down — but that's a separate piece of work.
+
+Not urgent. Defer until the content-string fix proves insufficient on a real failure case.
+
 ## LLM API call reduction (added 2026-04-28)
 
 Disease normalization is already batched where it matters

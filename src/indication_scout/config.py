@@ -71,6 +71,7 @@ class Settings(BaseSettings):
 
     # Clinical trials
     clinical_trials_landscape_max_trials: int
+    clinical_trials_cap: int
 
     # Mechanism
     mechanism_signal_threshold: float

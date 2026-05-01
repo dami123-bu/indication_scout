@@ -25,6 +25,11 @@ from indication_scout.services.approval_check import (
 
 logger = logging.getLogger(__name__)
 
+from indication_scout.agents._trial_formatting import (
+    _borda_rank_by_enrollment_and_recency,
+    _format_trial_table,
+    _phase_distribution,
+)
 from indication_scout.agents.clinical_trials.clinical_trials_agent import (
     build_clinical_trials_agent,
     run_clinical_trials_agent,
@@ -340,12 +345,57 @@ def build_supervisor_tools(
             f"{n_terminated} terminated "
             f"({n_safety_efficacy_shown} safety/efficacy in shown set)."
         )
-        sub_agent_summary = output.summary or ""
-        summary = (
-            f"{header}\n\n{sub_agent_summary}".strip()
-            if sub_agent_summary
-            else header
+
+        completed_trials = completed.trials if completed else []
+        terminated_trials = terminated.trials if terminated else []
+
+        completed_phase_dist = _phase_distribution(completed_trials)
+        terminated_phase_dist = _phase_distribution(terminated_trials)
+
+        completed_top = _borda_rank_by_enrollment_and_recency(completed_trials, k=10)
+        terminated_top = _borda_rank_by_enrollment_and_recency(terminated_trials, k=10)
+
+        completed_table = _format_trial_table(
+            completed_top,
+            columns=(
+                "nct_id",
+                "phase",
+                "start_date",
+                "completion_date",
+                "mesh",
+                "title",
+            ),
+            cap=10,
         )
+        terminated_table = _format_trial_table(
+            terminated_top,
+            columns=(
+                "nct_id",
+                "phase",
+                "stop_reason",
+                "start_date",
+                "completion_date",
+                "mesh",
+                "title",
+            ),
+            cap=10,
+            include_why_stopped=True,
+            stop_classifier=_classify_stop_reason,
+        )
+
+        structured = (
+            f"\n\nPhase distribution (completed): {completed_phase_dist}\n"
+            f"Phase distribution (terminated): {terminated_phase_dist}\n\n"
+            f"Completed trials (top 10 by enrollment + recency):\n"
+            f"{completed_table}\n\n"
+            f"Terminated trials (top 10 by enrollment + recency):\n"
+            f"{terminated_table}"
+        )
+
+        sub_agent_summary = output.summary or ""
+        summary = f"{header}{structured}"
+        if sub_agent_summary:
+            summary = f"{summary}\n\n{sub_agent_summary}"
         return summary, output
 
     @tool(response_format="content_and_artifact")

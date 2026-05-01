@@ -77,7 +77,8 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
                 reason = f" — *{t.why_stopped}*" if t.why_stopped else ""
                 title = f" {t.title}" if t.title else ""
                 phase = t.phase or "Unknown phase"
-                category = f" [{_classify_stop_reason(t.why_stopped)}]"
+                classified = _classify_stop_reason(t.why_stopped)
+                category = f" [{classified}]" if classified not in {"unknown", "other"} else ""
                 lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
 
     if ct.landscape and ct.landscape.competitors:

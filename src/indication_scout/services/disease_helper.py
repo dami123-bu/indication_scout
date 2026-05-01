@@ -143,6 +143,14 @@ async def llm_normalize_disease_batch(raw_terms: list[str]) -> dict[str, str]:
 async def merge_duplicate_diseases(
     diseases: list[str], drug_indications: list[str]
 ) -> MergeResult:
+    cache_params = {
+        "diseases": sorted(diseases),
+        "drug_indications": sorted(drug_indications),
+    }
+    cached = cache_get("disease_merge", cache_params, DEFAULT_CACHE_DIR)
+    if cached is not None:
+        return cached
+
     prompt = (
         (_PROMPTS_DIR / "merge_diseases.txt")
         .read_text()
@@ -151,7 +159,7 @@ async def merge_duplicate_diseases(
     response = await query_small_llm(prompt)
     cleaned = strip_markdown_fences(response)
     try:
-        return json.loads(cleaned)
+        result = json.loads(cleaned)
     except json.JSONDecodeError as e:
         logger.error(
             "merge_duplicate_diseases: failed to parse LLM response: %s\nResponse was: %s",
@@ -159,6 +167,9 @@ async def merge_duplicate_diseases(
             response,
         )
         return {"merge": {}, "remove": []}
+
+    cache_set("disease_merge", cache_params, result, DEFAULT_CACHE_DIR)
+    return result
 
 
 # ── PubMed Count ─────────────────────────────────────────────────────────────

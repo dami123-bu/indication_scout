@@ -579,18 +579,3 @@ class RetrievalService:
             disease_name,
         )
         return deduped
-
-    async def get_disease_synonyms(self, disease: str) -> list[str]:
-        """Return alternate names for a disease via LLM.
-
-        Args:
-            disease: Disease name (e.g. "colorectal cancer").
-
-        Returns:
-            List of synonyms (e.g. ["colon cancer", "bowel cancer", "CRC"]).
-        """
-        template = (_PROMPTS_DIR / "disease_synonyms.txt").read_text()
-        prompt = template.format(disease=disease)
-
-        llm_output = await query_small_llm(prompt)
-        return parse_llm_response(llm_output)

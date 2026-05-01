@@ -21,39 +21,6 @@ def svc(test_cache_dir):
     return RetrievalService(test_cache_dir)
 
 
-@pytest.mark.parametrize(
-    "disease, synonyms",
-    [
-        (
-            "eczematoid dermatitis",
-            ["eczematoid dermatitis", "eczema", "AD", "atopic dermatitis"],
-        ),
-        (
-            "benign prostatic hyperplasia",
-            [
-                "benign prostatic hyperplasia",
-                "BPH",
-                "enlarged prostate",
-                "prostatic enlargement",
-            ],
-        ),
-        (
-            "HER2-positive breast cancer",
-            ["breast cancer", "ERBB2-positive breast cancer"],
-        ),
-        (
-            "CML",
-            ["CML", "chronic myeloid leukemia"],
-        ),
-    ],
-)
-async def test_get_disease_synonyms(disease, synonyms, svc):
-    """Returned synonyms should include all expected terms for the given disease."""
-    result = await svc.get_disease_synonyms(disease)
-
-    assert set(synonyms).issubset(set(result))
-
-
 # @pytest.mark.parametrize(
 #     "disease, expected_terms",
 #     [
