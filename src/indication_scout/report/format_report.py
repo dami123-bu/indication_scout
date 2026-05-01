@@ -34,7 +34,7 @@ def _fmt_literature(lit: LiteratureOutput) -> str:
     return "\n".join(lines)
 
 
-def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
+def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
     lines: list[str] = []
 
     if ct.summary:
@@ -82,7 +82,11 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput) -> str:
                 lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
 
     if ct.landscape and ct.landscape.competitors:
-        lines.append(f"\n**Competitive landscape ({len(ct.landscape.competitors)} competitors):**")
+        scope = f" for {indication}" if indication else ""
+        lines.append(
+            f"\n**Competitive landscape{scope} "
+            f"({len(ct.landscape.competitors)} competitors):**"
+        )
         for comp in ct.landscape.competitors[:10]:
             lines.append(f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)")
 
@@ -174,7 +178,7 @@ def format_report(output: SupervisorOutput) -> str:
                 lines += ["#### Literature", "", _fmt_literature(finding.literature), ""]
 
             if finding.clinical_trials:
-                lines += ["#### Clinical Trials", "", _fmt_clinical_trials(finding.clinical_trials), ""]
+                lines += ["#### Clinical Trials", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
 
             lines.append("---")
             lines.append("")

@@ -114,7 +114,19 @@ def _format_trial_row(
         elif col == "completion_date":
             parts.append(f"end {_format_date(trial.completion_date)}")
         elif col == "stop_reason":
-            parts.append(f"stop: {classified_stop_reason or 'unknown'}")
+            # When the keyword classifier produces a useful label, surface it
+            # so the LLM gets a deterministic hint. When the classifier punts
+            # ("other" / "unknown"), fall through to the raw why_stopped text
+            # — the LLM is the better classifier of last resort. If there's
+            # no text at all, render "(none)" parallel to the mesh column.
+            if classified_stop_reason and classified_stop_reason not in {"unknown", "other"}:
+                parts.append(f"stop: {classified_stop_reason}")
+            else:
+                raw = (trial.why_stopped or "").strip()
+                if raw:
+                    parts.append(f"stop (raw): {_truncate_why_stopped(raw)}")
+                else:
+                    parts.append("stop (raw): (none)")
         elif col == "mesh":
             parts.append(f"mesh: {_format_mesh_list(trial.mesh_conditions)}")
         elif col == "title":

@@ -6,7 +6,7 @@ history to pull typed artifacts off the ToolMessages and assembles them into a C
 
 import logging
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 from indication_scout.agents.clinical_trials.clinical_trials_output import (
@@ -130,38 +130,6 @@ async def run_clinical_trials_agent(
         tools_called,
     )
 
-    # Diagnostic: count turns + characterize the final message so we can tell
-    # whether the loop hit the recursion limit, the LLM stopped emitting tool
-    # calls without calling finalize_analysis, or finalize_analysis was called
-    # with an empty/whitespace string.
-    msgs = result["messages"]
-    n_messages = len(msgs)
-    n_tool_messages = sum(1 for m in msgs if isinstance(m, ToolMessage))
-    n_ai_messages = sum(1 for m in msgs if isinstance(m, AIMessage))
-    last_msg = msgs[-1] if msgs else None
-    last_msg_type = type(last_msg).__name__ if last_msg is not None else "None"
-    last_ai_had_tool_calls = (
-        bool(getattr(last_msg, "tool_calls", None))
-        if isinstance(last_msg, AIMessage)
-        else None
-    )
-    last_ai_text_len = (
-        len(last_msg.content) if isinstance(last_msg, AIMessage) and isinstance(last_msg.content, str) else None
-    )
-    logger.warning(
-        "clinical_trials_agent: %s × %s — turn shape: total_msgs=%d, "
-        "tool_msgs=%d, ai_msgs=%d, last=%s, last_ai_tool_calls=%s, "
-        "last_ai_text_len=%s",
-        drug_name,
-        disease_name,
-        n_messages,
-        n_tool_messages,
-        n_ai_messages,
-        last_msg_type,
-        last_ai_had_tool_calls,
-        last_ai_text_len,
-    )
-
     if artifacts["approval"] is None:
         logger.warning(
             "clinical_trials_agent: %s × %s — check_fda_approval was not called "
@@ -171,76 +139,11 @@ async def run_clinical_trials_agent(
         )
 
     if artifacts["summary"] is None:
-        # Distinguish three failure modes:
-        #   A. finalize_analysis ToolMessage entirely absent (LLM never called
-        #      it — likely recursion-limit hit or LLM emitted final text
-        #      instead of a tool call).
-        #   B. finalize_analysis called but artifact is None (shouldn't
-        #      happen given the tool returns the summary string verbatim, but
-        #      pin it just in case).
-        finalize_msgs = [
-            m for m in msgs if isinstance(m, ToolMessage) and m.name == "finalize_analysis"
-        ]
-        if not finalize_msgs:
-            logger.warning(
-                "clinical_trials_agent: %s × %s — finalize_analysis was not called; "
-                "summary will be empty (last_msg=%s, last_ai_had_tool_calls=%s, "
-                "last_ai_text_len=%s)",
-                drug_name,
-                disease_name,
-                last_msg_type,
-                last_ai_had_tool_calls,
-                last_ai_text_len,
-            )
-            # If the final AIMessage has substantial text content but no tool
-            # calls, the LLM tried to write the summary inline instead of
-            # routing it through finalize_analysis. Capture an excerpt.
-            if (
-                isinstance(last_msg, AIMessage)
-                and isinstance(last_msg.content, str)
-                and last_msg.content.strip()
-            ):
-                preview = last_msg.content.strip()[:300]
-                logger.warning(
-                    "clinical_trials_agent: %s × %s — final AIMessage carried "
-                    "free text instead of a finalize_analysis tool call: %r",
-                    drug_name,
-                    disease_name,
-                    preview,
-                )
-        else:
-            logger.warning(
-                "clinical_trials_agent: %s × %s — finalize_analysis ToolMessage "
-                "found but artifact is None (count=%d)",
-                drug_name,
-                disease_name,
-                len(finalize_msgs),
-            )
-
-    # Detect the case where finalize_analysis WAS called but with empty /
-    # whitespace-only input. The artifact is the summary string; this catches
-    # `finalize_analysis("")`.
-    if artifacts["summary"] is not None and not str(artifacts["summary"]).strip():
         logger.warning(
-            "clinical_trials_agent: %s × %s — finalize_analysis was called with "
-            "empty/whitespace summary (raw=%r)",
+            "clinical_trials_agent: %s × %s — finalize_analysis was not called; "
+            "summary will be empty",
             drug_name,
             disease_name,
-            artifacts["summary"],
-        )
-
-    # Always log the summary artifact's length + preview so we can correlate
-    # short/odd summaries with downstream rendering issues. This is the actual
-    # text that goes into the report, distinct from last_ai_text_len above.
-    if artifacts["summary"] is not None:
-        raw_summary = str(artifacts["summary"])
-        preview = raw_summary[:300].replace("\n", "\\n")
-        logger.warning(
-            "clinical_trials_agent: %s × %s — summary len=%d, preview=%r",
-            drug_name,
-            disease_name,
-            len(raw_summary),
-            preview,
         )
 
     summary = artifacts.get("summary") or ""
