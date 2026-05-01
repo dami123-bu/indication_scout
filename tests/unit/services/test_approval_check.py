@@ -230,7 +230,7 @@ async def test_list_approved_indications_invalid_json_returns_empty(tmp_path):
     assert result == []
 
 
-async def test_list_approved_indications_non_list_returns_empty(tmp_path):
+async def test_list_approved_indications_extracts_array_from_wrapped_object(tmp_path):
     llm_response = json.dumps({"approved": ["obesity"]})
 
     with patch(
@@ -242,7 +242,7 @@ async def test_list_approved_indications_non_list_returns_empty(tmp_path):
             cache_dir=tmp_path,
         )
 
-    assert result == []
+    assert result == ["obesity"]
 
 
 async def test_list_approved_indications_dedupes_case_insensitively(tmp_path):

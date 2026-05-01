@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+from typing_extensions import deprecated
 
 from indication_scout.config import get_settings
 from indication_scout.constants import CACHE_TTL
@@ -58,29 +59,30 @@ class RetrievalService:
         self.cache_dir = cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _normalize_disease_groups(
-        self, diseases: dict[str, set[str]]
-    ) -> dict[str, set[str]]:
-        """Normalize disease names via LLM and merge groups that collapse to the same key.
-
-        Args:
-            diseases: Dict mapping disease name to set of competitor drug names.
-
-        Returns:
-            Dict with normalized disease names as keys and unioned drug sets.
-        """
-        original_names = list(diseases.keys())
-        norm_map = await llm_normalize_disease_batch(original_names)
-
-        merged: dict[str, set[str]] = {}
-        for original in original_names:
-            normalized = norm_map[original]
-            key = normalized.split(" OR ")[0].strip().lower()
-            if key in merged:
-                merged[key] |= diseases[original]
-            else:
-                merged[key] = set(diseases[original])
-        return merged
+    # @deprecated
+    # async def _normalize_disease_groups(
+    #     self, diseases: dict[str, set[str]]
+    # ) -> dict[str, set[str]]:
+    #     """Normalize disease names via LLM and merge groups that collapse to the same key.
+    #
+    #     Args:
+    #         diseases: Dict mapping disease name to set of competitor drug names.
+    #
+    #     Returns:
+    #         Dict with normalized disease names as keys and unioned drug sets.
+    #     """
+    #     original_names = list(diseases.keys())
+    #     norm_map = await llm_normalize_disease_batch(original_names)
+    #
+    #     merged: dict[str, set[str]] = {}
+    #     for original in original_names:
+    #         normalized = norm_map[original]
+    #         key = normalized.split(" OR ")[0].strip().lower()
+    #         if key in merged:
+    #             merged[key] |= diseases[original]
+    #         else:
+    #             merged[key] = set(diseases[original])
+    #     return merged
 
     async def get_drug_competitors(self, chembl_id: str) -> dict[str, set[str]]:
         """Fetch top disease indications and their competitor drugs from Open Targets.
@@ -95,7 +97,7 @@ class RetrievalService:
             Dict mapping disease name to set of competitor drug names.
         """
         cache_params = {"chembl_id": chembl_id}
-        cached = cache_get("drug_competitors", cache_params, self.cache_dir)
+        cached = cache_get("competitors_merged", cache_params, self.cache_dir)
         if cached is not None and len(cached) > 0:
             logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
                            chembl_id, len(cached), list(cached.keys()))
@@ -107,7 +109,6 @@ class RetrievalService:
                            len(raw["diseases"]), list(raw["diseases"].keys()))
 
         top_40=raw["diseases"]
-        #top_40 = await self._normalize_disease_groups(raw["diseases"])
         logger.warning("[COMP] after normalize: %d diseases: %s",
                        len(top_40), list(top_40.keys()))
 
@@ -151,7 +152,7 @@ class RetrievalService:
         logger.warning("[COMP] final top_15: %s", list(top_15.keys()))
 
         cache_set(
-            "drug_competitors",
+            "competitors_merged",
             cache_params,
             {disease: list(drugs) for disease, drugs in top_15.items()},
             self.cache_dir,

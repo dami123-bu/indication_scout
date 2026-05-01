@@ -143,7 +143,7 @@ class OpenTargetsClient(BaseClient):
         min_rank = CLINICAL_STAGE_RANK.get(min_stage, 0)
 
         cache_params = {"chembl_id": chembl_id, "min_stage": min_stage}
-        cached = cache_get("drug_competitors", cache_params, self.cache_dir)
+        cached = cache_get("competitors_raw", cache_params, self.cache_dir)
         if cached is not None:
             return CompetitorRawData(
                 diseases={
@@ -218,7 +218,7 @@ class OpenTargetsClient(BaseClient):
         result = CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
 
         cache_set(
-            "drug_competitors",
+            "competitors_raw",
             cache_params,
             {
                 "diseases": {d: list(drugs) for d, drugs in top_40.items()},
