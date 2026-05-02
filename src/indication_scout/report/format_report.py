@@ -78,7 +78,12 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
                 title = f" {t.title}" if t.title else ""
                 phase = t.phase or "Unknown phase"
                 classified = _classify_stop_reason(t.why_stopped)
-                category = f" [{classified}]" if classified not in {"unknown", "other"} else ""
+                category = (
+                    f" [{classified}]"
+                    if classified not in {"unknown", "other"}
+                    and classified != t.why_stopped
+                    else ""
+                )
                 lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
 
     if ct.landscape and ct.landscape.competitors:
@@ -143,6 +148,11 @@ def format_report(output: SupervisorOutput) -> str:
         "",
         output.summary if output.summary else "_No summary produced._",
         "",
+        "_Note: trial counts in this summary reflect ClinicalTrials.gov only and may "
+        "undercount activity registered in ex-US registries (e.g. jRCT, ChiCTR, "
+        "EU-CTR, ANZCTR). Studies cited in the literature section may reference "
+        "trials in those registries that are not represented in the trial counts above._",
+        "",
         "---",
         "",
     ]
@@ -178,13 +188,13 @@ def format_report(output: SupervisorOutput) -> str:
         investigated_keys = {f.disease.lower().strip() for f in output.findings}
 
         for finding in output.findings:
-            lines += [f"### {finding.disease} _(source: {finding.source})_", ""]
+            lines += [f"## {finding.disease} _(source: {finding.source})_", ""]
 
             if finding.literature:
-                lines += ["#### Literature", "", _fmt_literature(finding.literature), ""]
+                lines += [f"### Literature — {finding.disease}", "", _fmt_literature(finding.literature), ""]
 
             if finding.clinical_trials:
-                lines += ["#### Clinical Trials", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
+                lines += [f"### Clinical Trials — {finding.disease}", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
 
             lines.append("---")
             lines.append("")
