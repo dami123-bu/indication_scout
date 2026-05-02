@@ -17,6 +17,7 @@ class MechanismCandidate(BaseModel):
     target_symbol: str = ""
     action_type: str = ""
     disease_name: str = ""
+    disease_id: str | None = None
     disease_description: str = ""
     target_function: str = ""
 

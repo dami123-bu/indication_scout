@@ -65,6 +65,7 @@ async def test_build_candidate_rows_basic_shape():
         "target_symbol": "GLP1R",
         "action_types": {"AGONIST"},
         "disease_name": "T2D",
+        "disease_id": "EFO_001",
         "overall_score": 0.9,
         "evidences": evidences["EFO_001"],
         "disease_description": "Sugar disease.",

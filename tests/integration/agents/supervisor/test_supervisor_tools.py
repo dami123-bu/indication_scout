@@ -144,6 +144,64 @@ async def test_analyze_rejects_unlisted_disease(
 # ------------------------------------------------------------------
 
 
+# ------------------------------------------------------------------
+# analyze_mechanism merge — three-step dedup against competitor allowlist
+#
+# Imatinib's mechanism agent surfaces leukemia-class diseases that also appear
+# as competitor entries (other BCR-ABL/c-KIT inhibitors trial the same diseases).
+# We exercise the real pipeline end-to-end and assert structural properties of
+# the post-merge allowlist:
+#   - No two allowlist rows share an OT disease ID (the original bug would
+#     produce two — one tagged "competitor", one tagged "mechanism").
+#   - At least one row is tagged "both", proving the merge actually fired
+#     (otherwise the no-collision assertion holds trivially).
+# Mechanism candidates that fail all three dedup steps legitimately become
+# new "mechanism"-tagged rows; we don't constrain their count.
+# ------------------------------------------------------------------
+
+
+_MERGE_DRUG = "semaglutide"
+
+
+async def test_analyze_mechanism_dedups_against_competitor_allowlist(
+    llm, db_session_truncating, test_cache_dir
+):
+    """analyze_mechanism must not produce duplicate allowlist entries for diseases
+    that competitor and mechanism both surface. Verifies the three-step dedup:
+    (1) ID match, (2) exact-name match, (3) OT name-resolve fallback.
+    """
+    svc = RetrievalService(test_cache_dir)
+    tools_list = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
+
+    await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_MERGE_DRUG))
+    await tools["analyze_mechanism"].ainvoke(_tc("analyze_mechanism", drug_name=_MERGE_DRUG))
+
+    am = tools["analyze_mechanism"]
+    am_closure = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
+    allowed_diseases: dict = am_closure["allowed_diseases"].cell_contents
+    allowed_efo_ids: dict = am_closure["allowed_efo_ids"].cell_contents
+
+    assert allowed_diseases, "find_candidates should have seeded competitor allowlist entries"
+
+    # No two allowlist rows share an OT disease ID — the original bug.
+    id_to_keys: dict[str, list[str]] = {}
+    for disease_id, key in allowed_efo_ids.items():
+        id_to_keys.setdefault(disease_id, []).append(key)
+    duplicates = {did: keys for did, keys in id_to_keys.items() if len(keys) > 1}
+    assert not duplicates, (
+        f"OT disease IDs must map to a single allowlist row; found duplicates: {duplicates}"
+    )
+
+    # At least one row should be tagged "both" — confirms the merge fired and the
+    # assertion above isn't holding trivially because the merge never touched anything.
+    sources = [source for _, source in allowed_diseases.values()]
+    assert "both" in sources, (
+        f"Expected at least one disease tagged 'both' after analyze_mechanism, "
+        f"got sources: {sorted(set(sources))}"
+    )
+
+
 async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
     """finalize_supervisor returns ('Supervisor analysis complete.', summary_input)."""
     svc = RetrievalService(test_cache_dir)

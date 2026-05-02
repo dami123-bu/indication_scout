@@ -38,6 +38,7 @@ async def build_candidate_rows(
             "target_symbol": target.symbol,
             "action_types": action_types,
             "disease_name": a.disease_name,
+            "disease_id": a.disease_id,
             "overall_score": a.overall_score,
             "evidences": ev_map.get(a.disease_id, []),
             "disease_description": a.disease_description,

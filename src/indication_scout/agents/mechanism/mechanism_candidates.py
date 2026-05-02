@@ -116,6 +116,7 @@ def select_top_candidates(
         target_symbol: str
         action_types: set[str]
         disease_name: str
+        disease_id: str | None
         overall_score: float | None
         evidences: list[EvidenceRecord]   # raw records, direction-voted internally
         disease_description: str
@@ -145,6 +146,7 @@ def select_top_candidates(
             target_symbol=row.get("target_symbol", ""),
             action_type=_canonical_action(row.get("action_types") or set()),
             disease_name=row.get("disease_name", ""),
+            disease_id=row.get("disease_id"),
             disease_description=row.get("disease_description", "") or "",
             target_function=clean_function_description(
                 row.get("target_function", "") or ""

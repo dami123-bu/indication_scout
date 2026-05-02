@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.fda import FDAClient
+from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 from indication_scout.services.approval_check import (
     get_fda_approved_disease_mapping,
@@ -72,6 +73,10 @@ def build_supervisor_tools(
     # analyze_literature / analyze_clinical_trials.
     # allowed_diseases: lowercase disease name → (canonical_name, source)
     allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
+    # EFO ID → lowercase disease name (key into allowed_diseases). Lets analyze_mechanism dedup
+    # mechanism candidates against competitor entries by ontology ID even when names differ
+    # (e.g. "NSCLC" vs "non-small cell lung cancer").
+    allowed_efo_ids: dict[str, str] = {}
 
     # Drug-level shared store. Populated by sub-agents as they run; surfaced
     # to the supervisor via get_drug_briefing. Keyed by drug name (normalized).
@@ -206,8 +211,21 @@ def build_supervisor_tools(
         diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
 
         allowed_diseases.clear()
+        allowed_efo_ids.clear()
         for d in diseases:
             allowed_diseases[d.lower().strip()] = (d, "competitor")
+
+        # Pull EFO IDs for the competitor allowlist directly from the raw OT cache. Used by
+        # analyze_mechanism to dedup mechanism candidates against competitor entries by ontology
+        # ID. Disease names that don't resolve to an EFO (e.g. renamed by the LLM merge step)
+        # simply don't get an entry — analyze_mechanism falls back to name match in that case.
+        async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
+            raw = await ot_client.get_drug_competitors(chembl_id)
+        for disease_lower in allowed_diseases:
+            efo_id = raw["disease_efo_ids"].get(disease_lower)
+            if efo_id:
+                allowed_efo_ids[efo_id] = disease_lower
+
         logger.warning("[TOOL] find_candidates(%r [%s]) -> %s", drug_name, chembl_id, diseases)
         return (
             f"Found {len(diseases)} candidate diseases for {drug_name} ({chembl_id})",
@@ -411,17 +429,42 @@ def build_supervisor_tools(
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
         promoted: list[str] = []
-        for candidate in output.candidates:
-            key = candidate.disease_name.lower().strip()
-            if not key:
-                continue
-            if key in allowed_diseases:
-                existing_name, source = allowed_diseases[key]
-                if source == "competitor":
-                    allowed_diseases[key] = (existing_name, "both")
-            else:
-                allowed_diseases[key] = (candidate.disease_name, "mechanism")
-                promoted.append(candidate.disease_name)
+        async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
+            for candidate in output.candidates:
+                key = candidate.disease_name.lower().strip()
+                if not key:
+                    continue
+
+                # Three-step dedup against the competitor allowlist.
+                #   1. ID match — common case when both sides emit the same OT canonical ID.
+                #   2. Exact-name match — covers the case where one side lacks an ID.
+                #   3. OT name-resolve — when the candidate's raw ID and name both miss, ask
+                #      OT's search to canonicalize the name to its disease ID and retry the ID
+                #      match. Catches cross-ontology drift (EFO vs MONDO) and synonyms.
+                existing_key: str | None = None
+                if candidate.disease_id and candidate.disease_id in allowed_efo_ids:
+                    existing_key = allowed_efo_ids[candidate.disease_id]
+                elif key in allowed_diseases:
+                    existing_key = key
+                else:
+                    resolved_id = await ot_client.resolve_disease_id(candidate.disease_name)
+                    if resolved_id and resolved_id in allowed_efo_ids:
+                        existing_key = allowed_efo_ids[resolved_id]
+
+                if existing_key is not None:
+                    existing_name, source = allowed_diseases[existing_key]
+                    if source == "competitor":
+                        allowed_diseases[existing_key] = (existing_name, "both")
+                    # Record the disease ID against the existing row when we learned it from
+                    # this mechanism candidate (e.g. competitor entry had no ID). Improves
+                    # dedup for subsequent candidates in the same run.
+                    if candidate.disease_id and candidate.disease_id not in allowed_efo_ids:
+                        allowed_efo_ids[candidate.disease_id] = existing_key
+                else:
+                    allowed_diseases[key] = (candidate.disease_name, "mechanism")
+                    if candidate.disease_id:
+                        allowed_efo_ids[candidate.disease_id] = key
+                    promoted.append(candidate.disease_name)
 
         if promoted:
             logger.warning(

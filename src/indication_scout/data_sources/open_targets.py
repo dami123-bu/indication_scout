@@ -152,6 +152,7 @@ def _save_target_evidences(
 
 class CompetitorRawData(TypedDict):
     diseases: dict[str, set[str]]
+    disease_efo_ids: dict[str, str]
     drug_indications: list[str]
 
 
@@ -239,6 +240,7 @@ class OpenTargetsClient(BaseClient):
                 diseases={
                     disease: set(drugs) for disease, drugs in cached["diseases"].items()
                 },
+                disease_efo_ids=dict(cached.get("disease_efo_ids") or {}),
                 drug_indications=cached["drug_indications"],
             )
 
@@ -305,13 +307,25 @@ class OpenTargetsClient(BaseClient):
         drug_indications = list(approved_indications)
         top_40 = dict(list(sorted_siblings.items())[:_settings.open_targets_competitor_prefetch_max])
 
-        result = CompetitorRawData(diseases=top_40, drug_indications=drug_indications)
+        # Inverse of id_to_canonical, scoped to the diseases that survived ranking and trimming.
+        disease_efo_ids = {
+            canonical: efo_id
+            for efo_id, canonical in id_to_canonical.items()
+            if canonical in top_40
+        }
+
+        result = CompetitorRawData(
+            diseases=top_40,
+            disease_efo_ids=disease_efo_ids,
+            drug_indications=drug_indications,
+        )
 
         cache_set(
             "competitors_raw",
             cache_params,
             {
                 "diseases": {d: list(drugs) for d, drugs in top_40.items()},
+                "disease_efo_ids": disease_efo_ids,
                 "drug_indications": drug_indications,
             },
             self.cache_dir,
@@ -556,6 +570,24 @@ class OpenTargetsClient(BaseClient):
                 f"No disease found for '{name}'",
             )
         return disease_hits[0]["id"]
+
+    async def resolve_disease_id(self, name: str) -> str | None:
+        """Public, cached, non-raising wrapper around _resolve_disease_name.
+
+        Returns OT's canonical disease ID for the given name, or None when no hit
+        is found. Intended for dedup paths where a missing resolution is non-fatal.
+        """
+        cache_params = {"name": name.strip().lower()}
+        cached = cache_get("disease_id_resolver", cache_params, self.cache_dir)
+        if cached is not None:
+            return cached or None
+        try:
+            disease_id = await self._resolve_disease_name(name)
+        except DataSourceError:
+            cache_set("disease_id_resolver", cache_params, "", self.cache_dir)
+            return None
+        cache_set("disease_id_resolver", cache_params, disease_id, self.cache_dir)
+        return disease_id
 
     async def _fetch_drug(self, chembl_id: str) -> DrugData:
         """Fetch full drug node from Open Targets."""
