@@ -39,6 +39,20 @@ def _tool_map(tools: list) -> dict:
     return {t.name: t for t in tools}
 
 
+def _allowlist_state(tools: dict) -> tuple[dict, dict]:
+    """Reach the closure-scoped allowlist dicts behind analyze_mechanism.
+
+    The tool's outer coroutine wraps _analyze_mechanism_impl in a try/finally that
+    sets the seed-phase asyncio.Event; the impl is what actually closes over
+    allowed_diseases / allowed_efo_ids. Walk one layer down to find them.
+    """
+    am = tools["analyze_mechanism"]
+    outer = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
+    impl = outer["_analyze_mechanism_impl"].cell_contents
+    inner = dict(zip(impl.__code__.co_freevars, impl.__closure__))
+    return inner["allowed_diseases"].cell_contents, inner["allowed_efo_ids"].cell_contents
+
+
 @pytest.fixture
 def llm():
     return ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
@@ -177,10 +191,7 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_MERGE_DRUG))
     await tools["analyze_mechanism"].ainvoke(_tc("analyze_mechanism", drug_name=_MERGE_DRUG))
 
-    am = tools["analyze_mechanism"]
-    am_closure = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
-    allowed_diseases: dict = am_closure["allowed_diseases"].cell_contents
-    allowed_efo_ids: dict = am_closure["allowed_efo_ids"].cell_contents
+    allowed_diseases, allowed_efo_ids = _allowlist_state(tools)
 
     assert allowed_diseases, "find_candidates should have seeded competitor allowlist entries"
 
@@ -199,6 +210,63 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     assert "both" in sources, (
         f"Expected at least one disease tagged 'both' after analyze_mechanism, "
         f"got sources: {sorted(set(sources))}"
+    )
+
+
+# ------------------------------------------------------------------
+# analyze_mechanism — mechanism-only promotion
+#
+# Imatinib's mechanism agent (BCR-ABL / KIT / PDGFR targets) surfaces leukemia
+# and mastocytosis-class diseases that imatinib is approved or trialed for, but
+# that don't show up in the competitor allowlist (because competitors trial
+# different conditions, or imatinib's own approvals get filtered out by the FDA
+# approval check in find_candidates). Those diseases must be promoted by
+# analyze_mechanism with source="mechanism" so they're investigatable downstream.
+# ------------------------------------------------------------------
+
+
+_MECH_ONLY_DRUG = "imatinib"
+
+
+async def test_analyze_mechanism_promotes_mechanism_only_candidates(
+    llm, db_session_truncating, test_cache_dir
+):
+    """For imatinib, analyze_mechanism must add at least one mechanism-only
+    candidate (source='mechanism') that did not appear in the competitor list.
+    This is the path that makes mechanism-surfaced diseases reachable by
+    analyze_literature / analyze_clinical_trials.
+    """
+    svc = RetrievalService(test_cache_dir)
+    tools_list = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
+
+    await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
+    )
+
+    allowed_diseases, _ = _allowlist_state(tools)
+
+    competitor_keys_before = {
+        k for k, (_, source) in allowed_diseases.items() if source == "competitor"
+    }
+    assert competitor_keys_before, "find_candidates should seed competitor entries first"
+
+    await tools["analyze_mechanism"].ainvoke(
+        _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+    )
+
+    mechanism_only_keys = {
+        k for k, (_, source) in allowed_diseases.items() if source == "mechanism"
+    }
+    assert mechanism_only_keys, (
+        f"analyze_mechanism must promote at least one mechanism-only candidate for "
+        f"{_MECH_ONLY_DRUG}; got sources: "
+        f"{sorted({s for _, s in allowed_diseases.values()})}"
+    )
+    # Mechanism-only entries must not overlap with what find_candidates seeded.
+    assert not (mechanism_only_keys & competitor_keys_before), (
+        f"Mechanism-only entries should not overlap with original competitor keys; "
+        f"overlap: {mechanism_only_keys & competitor_keys_before}"
     )
 
 

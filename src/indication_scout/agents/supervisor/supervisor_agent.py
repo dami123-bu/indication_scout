@@ -41,7 +41,9 @@ opportunity — biological rationale, clinical interest, hypothesis still open.
   this are discarded.
 
 # WORKFLOW
-1. Call find_candidates and analyze_mechanism in parallel.
+1. Call find_candidates AND analyze_mechanism in parallel. Both are REQUIRED — analyze_mechanism
+   is not optional even if find_candidates returns plenty of candidates. The investigation
+   tools (analyze_literature, analyze_clinical_trials) will block until both have completed.
 2. Pick 3-5 candidates and call BOTH analyze_literature and analyze_clinical_trials on each.
    Mechanism candidates with high scores are especially worth investigating.
 3. Call get_drug_briefing.

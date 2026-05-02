@@ -8,6 +8,7 @@ There's also a find_candidates tool that hits Open Targets directly to surface d
 for a drug.
 """
 
+import asyncio
 import logging
 import time
 from typing import Literal
@@ -77,6 +78,12 @@ def build_supervisor_tools(
     # mechanism candidates against competitor entries by ontology ID even when names differ
     # (e.g. "NSCLC" vs "non-small cell lung cancer").
     allowed_efo_ids: dict[str, str] = {}
+    # Seed-phase gates. analyze_literature and analyze_clinical_trials must not run until both
+    # find_candidates and analyze_mechanism have populated the allowlist (and merged), otherwise
+    # they may investigate a disease against a stale competitor-only or mechanism-only view.
+    # Both events are set in a try/finally so a sub-agent crash doesn't deadlock downstream tools.
+    find_candidates_done = asyncio.Event()
+    analyze_mechanism_done = asyncio.Event()
 
     # Drug-level shared store. Populated by sub-agents as they run; surfaced
     # to the supervisor via get_drug_briefing. Keyed by drug name (normalized).
@@ -142,6 +149,14 @@ def build_supervisor_tools(
         Uses Open Targets to find diseases where competitor drugs (drugs sharing the same molecular
         targets) are being developed. Returns a list of disease names ranked by competitor activity.
         """
+        try:
+            return await _find_candidates_impl(drug_name)
+        finally:
+            # Always release the seed gate so a failure here doesn't deadlock analyze_literature
+            # / analyze_clinical_trials. They will see an empty allowlist and reject downstream.
+            find_candidates_done.set()
+
+    async def _find_candidates_impl(drug_name: str) -> tuple[str, list[str]]:
         drug_name = normalize_drug_name(drug_name)
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
         competitors = await svc.get_drug_competitors(chembl_id)
@@ -253,6 +268,12 @@ def build_supervisor_tools(
         Investigates published evidence via PubMed, embeds and re-ranks abstracts, and produces a
         structured evidence summary with strength rating (none / weak / moderate / strong).
         """
+        # Wait for both seed tools to finish populating the allowlist. Without this, parallel
+        # tool calls can hit analyze_literature before find_candidates / analyze_mechanism have
+        # merged their candidates, causing legitimate diseases to be rejected.
+        await find_candidates_done.wait()
+        await analyze_mechanism_done.wait()
+
         drug_name = normalize_drug_name(drug_name)
         # Build a fresh agent per call so the closure-scoped store dict in literature_tools is not
         # shared across disease invocations.
@@ -294,6 +315,10 @@ def build_supervisor_tools(
         Checks ClinicalTrials.gov for existing trials, competitive landscape, and terminated
         trials (safety/efficacy red flags).
         """
+        # Wait for both seed tools to finish populating the allowlist (see analyze_literature).
+        await find_candidates_done.wait()
+        await analyze_mechanism_done.wait()
+
         drug_name = normalize_drug_name(drug_name)
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_clinical_trials", ClinicalTrialsOutput())
@@ -424,9 +449,22 @@ def build_supervisor_tools(
         Mechanism-surfaced candidates are promoted into the investigation allowlist so
         analyze_literature / analyze_clinical_trials can investigate them downstream.
         """
+        try:
+            return await _analyze_mechanism_impl(drug_name)
+        finally:
+            # Always release the seed gate so a failure here doesn't deadlock analyze_literature
+            # / analyze_clinical_trials.
+            analyze_mechanism_done.set()
+
+    async def _analyze_mechanism_impl(drug_name: str) -> tuple[str, MechanismOutput]:
         drug_name = normalize_drug_name(drug_name)
         output = await run_mechanism_agent(mech_agent, drug_name)
         logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
+
+        # The mechanism sub-agent can run in parallel with find_candidates, but the merge step
+        # below must observe a fully-populated competitor allowlist. Wait here so we don't dedup
+        # mechanism candidates against an empty/partial competitor list.
+        await find_candidates_done.wait()
 
         promoted: list[str] = []
         async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:

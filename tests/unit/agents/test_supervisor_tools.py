@@ -43,8 +43,12 @@ def _build_tools_with_drug_facts(
     # Reach drug_facts via _ensure_drug_entry's closure. None of the tools
     # close over drug_facts directly; they go through _ensure_drug_entry
     # (the writers) and _render_briefing (the reader), both of which do.
+    # find_candidates's outer coroutine wraps _find_candidates_impl in a
+    # try/finally; _ensure_drug_entry lives in the impl's closure.
     fc = by_name["find_candidates"]
-    fc_closure = dict(zip(fc.coroutine.__code__.co_freevars, fc.coroutine.__closure__))
+    fc_outer = dict(zip(fc.coroutine.__code__.co_freevars, fc.coroutine.__closure__))
+    fc_impl = fc_outer["_find_candidates_impl"].cell_contents
+    fc_closure = dict(zip(fc_impl.__code__.co_freevars, fc_impl.__closure__))
     ensure_fn = fc_closure["_ensure_drug_entry"].cell_contents
     ensure_closure = dict(zip(ensure_fn.__code__.co_freevars, ensure_fn.__closure__))
     drug_facts = ensure_closure["drug_facts"].cell_contents
@@ -131,9 +135,18 @@ def _build_tools_and_allowlists(
 
     by_name = {t.name: t for t in tools}
     am = by_name["analyze_mechanism"]
-    am_closure = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
+    # analyze_mechanism's outer coroutine wraps _analyze_mechanism_impl in a
+    # try/finally; the impl is what closes over the allowlist dicts and the
+    # seed-phase asyncio.Events.
+    am_outer = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
+    am_impl = am_outer["_analyze_mechanism_impl"].cell_contents
+    am_closure = dict(zip(am_impl.__code__.co_freevars, am_impl.__closure__))
     allowed_diseases = am_closure["allowed_diseases"].cell_contents
     allowed_efo_ids = am_closure["allowed_efo_ids"].cell_contents
+
+    # Pre-set find_candidates_done so analyze_mechanism's merge can run without
+    # find_candidates having been called. Tests bypass the seed phase entirely.
+    am_closure["find_candidates_done"].cell_contents.set()
 
     allowed_diseases.clear()
     allowed_efo_ids.clear()
