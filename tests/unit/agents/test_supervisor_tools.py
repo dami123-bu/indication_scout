@@ -36,7 +36,7 @@ def _build_tools_with_drug_facts(
         "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
         new=MagicMock(return_value=MagicMock()),
     ):
-        tools = build_supervisor_tools(llm=llm, svc=svc, db=db)
+        tools, _ = build_supervisor_tools(llm=llm, svc=svc, db=db)
 
     by_name = {t.name: t for t in tools}
 
@@ -131,7 +131,7 @@ def _build_tools_and_allowlists(
         "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
         new=MagicMock(return_value=MagicMock()),
     ):
-        tools = build_supervisor_tools(llm=llm, svc=svc, db=db)
+        tools, _ = build_supervisor_tools(llm=llm, svc=svc, db=db)
 
     by_name = {t.name: t for t in tools}
     am = by_name["analyze_mechanism"]

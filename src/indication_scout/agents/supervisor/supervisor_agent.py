@@ -93,29 +93,66 @@ Before finalizing, classify each candidate against the briefing's approved indic
 - No related approval → use the standard ranking signals above.
 
 # WRITING THE SUMMARY
-Pass finalize_supervisor a 4-6 sentence plain-text summary: top candidate and why, the
-mechanistic / literature / trial evidence behind the ranking, and brief reasoning on runner-ups.
+The summary is a STRUCTURED FACT LIST, not a narrative. No prose paragraphs, no interpretive
+adjectives ("promising", "biologically grounded", "active interest", "well-tolerated"), no
+mechanism rationale weaving, no comparison framing across candidates. Just verifiable facts
+pulled directly from the tool artifacts you received this run.
 
-Reference only findings from successful tool calls. Cross-check sub-agent narrative claims
-against structured counts before relying on them. Use plain English — never internal field
-names like "total_count" or "by_status." When sub-agents disagree, name the conflict and
-explain which you weight more heavily.
+FORMAT: a ranked list of investigated candidates. For each candidate, one line with these
+fields, in this order, separated by semicolons:
 
-If a candidate's only tool call was REJECTED, exclude it from the summary entirely."""
+  <rank>. <disease> — literature: <strength>, <N> PMIDs; trials: <N> total, <N> completed,
+  <N> terminated[, <K> safety/efficacy]; FDA approval: <yes|no>.
+
+Rules:
+- Order candidates from strongest to weakest evidence. Ties broken by trial count.
+- "literature: <strength>" must be the verbatim strength label from analyze_literature
+  (none / weak / moderate / strong). "<N> PMIDs" is len(output.pmids) from that artifact.
+- Trial counts come from analyze_clinical_trials structured counts. If a scope is missing,
+  write 0 — never estimate.
+- Include "<K> safety/efficacy" only when terminated > 0 and at least one termination
+  classified as safety or efficacy (per the structured count you were shown).
+- "FDA approval: yes" only if the clinical_trials artifact's approval.is_approved is true.
+
+After the ranked list, add ONE optional final line, prefixed "Closed signals:" naming any
+candidate(s) with a safety or efficacy termination, or completed Phase 3 without approval. No
+explanation — just names.
+
+HARD RULES — these override every other instruction in this prompt:
+- Do NOT name a disease in the summary unless BOTH analyze_literature AND analyze_clinical_trials
+  ran successfully for that disease in this run. Mechanism evidence alone is not sufficient,
+  even when an APPROVAL RELATIONSHIP is obvious.
+- Every value in the summary must trace to a tool artifact you received this run. Do not
+  estimate, round, or recall numbers from training knowledge. If you don't have a value, omit
+  the field — never invent one.
+- If a candidate's only tool call was REJECTED, exclude it from the summary entirely.
+- No free-form sentences. No paragraph prose. Stick to the format above."""
 
 
 def build_supervisor_agent(llm, svc, db):
-    """Return a compiled supervisor agent."""
-    tools = build_supervisor_tools(llm=llm, svc=svc, db=db)
-    return create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
+    """Return (compiled supervisor agent, get_merged_allowlist).
+
+    get_merged_allowlist is a zero-arg callable that snapshots the closure-scoped
+    competitor + mechanism disease allowlist after the agent has finished running.
+    run_supervisor_agent uses it to assemble findings against the merged view rather
+    than reconstructing an allowlist from tool messages.
+    """
+    tools, get_merged_allowlist = build_supervisor_tools(llm=llm, svc=svc, db=db)
+    agent = create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
+    return agent, get_merged_allowlist
 
 
-async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
+async def run_supervisor_agent(
+    agent,
+    get_merged_allowlist,
+    drug_name: str,
+) -> SupervisorOutput:
     """Invoke the supervisor and assemble a SupervisorOutput from the run.
 
     Filters out tool calls that were rejected by the candidate guard, and canonicalises disease
-    names against the find_candidates list so that casing variants (e.g. "Parkinson disease" vs
-    "parkinson disease") do not produce duplicate findings.
+    names against the merged competitor + mechanism allowlist so that casing variants (e.g.
+    "Parkinson disease" vs "parkinson disease") do not produce duplicate findings, and so that
+    mechanism-promoted diseases reach the findings list with their correct source tag.
     """
     result = await agent.ainvoke(
         {
@@ -125,7 +162,6 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
         }
     )
 
-    candidates: list[str] = []
     mechanism: MechanismOutput | None = None
     summary: str = ""
     findings_by_disease: dict[str, CandidateFindings] = {}
@@ -138,26 +174,19 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
             for tc in msg.tool_calls:
                 tool_call_args[tc["id"]] = tc["args"]
 
-    # First pass: capture candidates and mechanism. We need candidates before processing findings
-    # so we can filter rejected calls.
+    # First pass: capture mechanism artifact and the supervisor's final summary.
     for msg in result["messages"]:
         if not isinstance(msg, ToolMessage):
             continue
-        if msg.name == "find_candidates":
-            candidates = msg.artifact or []
-        elif msg.name == "analyze_mechanism":
+        if msg.name == "analyze_mechanism":
             mechanism = msg.artifact
         elif msg.name == "finalize_supervisor":
             summary = msg.artifact or ""
 
-    # Build dual-source allowlist: competitor diseases + mechanism associations above the score
-    # threshold.  key = lowercase disease name → (canonical_name, source).  Uses disease_id for
-    # dedup when a mechanism association matches a competitor disease by ID.
-    allowed_lower: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
-
-    for c in candidates:
-        allowed_lower[c.lower().strip()] = (c, "competitor")
-
+    # Single source of truth: the merged allowlist the runtime tools enforced. Keyed by
+    # lowercase disease name → (canonical_name, source). Source is "competitor", "mechanism",
+    # or "both".
+    allowed_lower = get_merged_allowlist()
 
     def _canonical(disease_raw: str) -> tuple[str, Literal["competitor", "mechanism", "both"]] | None:
         """Return (canonical_name, source) for disease_raw, or None if not allowed."""
@@ -192,6 +221,10 @@ async def run_supervisor_agent(agent, drug_name: str) -> SupervisorOutput:
             findings.literature = msg.artifact
         else:  # analyze_clinical_trials
             findings.clinical_trials = msg.artifact
+
+    # Candidates surfaced to downstream consumers = every disease in the merged allowlist,
+    # mapped back to its canonical name. Includes mechanism-promoted diseases.
+    candidates = [canonical for (canonical, _) in allowed_lower.values()]
 
     return SupervisorOutput(
         drug_name=drug_name,

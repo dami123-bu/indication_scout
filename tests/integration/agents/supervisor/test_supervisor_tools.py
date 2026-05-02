@@ -86,7 +86,8 @@ async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_
     allowlist, and seeds drug aliases + FDA-approved indications into the briefing store.
     """
     svc = RetrievalService(test_cache_dir)
-    tools = _tool_map(build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating))
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
 
     msg = await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_DRUG))
 
@@ -139,7 +140,8 @@ async def test_analyze_rejects_unlisted_disease(
     of the right type and a REJECTED: content message naming the tool.
     """
     svc = RetrievalService(test_cache_dir)
-    tools = _tool_map(build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating))
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
 
     msg = await tools[tool_name].ainvoke(
         _tc(tool_name, drug_name=_DRUG, disease_name="not-a-real-disease")
@@ -185,7 +187,7 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     (1) ID match, (2) exact-name match, (3) OT name-resolve fallback.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_MERGE_DRUG))
@@ -237,7 +239,7 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     analyze_literature / analyze_clinical_trials.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(
@@ -273,7 +275,8 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
 async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
     """finalize_supervisor returns ('Supervisor analysis complete.', summary_input)."""
     svc = RetrievalService(test_cache_dir)
-    tools = _tool_map(build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating))
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
 
     summary_text = (
         "Metformin shows the strongest repurposing signal in polycystic ovary syndrome, "
@@ -320,7 +323,8 @@ async def test_analyze_clinical_trials_respects_cutoff(
     #           llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
     #       )
     #   )
-    tools = _tool_map(build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating))
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
 
     # Populate the allowlist so analyze_clinical_trials doesn't reject the disease.
     await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_CUTOFF_DRUG))

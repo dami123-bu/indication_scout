@@ -193,3 +193,16 @@ drug = Drug(**{"name": None, "synonyms": None, "year_approved": None})
   - Do not remove code that might still be used indirectly without first verifying usage (e.g. via search, tests, or references).
   - Listen carefully to what the client says. If she asks for a list of things, make sure to implement them all
 
+## Accuracy vs. Coverage
+- **Error by omission is acceptable. Inaccurate output is not.** It is fine for the system to miss a
+  legitimate candidate (e.g. mechanism-agent threshold filters out a real association, LLM doesn't
+  propose a known opportunity). It is NOT fine for the system to surface an analysis that wasn't
+  grounded in the upstream data sources.
+- Do not loosen reject paths, allowlist guards, or candidate filters to "rescue" diseases that were
+  excluded upstream. If something is missing, fix it at the source (mechanism scoring, candidate
+  surfacing, data ingestion) — never by relaxing the integrity check.
+- When the supervisor or any agent proposes a disease/drug/target that isn't in the upstream
+  allowlist, the correct behavior is to REJECT and log. Don't add fallbacks that "try anyway."
+- Prefer a smaller, correct report over a larger one that includes hallucinated or unverified
+  entries.
+

@@ -66,7 +66,8 @@ async def test_metformin_supervisor_agent(supervisor_agent):
     - each finding has at least one sub-agent result (literature or clinical_trials)
     - summary is non-empty and mentions metformin (finalize_supervisor was called)
     """
-    output = await run_supervisor_agent(supervisor_agent, "metformin")
+    agent, get_merged_allowlist = supervisor_agent
+    output = await run_supervisor_agent(agent, get_merged_allowlist, "metformin")
 
     assert isinstance(output, SupervisorOutput)
 

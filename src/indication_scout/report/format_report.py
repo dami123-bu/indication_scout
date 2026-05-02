@@ -150,6 +150,12 @@ def format_report(output: SupervisorOutput) -> str:
     # Candidate diseases
     lines += ["## Candidate Diseases", ""]
     if output.candidates:
+        lines.append(
+            "_Note: not every candidate listed here is investigated in depth. "
+            "Only diseases with a section under **Candidate Findings** below have "
+            "literature and clinical-trial evidence pulled for this run._"
+        )
+        lines.append("")
         for c in output.candidates:
             lines.append(f"- {c}")
     else:

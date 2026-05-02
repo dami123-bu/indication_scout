@@ -59,11 +59,16 @@ def build_supervisor_tools(
     llm,
     svc: RetrievalService,
     db: Session,
-) -> list:
+) -> tuple[list, "callable"]:
     """Build supervisor tools that close over the sub-agents.
 
     The literature and clinical trials agents are compiled once here and reused across calls — no
     need to rebuild them per invocation.
+
+    Returns (tools, get_merged_allowlist) where get_merged_allowlist() snapshots the post-merge
+    competitor + mechanism disease allowlist (lowercase name → (canonical_name, source)). The
+    snapshot reflects whatever state the closure holds at call time — intended to be read after
+    the agent loop has finished.
     """
 
     # Build sub-agents once at supervisor construction (except literature — see below)
@@ -577,7 +582,17 @@ def build_supervisor_tools(
         """
         return "Supervisor analysis complete.", summary
 
-    return [
+    def get_merged_allowlist() -> dict[
+        str, tuple[str, Literal["competitor", "mechanism", "both"]]
+    ]:
+        """Snapshot the post-merge competitor + mechanism disease allowlist.
+
+        Returns a copy keyed by lowercase disease name → (canonical_name, source). Sources are
+        "competitor", "mechanism", or "both" depending on which sub-agent surfaced the disease.
+        """
+        return dict(allowed_diseases)
+
+    tools = [
         find_candidates,
         analyze_mechanism,
         analyze_literature,
@@ -585,3 +600,4 @@ def build_supervisor_tools(
         get_drug_briefing,
         finalize_supervisor,
     ]
+    return tools, get_merged_allowlist

@@ -63,8 +63,8 @@ def _build_agent(db):
 async def _run(drug_name: str):
     db = _make_db_session()
     try:
-        agent = _build_agent(db)
-        output = await run_supervisor_agent(agent, drug_name)
+        agent, get_merged_allowlist = _build_agent(db)
+        output = await run_supervisor_agent(agent, get_merged_allowlist, drug_name)
         return output, format_report(output)
     finally:
         db.close()

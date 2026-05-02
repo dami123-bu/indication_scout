@@ -58,8 +58,8 @@ async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
     svc = RetrievalService(DEFAULT_CACHE_DIR)
 
     logger.info("Starting %s", drug)
-    agent = build_supervisor_agent(llm=llm, svc=svc, db=db)
-    output = await run_supervisor_agent(agent, drug)
+    agent, get_merged_allowlist = build_supervisor_agent(llm=llm, svc=svc, db=db)
+    output = await run_supervisor_agent(agent, get_merged_allowlist, drug)
 
     if not write:
         click.echo(format_report(output))
@@ -69,8 +69,8 @@ async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     md_path = out_dir / f"{drug}_{timestamp}.md"
     json_path = out_dir / f"{drug}_{timestamp}.json"
-    md_path.write_text(format_report(output))
-    json_path.write_text(output.model_dump_json(indent=2))
+    md_path.write_text(format_report(output), encoding="utf-8")
+    json_path.write_text(output.model_dump_json(indent=2), encoding="utf-8")
     logger.info("Finished %s -> %s, %s", drug, md_path, json_path)
     click.echo(f"Report:    {md_path}")
     click.echo(f"Structured: {json_path}")
