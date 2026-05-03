@@ -655,26 +655,41 @@ class OpenTargetsClient(BaseClient):
     # ------------------------------------------------------------------
 
     def _parse_drug_data(self, raw: dict) -> DrugData:
-        targets = []
-        mechanisms_of_action = []
+        targets: list[DrugTarget] = []
+        mechanisms_of_action: list[MechanismOfAction] = []
+        # Open Targets aggregates MoA rows across source databases (ChEMBL, DrugBank, etc.),
+        # which yields rows with identical (mechanism, action_type, targets). Dedupe on that key
+        # so the same MoA isn't reported multiple times downstream.
+        seen_moa: set[tuple] = set()
+        seen_target: set[tuple] = set()
         for row in (raw.get("mechanismsOfAction") or {}).get("rows", []):
             moa = row["mechanismOfAction"]
+            action_type = row.get("actionType")
             row_targets = row.get("targets", [])
-            mechanisms_of_action.append(
-                MechanismOfAction(
-                    mechanism_of_action=moa,
-                    action_type=row.get("actionType"),
-                    target_ids=[t["id"] for t in row_targets],
-                    target_symbols=[t["approvedSymbol"] for t in row_targets],
+            target_ids = [t["id"] for t in row_targets]
+            target_symbols = [t["approvedSymbol"] for t in row_targets]
+            moa_key = (moa, action_type, tuple(target_ids))
+            if moa_key not in seen_moa:
+                seen_moa.add(moa_key)
+                mechanisms_of_action.append(
+                    MechanismOfAction(
+                        mechanism_of_action=moa,
+                        action_type=action_type,
+                        target_ids=target_ids,
+                        target_symbols=target_symbols,
+                    )
                 )
-            )
             for t in row_targets:
+                target_key = (t["id"], moa, action_type)
+                if target_key in seen_target:
+                    continue
+                seen_target.add(target_key)
                 targets.append(
                     DrugTarget(
                         target_id=t["id"],
                         target_symbol=t["approvedSymbol"],
                         mechanism_of_action=moa,
-                        action_type=row.get("actionType"),
+                        action_type=action_type,
                     )
                 )
 

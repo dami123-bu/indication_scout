@@ -89,7 +89,8 @@ def _trial_intervenes_with_drug(trial: Trial, aliases: list[str]) -> bool:
 def _classify_stop_reason(why_stopped: str | None) -> str:
     """Keyword-based stop classification of a CT.gov why_stopped string.
 
-    Returns one of: safety, efficacy, business, enrollment, other, unknown.
+    Returns one of: safety, efficacy, business, enrollment, unknown — or, when
+    no keyword matches, the original why_stopped text verbatim.
     Has a 20-char negation lookback so phrasings like "no safety concerns"
     don't classify as safety.
     """
@@ -110,7 +111,7 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
                 if not any(sep in between for sep in (",", "-", ".", ";")):
                     continue
             return category
-    return "other"
+    return why_stopped
 
 
 def build_clinical_trials_tools(

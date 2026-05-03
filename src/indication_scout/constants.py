@@ -36,6 +36,10 @@ CLINICAL_TRIALS_RECENT_START_YEAR: str = "2024"
 # enrollment desc; counts that need the full population go through
 # _count_trials_total (cheap countTotal API path) instead of a record fetch.
 CLINICAL_TRIALS_FETCH_MAX: int = 50
+# Per-source cache TTL for ClinicalTrials.gov pair-scoped queries
+# (get_completed_trials / get_terminated_trials). Longer than the global
+# CACHE_TTL because trial status transitions are slow.
+CLINICAL_TRIALS_CACHE_TTL: int = 14 * 86400  # 14 days in seconds
 
 # -- PubMed / NCBI ----------------------------------------------------------
 NCBI_BASE_URL: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"

@@ -34,7 +34,7 @@ _PHASE_RANK = {
 }
 
 _MESH_CAP = 10
-_WHY_STOPPED_CAP = 120
+_WHY_STOPPED_CAP = 500
 
 
 def _phase_distribution(trials: list[Trial]) -> str:

@@ -333,34 +333,18 @@ def build_supervisor_tools(
         output = await run_clinical_trials_agent(ct_agent, drug_name, disease_name)
         logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
 
-        # Short-circuit cases: the clinical trials sub-agent stops calling
-        # trial tools when the FDA check returns a definitive answer. In
-        # those cases, search/completed/terminated are None — surface the
-        # approval status to the supervisor instead of zeros.
+        # Drug-level write-through: when the FDA check matches the candidate
+        # against an approved indication, capture it in the supervisor's
+        # briefing so subsequent reasoning sees the approval status. Trial
+        # data still flows through to the summary below — the sub-agent
+        # always investigates fully now (no short-circuits).
         approval = output.approval
         if approval is not None and approval.is_approved:
-            # Drug-level write-through: capture the approved indication so
-            # the supervisor's briefing reflects what we discovered while
-            # analyzing this candidate.
             entry = _ensure_drug_entry(drug_name)
             matched = approval.matched_indication or disease_name
             existing = {ind.lower().strip() for ind in entry["approved_indications"]}
             if matched.lower().strip() not in existing:
                 entry["approved_indications"].append(matched)
-            summary = (
-                f"Clinical trials for {drug_name} × {disease_name}: "
-                f"{drug_name} is FDA-approved for {disease_name} — not a "
-                f"repurposing opportunity."
-            )
-            return summary, output
-        if approval is not None and approval.label_found is False:
-            summary = (
-                f"Clinical trials for {drug_name} × {disease_name}: "
-                f"no FDA label found for {drug_name} (drug may be withdrawn, "
-                f"never approved, or approved outside the US); approval status "
-                f"unknown, trial analysis skipped."
-            )
-            return summary, output
 
         # Normal path: counts come from the new exact-count tools (countTotal
         # API). Each scope owns its own count; no cross-scope summing.

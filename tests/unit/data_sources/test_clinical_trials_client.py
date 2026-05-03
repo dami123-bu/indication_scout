@@ -181,9 +181,9 @@ async def test_search_trials_uses_same_mesh_cond_for_count_and_fetch():
 # ------------------------------------------------------------------
 
 
-async def test_get_completed_trials_returns_total_and_trials():
+async def test_get_completed_trials_returns_total_and_trials(tmp_path):
     """get_completed_trials issues one total count call and a COMPLETED fetch."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     fake_trial = Trial(
         nct_id="NCT22222222",
         title="T",
@@ -227,9 +227,9 @@ async def test_get_completed_trials_returns_total_and_trials():
 # ------------------------------------------------------------------
 
 
-async def test_get_terminated_trials_returns_total_and_trials():
+async def test_get_terminated_trials_returns_total_and_trials(tmp_path):
     """get_terminated_trials issues a TERMINATED count and a TERMINATED fetch."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     fake_trial = Trial(
         nct_id="NCT33333333",
         title="T",

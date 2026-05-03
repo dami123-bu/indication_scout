@@ -14,16 +14,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from indication_scout.config import get_settings
 from indication_scout.constants import (
     CLINICAL_TRIALS_BASE_URL,
+    CLINICAL_TRIALS_CACHE_TTL,
     CLINICAL_TRIALS_FETCH_MAX,
     CLINICAL_TRIALS_RECENT_START_YEAR,
+    DEFAULT_CACHE_DIR,
     VACCINE_NAME_KEYWORDS,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,12 @@ from indication_scout.models.model_clinical_trials import (
 class ClinicalTrialsClient(BaseClient):
     BASE_URL = CLINICAL_TRIALS_BASE_URL
     PAGE_SIZE = 100
+
+    def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR):
+        super().__init__()
+        self.cache_dir = cache_dir
+        if cache_dir:
+            cache_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def _source_name(self) -> str:
@@ -209,6 +219,15 @@ class ClinicalTrialsClient(BaseClient):
         desc. Each returned Trial carries `why_stopped`; stop-category
         classification happens at the tool layer (no separate model field).
         """
+        cache_params = {
+            "drug": drug,
+            "mesh_term": mesh_term,
+            "date_before": date_before.isoformat() if date_before else None,
+        }
+        cached = cache_get("ct_terminated", cache_params, self.cache_dir)
+        if cached is not None:
+            return TerminatedTrialsResult.model_validate(cached)
+
         cond = _mesh_cond(mesh_term)
         total_task = self._count_trials_total(
             drug=drug, indication=cond, date_before=date_before,
@@ -225,7 +244,15 @@ class ClinicalTrialsClient(BaseClient):
 
         total, (trials, _) = await asyncio.gather(total_task, fetch_task)
 
-        return TerminatedTrialsResult(total_count=total, trials=trials)
+        result = TerminatedTrialsResult(total_count=total, trials=trials)
+        cache_set(
+            "ct_terminated",
+            cache_params,
+            result.model_dump(mode="json"),
+            self.cache_dir,
+            ttl=CLINICAL_TRIALS_CACHE_TTL,
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Public: get_completed_trials (COMPLETED pair query: count + top-50)
@@ -244,6 +271,15 @@ class ClinicalTrialsClient(BaseClient):
         CLINICAL_TRIALS_FETCH_MAX COMPLETED records sorted by enrollment desc.
         Phase information is read off each returned Trial.
         """
+        cache_params = {
+            "drug": drug,
+            "mesh_term": mesh_term,
+            "date_before": date_before.isoformat() if date_before else None,
+        }
+        cached = cache_get("ct_completed", cache_params, self.cache_dir)
+        if cached is not None:
+            return CompletedTrialsResult.model_validate(cached)
+
         cond = _mesh_cond(mesh_term)
         total_task = self._count_trials_total(
             drug=drug, indication=cond, date_before=date_before,
@@ -260,7 +296,15 @@ class ClinicalTrialsClient(BaseClient):
 
         total, (trials, _) = await asyncio.gather(total_task, fetch_task)
 
-        return CompletedTrialsResult(total_count=total, trials=trials)
+        result = CompletedTrialsResult(total_count=total, trials=trials)
+        cache_set(
+            "ct_completed",
+            cache_params,
+            result.model_dump(mode="json"),
+            self.cache_dir,
+            ttl=CLINICAL_TRIALS_CACHE_TTL,
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Private: indication-level fetching (no drug filter)
