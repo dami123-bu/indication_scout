@@ -271,11 +271,11 @@ def test_format_report_full_assembly():
     assert "**Molecular targets:** GLP1R" in rendered
     assert "GLP1R (AGONIST) → NASH" in rendered
     assert "## Candidate Findings" in rendered
-    assert "### NASH _(source: both)_" in rendered
-    assert "#### Literature" in rendered
+    assert "## NASH _(source: both)_" in rendered
+    assert "### Literature" in rendered
     assert "**Evidence strength:** moderate" in rendered
     assert "[12345678](https://pubmed.ncbi.nlm.nih.gov/12345678/)" in rendered
-    assert "#### Clinical Trials" in rendered
+    assert "### Clinical Trials" in rendered
     assert "**Trial activity:** 5 total trial(s) for this pair" in rendered
     assert "### Other mechanism candidates (promoted, not investigated)" in rendered
     assert "- Parkinson's disease" in rendered
