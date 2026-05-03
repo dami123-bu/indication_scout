@@ -1,6 +1,7 @@
 """Retrieval service: PubMed fetch/embed/cache and semantic search via pgvector."""
 
 import asyncio
+import calendar
 import json
 import logging
 from datetime import date
@@ -297,6 +298,134 @@ class RetrievalService:
         db.commit()
         logger.debug("Inserted %d abstracts into pubmed_abstracts", len(rows))
 
+    @staticmethod
+    def _parse_pub_date_conservative(raw: str | None) -> date | None:
+        """Parse a PubMed pub_date string into a conservative date.
+
+        PubMed publication dates come in mixed formats from _parse_pubmed_xml:
+            "2023"            → year only
+            "2023-Mar"        → year + 3-letter month
+            "2023-03"         → year + numeric month
+            "2023-03-15"      → full ISO date
+        For partial dates we use the LAST day of the partial range so the
+        cutoff comparison errs toward "later" (a paper dated "2023-Mar"
+        becomes 2023-03-31, which is correctly excluded by a 2023-04-01
+        cutoff but not by a 2023-04-30 one). Returns None for missing or
+        unparseable input — caller decides what to do with that.
+        """
+        if not raw:
+            return None
+        raw = raw.strip()
+        if not raw:
+            return None
+
+        # Full ISO date
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            pass
+
+        parts = raw.split("-")
+        try:
+            year = int(parts[0])
+        except (ValueError, IndexError):
+            return None
+
+        month_map = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+
+        if len(parts) == 1:
+            # "YYYY" → Dec 31 of that year
+            return date(year, 12, 31)
+
+        month_raw = parts[1].lower()[:3]
+        month = month_map.get(month_raw)
+        if month is None:
+            try:
+                month = int(parts[1])
+            except ValueError:
+                return None
+        if not 1 <= month <= 12:
+            return None
+
+        if len(parts) == 2:
+            # "YYYY-Mon" or "YYYY-MM" → last day of that month
+            last_day = calendar.monthrange(year, month)[1]
+            return date(year, month, last_day)
+
+        try:
+            day = int(parts[2])
+            return date(year, month, day)
+        except ValueError:
+            return None
+
+    def _read_pub_dates_from_db(
+        self, pmids: list[str], db: Session
+    ) -> dict[str, str | None]:
+        """Bulk-read (pmid → raw pub_date string) from pubmed_abstracts.
+
+        Returns a dict containing only the PMIDs found in the DB. Values
+        may be None (the column is nullable). PMIDs not in the DB are
+        absent from the result.
+        """
+        if not pmids:
+            return {}
+        rows = db.execute(
+            text("SELECT pmid, pub_date FROM pubmed_abstracts WHERE pmid = ANY(:pmids)"),
+            {"pmids": pmids},
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    async def _filter_pmids_by_date(
+        self,
+        pmids: list[str],
+        date_before: date,
+        db: Session,
+        client: PubMedClient,
+    ) -> list[str]:
+        """Drop PMIDs whose publication date is on/after `date_before`.
+
+        Reads pub_date from pgvector for already-stored PMIDs (no HTTP),
+        falls back to esummary for the unknowns. The fallback uses the
+        existing client._filter_pmids_by_date so the esummary parsing
+        logic stays in one place. Missing or unparseable dates are KEPT
+        — same policy as client._filter_pmids_by_date.
+        """
+        if not pmids:
+            return []
+
+        known = self._read_pub_dates_from_db(pmids, db)
+        from_db_kept: list[str] = []
+        unknown: list[str] = []
+        for pmid in pmids:
+            if pmid not in known:
+                unknown.append(pmid)
+                continue
+            parsed = self._parse_pub_date_conservative(known[pmid])
+            if parsed is None:
+                # Stored row but no usable date — match the production
+                # policy of keeping the PMID rather than dropping it.
+                from_db_kept.append(pmid)
+                continue
+            if parsed < date_before:
+                from_db_kept.append(pmid)
+
+        logger.info(
+            "_filter_pmids_by_date: %d total, %d known in DB, %d unknown → "
+            "esummary; %d kept from DB",
+            len(pmids), len(known), len(unknown), len(from_db_kept),
+        )
+
+        if not unknown:
+            return from_db_kept
+
+        from_esummary_kept = await client._filter_pmids_by_date(unknown, date_before)
+        # Preserve original input order
+        kept_set = set(from_db_kept) | set(from_esummary_kept)
+        return [p for p in pmids if p in kept_set]
+
     async def fetch_and_cache(
         self,
         queries: list[str],
@@ -344,6 +473,16 @@ class RetrievalService:
             all_pmids: list[str] = list(
                 dict.fromkeys(pmid for pmids in search_results for pmid in pmids)
             )
+
+            # 1.5 Cutoff post-guard. PubMed's eutils maxdate filter is not
+            # strictly respected, so we re-verify each PMID's publication
+            # date. Reads pub_date from pgvector for already-stored PMIDs
+            # (no HTTP) and only falls back to esummary for unknowns.
+            # Massively reduces NCBI traffic on re-runs.
+            if date_before is not None:
+                all_pmids = await self._filter_pmids_by_date(
+                    all_pmids, date_before, db, client
+                )
 
             # 2. Single bulk check against pgvector
             stored = self.get_stored_pmids(all_pmids, db)

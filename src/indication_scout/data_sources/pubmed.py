@@ -87,8 +87,12 @@ class PubMedClient(BaseClient):
         data = await self._rest_get(self.SEARCH_URL, self._inject_api_key(params))
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
 
-        if date_before and pmids:
-            pmids = await self._filter_pmids_by_date(pmids, date_before)
+        # NOTE: the post-search esummary date guard used to live here. It
+        # was moved into RetrievalService.fetch_and_cache so it can read
+        # pub_date from pgvector for known PMIDs and only call esummary
+        # for unknowns — a major NCBI traffic reduction on re-runs.
+        # Callers that need a standalone date filter can still invoke
+        # PubMedClient._filter_pmids_by_date directly (used by some tests).
 
         cache_set("pubmed_search", cache_params, pmids, self.cache_dir)
         return pmids
