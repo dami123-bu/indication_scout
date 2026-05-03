@@ -45,9 +45,9 @@ def _make_study(
 # ------------------------------------------------------------------
 
 
-async def test_count_trials_total_returns_total_count_with_pagesize_one():
+async def test_count_trials_total_returns_total_count_with_pagesize_one(tmp_path):
     """_count_trials_total issues one HTTP call with pageSize=1 and returns totalCount."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     with patch.object(
         client,
         "_rest_get",
@@ -67,9 +67,9 @@ async def test_count_trials_total_returns_total_count_with_pagesize_one():
     assert params["query.cond"] == 'AREA[ConditionMeshTerm]"Hypertension"'
 
 
-async def test_count_trials_total_zero_when_missing_total():
+async def test_count_trials_total_zero_when_missing_total(tmp_path):
     """When the API response lacks totalCount, _count_trials_total returns 0."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     with patch.object(
         client, "_rest_get", new=AsyncMock(return_value={"studies": []})
     ):
@@ -79,9 +79,9 @@ async def test_count_trials_total_zero_when_missing_total():
     assert count == 0
 
 
-async def test_count_trials_total_passes_status_and_phase_filters():
+async def test_count_trials_total_passes_status_and_phase_filters(tmp_path):
     """status_filter goes to filter.overallStatus; phase_filter is appended via AREA[Phase]."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     with patch.object(
         client,
         "_rest_get",
@@ -106,9 +106,9 @@ async def test_count_trials_total_passes_status_and_phase_filters():
 # ------------------------------------------------------------------
 
 
-async def test_search_trials_assembles_counts_and_fetch():
+async def test_search_trials_assembles_counts_and_fetch(tmp_path):
     """search_trials fans out five count calls plus one fetch and returns a SearchTrialsResult."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     fake_trial = Trial(
         nct_id="NCT11111111",
         title="T",
@@ -152,9 +152,9 @@ async def test_search_trials_assembles_counts_and_fetch():
     assert fetch_kwargs["max_results"] == 50
 
 
-async def test_search_trials_uses_same_mesh_cond_for_count_and_fetch():
+async def test_search_trials_uses_same_mesh_cond_for_count_and_fetch(tmp_path):
     """The same AREA[ConditionMeshTerm] filter is applied to every count call and the fetch."""
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     expected_cond = 'AREA[ConditionMeshTerm]"Hypertension"'
 
     with (
@@ -290,24 +290,24 @@ def _make_drug_trial(
     )
 
 
-def test_aggregate_landscape_uses_passed_total_count():
+def test_aggregate_landscape_uses_passed_total_count(tmp_path):
     """_aggregate_landscape stores passed total_count, not len(trials).
 
     50 trials fetched but the API reported 330 total → total_trial_count == 330.
     """
     trials = [_make_drug_trial(f"NCT{i:08d}") for i in range(50)]
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
 
     result = client._aggregate_landscape(trials, total_count=330, top_n=10)
 
     assert result.total_trial_count == 330
 
 
-async def test_get_landscape_calls_fetch_and_count_total():
+async def test_get_landscape_calls_fetch_and_count_total(tmp_path):
     """get_landscape calls both _fetch_all_indication_trials and _count_trials_total."""
     fake_trials = [_make_drug_trial("NCT00000001")]
 
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     with (
         patch.object(
             client,

@@ -147,7 +147,7 @@ def test_extract_date(date_struct, expected):
 # --- _parse_trial populates mesh_ancestors ---
 
 
-def test_parse_trial_populates_mesh_ancestors():
+def test_parse_trial_populates_mesh_ancestors(tmp_path):
     """_parse_trial extracts ancestors from derivedSection.conditionBrowseModule."""
     study = {
         "protocolSection": {
@@ -177,7 +177,7 @@ def test_parse_trial_populates_mesh_ancestors():
         },
     }
 
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     trial = client._parse_trial(study)
 
     assert len(trial.mesh_conditions) == 1
@@ -191,7 +191,7 @@ def test_parse_trial_populates_mesh_ancestors():
     assert trial.mesh_ancestors[1].term == "Glucose Metabolism Disorders"
 
 
-def test_parse_trial_missing_ancestors_defaults_empty():
+def test_parse_trial_missing_ancestors_defaults_empty(tmp_path):
     """_parse_trial returns empty mesh_ancestors when derivedSection lacks ancestors."""
     study = {
         "protocolSection": {
@@ -212,7 +212,7 @@ def test_parse_trial_missing_ancestors_defaults_empty():
         },
     }
 
-    client = ClinicalTrialsClient()
+    client = ClinicalTrialsClient(cache_dir=tmp_path)
     trial = client._parse_trial(study)
 
     assert trial.mesh_ancestors == []

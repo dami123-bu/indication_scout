@@ -278,6 +278,12 @@ CURATED_FDA_APPROVED_CANDIDATES: dict[str, list[str]] = {
     # ICAP/CORP trials) but no current US colchicine label carries the
     # indication; treated here as clinical-truth-over-openFDA-truth.
     "colchicine": ["pericarditis"],
+    # Rituximab — WM and MCL fall under the broader CD20-positive B-cell NHL
+    # umbrella in the Rituxan/Truxima/Riabni/Ruxience labels, but openFDA's
+    # indications_and_usage snippets only enumerate FL and DLBCL by name and
+    # never spell out "Waldenström" or "mantle cell". WM is also clinical
+    # standard-of-care (NCCN) treated here as clinical-truth-over-openFDA-truth.
+    "rituximab": ["waldenstrom macroglobulinemia", "mantle cell lymphoma"],
 }
 
 

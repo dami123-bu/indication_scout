@@ -137,8 +137,9 @@ async def test_get_molecule(
     expected_black_box,
     expected_first_approval,
     expected_oral,
+    tmp_path,
 ):
-    client = ChEMBLClient()
+    client = ChEMBLClient(cache_dir=tmp_path)
     with patch.object(client, "_rest_get", new=AsyncMock(return_value=fixture)):
         result = await client.get_molecule(chembl_id)
 
@@ -152,8 +153,8 @@ async def test_get_molecule(
     assert result.oral == expected_oral
 
 
-async def test_get_molecule_raises_on_data_source_error():
-    client = ChEMBLClient()
+async def test_get_molecule_raises_on_data_source_error(tmp_path):
+    client = ChEMBLClient(cache_dir=tmp_path)
     with patch.object(
         client,
         "_rest_get",
@@ -163,9 +164,9 @@ async def test_get_molecule_raises_on_data_source_error():
             await client.get_molecule("CHEMBL999999")
 
 
-async def test_get_molecule_null_atc_returns_empty_list():
+async def test_get_molecule_null_atc_returns_empty_list(tmp_path):
     fixture = {**CHEMBL894_FIXTURE, "atc_classifications": None}
-    client = ChEMBLClient()
+    client = ChEMBLClient(cache_dir=tmp_path)
     with patch.object(client, "_rest_get", new=AsyncMock(return_value=fixture)):
         result = await client.get_molecule("CHEMBL894")
 
@@ -247,8 +248,9 @@ async def test_get_atc_description(
     expected_level4_description,
     expected_level5,
     expected_who_name,
+    tmp_path,
 ):
-    client = ChEMBLClient()
+    client = ChEMBLClient(cache_dir=tmp_path)
     with patch.object(client, "_rest_get", new=AsyncMock(return_value=fixture)):
         result = await client.get_atc_description(atc_code)
 
