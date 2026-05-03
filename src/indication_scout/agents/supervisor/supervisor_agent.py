@@ -11,6 +11,7 @@ The LLM decides:
 """
 
 import logging
+from datetime import date
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -129,15 +130,20 @@ HARD RULES — these override every other instruction in this prompt:
 - No free-form sentences. No paragraph prose. Stick to the format above."""
 
 
-def build_supervisor_agent(llm, svc, db):
+def build_supervisor_agent(llm, svc, db, date_before: date | None = None):
     """Return (compiled supervisor agent, get_merged_allowlist).
 
     get_merged_allowlist is a zero-arg callable that snapshots the closure-scoped
     competitor + mechanism disease allowlist after the agent has finished running.
     run_supervisor_agent uses it to assemble findings against the merged view rather
     than reconstructing an allowlist from tool messages.
+
+    `date_before` is forwarded to the literature and clinical trials sub-agents so PubMed and
+    ClinicalTrials.gov queries respect the same temporal cutoff.
     """
-    tools, get_merged_allowlist = build_supervisor_tools(llm=llm, svc=svc, db=db)
+    tools, get_merged_allowlist = build_supervisor_tools(
+        llm=llm, svc=svc, db=db, date_before=date_before
+    )
     agent = create_react_agent(model=llm, tools=tools, prompt=SYSTEM_PROMPT)
     return agent, get_merged_allowlist
 

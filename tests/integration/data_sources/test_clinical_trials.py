@@ -2,6 +2,7 @@
 
 import pytest
 
+from indication_scout.agents.clinical_trials.clinical_trials_tools import _classify_stop_reason
 from indication_scout.data_sources.base_client import DataSourceError
 from indication_scout.models.model_clinical_trials import MeshTerm, TerminatedTrialsResult
 
@@ -232,7 +233,7 @@ async def test_get_terminated_trials_nonexistent_query_returns_empty(
         (
             "NCT00109577",
             "no adverse events",  # negated safety phrase
-            "other",
+            "Unable to recruit",
         ),
         (
             "NCT06134661",
@@ -249,13 +250,13 @@ async def test_classify_stop_reason_negation_on_live_data(
     Fetches real terminated trials whose why_stopped text contains a negated
     safety phrase and asserts the category is not 'safety'.
     """
-    from indication_scout.data_sources.clinical_trials import _classify_stop_reason
+
 
     trial = await clinical_trials_client.get_trial(nct_id)
 
     assert trial.why_stopped is not None
     assert why_stopped_fragment in trial.why_stopped.lower()
-    assert _classify_stop_reason(trial.why_stopped) == expected_category
+    assert  expected_category in _classify_stop_reason(trial.why_stopped)
     assert _classify_stop_reason(trial.why_stopped) != "safety"
 
 

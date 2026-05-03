@@ -11,6 +11,7 @@ for a drug.
 import asyncio
 import logging
 import time
+from datetime import date
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -21,7 +22,9 @@ from indication_scout.data_sources.fda import FDAClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
 from indication_scout.helpers.drug_helpers import normalize_drug_name
 from indication_scout.services.approval_check import (
+    get_approved_indications,
     get_fda_approved_disease_mapping,
+    list_approved_indications_at,
     list_approved_indications_from_labels,
 )
 
@@ -59,11 +62,16 @@ def build_supervisor_tools(
     llm,
     svc: RetrievalService,
     db: Session,
+    date_before: date | None = None,
 ) -> tuple[list, "callable"]:
     """Build supervisor tools that close over the sub-agents.
 
     The literature and clinical trials agents are compiled once here and reused across calls — no
     need to rebuild them per invocation.
+
+    `date_before` is forwarded to the literature and clinical trials sub-agents so all PubMed and
+    ClinicalTrials.gov queries respect the same temporal cutoff. Mechanism sub-agent does not
+    accept it (OpenTargets has no date-filtering API).
 
     Returns (tools, get_merged_allowlist) where get_merged_allowlist() snapshots the post-merge
     competitor + mechanism disease allowlist (lowercase name → (canonical_name, source)). The
@@ -72,7 +80,7 @@ def build_supervisor_tools(
     """
 
     # Build sub-agents once at supervisor construction (except literature — see below)
-    ct_agent = build_clinical_trials_agent(llm=llm)
+    ct_agent = build_clinical_trials_agent(llm=llm, date_before=date_before)
     mech_agent = build_mechanism_agent(llm=llm)
 
     # Closure-scoped allowlist — populated by find_candidates and analyze_mechanism, checked by
@@ -180,38 +188,56 @@ def build_supervisor_tools(
         # appear among OpenTargets competitor diseases (e.g. semaglutide × MASH)
         # never reaches the briefing and the supervisor cannot reason about
         # subset/superset relationships against it.
+        #
+        # When date_before is set, swap the live openFDA path for the hardcoded
+        # approvals table — the live path leaks today's approvals into a
+        # holdout. Drugs not in the table return [] and approval reasoning is
+        # silently disabled for that holdout run (see PLAN_date_before.md).
         seed_aliases = entry["drug_aliases"] or [drug_name]
         try:
-            async with FDAClient(cache_dir=svc.cache_dir) as fda_client:
-                label_texts = await fda_client.get_all_label_indications(seed_aliases)
-            seeded = await list_approved_indications_from_labels(
-                label_texts=label_texts,
-                cache_dir=svc.cache_dir,
-            )
+            if date_before is not None:
+                seeded = list_approved_indications_at(drug_name, date_before)
+            else:
+                async with FDAClient(cache_dir=svc.cache_dir) as fda_client:
+                    label_texts = await fda_client.get_all_label_indications(seed_aliases)
+                seeded = await list_approved_indications_from_labels(
+                    label_texts=label_texts,
+                    cache_dir=svc.cache_dir,
+                )
             if seeded:
                 existing = {ind.lower().strip() for ind in entry["approved_indications"]}
                 for ind in seeded:
                     if ind.lower().strip() not in existing:
                         entry["approved_indications"].append(ind)
                 logger.warning(
-                    "[TOOL] find_candidates seeded %d approved indication(s) from label: %s",
-                    len(seeded), seeded,
+                    "[TOOL] find_candidates seeded %d approved indication(s) from %s: %s",
+                    len(seeded),
+                    "hardcoded table" if date_before is not None else "label",
+                    seeded,
                 )
         except Exception as e:
             logger.warning(
-                "find_candidates: label-derived approved-indication seed failed for %s: %s",
+                "find_candidates: approved-indication seed failed for %s: %s",
                 drug_name, e,
             )
 
-        # FDA approval check — drop competitor diseases already approved for this drug
+        # Drop competitor diseases already approved for this drug. Same swap as
+        # above: hardcoded table when date_before is set, live FDA otherwise.
         fda_approved_lower: set[str] = set()
         if diseases:
-            mapping = await get_fda_approved_disease_mapping(
-                drug_name=drug_name,
-                candidate_diseases=diseases,
-                cache_dir=svc.cache_dir,
-            )
-            fda_approved = {disease for disease, is_approved in mapping.items() if is_approved}
+            if date_before is not None:
+                fda_approved = get_approved_indications(
+                    drug_name=drug_name,
+                    candidate_diseases=diseases,
+                    as_of=date_before,
+                )
+            else:
+                mapping = await get_fda_approved_disease_mapping(
+                    drug_name=drug_name,
+                    candidate_diseases=diseases,
+                    cache_dir=svc.cache_dir,
+                )
+                fda_approved = {disease for disease, is_approved in mapping.items() if is_approved}
             if fda_approved:
                 logger.warning(
                     "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
@@ -288,7 +314,7 @@ def build_supervisor_tools(
         logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 
 
-        lit_agent = build_literature_agent(llm=llm, svc=svc, db=db)
+        lit_agent = build_literature_agent(llm=llm, svc=svc, db=db, date_before=date_before)
         t0 = time.perf_counter()
         logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 

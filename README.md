@@ -103,6 +103,38 @@ scout find -d "metformin" --no-write               # print the markdown report t
 scout --help
 ```
 
+#### Temporal holdout (`--date-before`)
+
+For evaluation only, the pipeline can be run as a holdout study — restricting
+every evidence query to what was knowable on or before a cutoff date:
+
+```bash
+scout find -d "semaglutide" --date-before 2022-01-01
+# → snapshots/semaglutide_holdout_2022-01-01_<timestamp>.{md,json}
+```
+
+What it does:
+
+- **PubMed**: returns only abstracts published before the cutoff.
+- **ClinicalTrials.gov**: returns only trials whose `start_date` is before the
+  cutoff; for trials that started pre-cutoff but completed/terminated after,
+  outcome fields (`overall_status`, `why_stopped`, `completion_date`) are
+  scrubbed and the trial appears with status `UNKNOWN`. The competitive
+  landscape tool short-circuits empty under a cutoff.
+- **FDA approvals**: looked up against a hardcoded
+  [`data/drug_approvals.json`](data/drug_approvals.json) table gated on the
+  cutoff. Without `--date-before`, the pipeline falls back to today's
+  openFDA labels as usual. Drugs not in the table get no approval reasoning
+  during a holdout (a warning is logged).
+
+Holdout reports are written to `snapshots/{drug}_holdout_{cutoff}_{timestamp}.{md,json}`
+to keep them visually distinct from current-state runs.
+
+Known limitations are documented in [`future.md`](future.md) — most notably,
+the OpenTargets candidate list and mechanism scores remain current-state
+because OT has no temporal API. See [`PLAN_date_before.md`](PLAN_date_before.md)
+for the design rationale.
+
 ### API
 
 ```bash

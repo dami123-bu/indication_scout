@@ -26,7 +26,10 @@ from indication_scout.models.model_clinical_trials import (
     TerminatedTrialsResult,
     Trial,
 )
-from indication_scout.services.approval_check import extract_approved_from_labels
+from indication_scout.services.approval_check import (
+    extract_approved_from_labels,
+    get_approved_indications,
+)
 from indication_scout.services.disease_helper import resolve_mesh_id
 _settings = get_settings()
 
@@ -114,6 +117,46 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
     return why_stopped
 
 
+def _scrub_post_cutoff_outcome(
+    trial: Trial, cutoff: date
+) -> tuple[Trial, bool]:
+    """Strip outcome fields a 2020 holdout couldn't have known in 2020.
+
+    Returns (trial_or_scrubbed_copy, was_scrubbed).
+
+    A trial that started before the cutoff is correctly included in a
+    holdout — but if it completed or terminated AFTER the cutoff, its
+    `overall_status`, `why_stopped`, and `completion_date` reflect a
+    future the holdout shouldn't see. We replace those with UNKNOWN /
+    None so the trial appears as "still in progress at the cutoff."
+
+    Trials with no `completion_date` (or with a completion_date before
+    the cutoff) are returned unchanged.
+
+    The caller decides what to do with `was_scrubbed=True` trials — e.g.
+    `get_completed` and `get_terminated` drop them entirely (a trial
+    that wasn't yet completed/terminated at the cutoff doesn't belong
+    in those scopes), while `search_trials` keeps them with the
+    scrubbed status.
+    """
+    completion_iso = trial.completion_date
+    if not completion_iso:
+        return trial, False
+    cutoff_iso = cutoff.isoformat()
+    # CT.gov dates are "YYYY-MM-DD" or "YYYY-MM"; both compare
+    # lexicographically against an ISO cutoff prefix.
+    if completion_iso < cutoff_iso:
+        return trial, False
+    scrubbed = trial.model_copy(
+        update={
+            "overall_status": "UNKNOWN",
+            "why_stopped": None,
+            "completion_date": None,
+        }
+    )
+    return scrubbed, True
+
+
 def build_clinical_trials_tools(
     date_before: date | None = None,
 ) -> list:
@@ -160,12 +203,33 @@ def build_clinical_trials_tools(
             result.trials = kept
             result.total_count = max(0, result.total_count - dropped)
 
+        # Holdout scrubber: when date_before is set, strip outcome fields
+        # for trials that completed/terminated AFTER the cutoff so the
+        # supervisor doesn't see future trial outcomes. search_trials
+        # keeps these trials (they were in progress at the cutoff) but
+        # rewrites their status to UNKNOWN.
+        scrubbed_n = 0
+        if date_before is not None:
+            new_trials = []
+            for t in result.trials:
+                t2, was_scrubbed = _scrub_post_cutoff_outcome(t, date_before)
+                if was_scrubbed:
+                    scrubbed_n += 1
+                new_trials.append(t2)
+            result.trials = new_trials
+
         shown = len(result.trials)
         cap_note = "; top 50 shown" if shown < result.total_count else ""
         filter_note = (
             f"; dropped {dropped} non-intervention trials (drug appeared in "
             f"eligibility/description only)"
             if dropped
+            else ""
+        )
+        scrub_note = (
+            f"; scrubbed post-cutoff outcomes from {scrubbed_n} trial(s) "
+            f"(status set to UNKNOWN)"
+            if scrubbed_n
             else ""
         )
         by = result.by_status
@@ -175,7 +239,7 @@ def build_clinical_trials_tools(
             f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
             f"withdrawn={by.get('WITHDRAWN', 0)}, "
             f"unknown={by.get('UNKNOWN', 0)})"
-            f"{cap_note}{filter_note}"
+            f"{cap_note}{filter_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
@@ -230,6 +294,21 @@ def build_clinical_trials_tools(
             result.trials = kept
             result.total_count = max(0, result.total_count - dropped)
 
+        # Holdout drop: a trial that completed AFTER the cutoff was not
+        # completed at the cutoff, so it does not belong in this scope.
+        # Drop it (search_trials will still surface it as in-progress).
+        scrub_dropped = 0
+        if date_before is not None:
+            kept = []
+            for t in result.trials:
+                _, was_scrubbed = _scrub_post_cutoff_outcome(t, date_before)
+                if was_scrubbed:
+                    scrub_dropped += 1
+                else:
+                    kept.append(t)
+            result.trials = kept
+            result.total_count = max(0, result.total_count - scrub_dropped)
+
         shown = len(result.trials)
         cap_note = "; top 50 shown" if shown < result.total_count else ""
         filter_note = (
@@ -238,9 +317,15 @@ def build_clinical_trials_tools(
             if dropped
             else ""
         )
+        scrub_note = (
+            f"; dropped {scrub_dropped} post-cutoff completion(s) "
+            f"(not yet completed at cutoff)"
+            if scrub_dropped
+            else ""
+        )
         header = (
             f"Completed for {drug} × {indication}: {result.total_count} total"
-            f"{cap_note}{filter_note}"
+            f"{cap_note}{filter_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
@@ -300,6 +385,21 @@ def build_clinical_trials_tools(
             result.trials = kept
             result.total_count = max(0, result.total_count - dropped)
 
+        # Holdout drop: a trial that terminated AFTER the cutoff was not
+        # terminated at the cutoff. Drop from this scope (search_trials
+        # still surfaces it with UNKNOWN status).
+        scrub_dropped = 0
+        if date_before is not None:
+            kept = []
+            for t in result.trials:
+                _, was_scrubbed = _scrub_post_cutoff_outcome(t, date_before)
+                if was_scrubbed:
+                    scrub_dropped += 1
+                else:
+                    kept.append(t)
+            result.trials = kept
+            result.total_count = max(0, result.total_count - scrub_dropped)
+
         shown = len(result.trials)
         safety_efficacy = sum(
             1
@@ -317,9 +417,15 @@ def build_clinical_trials_tools(
             if dropped
             else ""
         )
+        scrub_note = (
+            f"; dropped {scrub_dropped} post-cutoff termination(s) "
+            f"(not yet terminated at cutoff)"
+            if scrub_dropped
+            else ""
+        )
         header = (
             f"Terminated for {drug} × {indication}: {result.total_count} total "
-            f"({safety_efficacy} safety/efficacy in shown set){cap_note}{filter_note}"
+            f"({safety_efficacy} safety/efficacy in shown set){cap_note}{filter_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
@@ -344,6 +450,22 @@ def build_clinical_trials_tools(
         Returns top 10 competitors grouped by sponsor + drug, ranked by phase then enrollment,
         plus phase distribution and recent starts. Use to understand how crowded the space is.
         """
+        # Holdout skip: the landscape aggregates per-trial overall_status and
+        # phase across all competitors for the indication. Those aggregates
+        # would leak post-cutoff trial outcomes (e.g. a competitor that
+        # advanced to Phase 3 in 2024 would show as Phase 3 in a 2020
+        # holdout). Rather than scrub per-trial inside the aggregator, just
+        # disable landscape entirely under date_before — the supervisor's
+        # core reasoning runs off search/completed/terminated.
+        if date_before is not None:
+            return (
+                f"Landscape for {indication}: skipped under date_before "
+                f"holdout ({date_before.isoformat()}) — landscape aggregates "
+                f"trial state across all competitors and cannot be reconstructed "
+                f"as-of-cutoff without per-competitor scrubbing.",
+                IndicationLandscape(),
+            )
+
         resolved = await resolve_mesh_id(indication)
         if resolved is None:
             logger.warning(
@@ -383,6 +505,32 @@ def build_clinical_trials_tools(
         repurposing opportunity. When False, the indication was not found on FDA labels (which
         does not distinguish trial failure from approval pending from approval outside the US).
         """
+        # Holdout path: when date_before is set, the live openFDA labels would
+        # leak today's approvals (e.g. semaglutide's 2025 MASH approval into a
+        # 2020 holdout). Use the hardcoded approvals table instead. Drugs not
+        # in the table return is_approved=False with label_found=False so the
+        # supervisor knows approval reasoning was disabled, not that the drug
+        # is unapproved.
+        if date_before is not None:
+            approved_set = get_approved_indications(
+                drug_name=drug,
+                candidate_diseases=[indication],
+                as_of=date_before,
+            )
+            is_approved = indication in approved_set
+            result = ApprovalCheck(
+                is_approved=is_approved,
+                label_found=True,
+                matched_indication=indication if is_approved else None,
+                drug_names_checked=[drug],
+            )
+            content = (
+                f"FDA approval check for {drug} × {indication} "
+                f"(as of {date_before.isoformat()}): "
+                f"{'APPROVED' if is_approved else 'not approved per hardcoded table'}"
+            )
+            return content, result
+
         try:
             chembl_id = await resolve_drug_name(drug, DEFAULT_CACHE_DIR)
         except DataSourceError:

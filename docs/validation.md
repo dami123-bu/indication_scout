@@ -25,10 +25,10 @@ Success metrics: **Recall@10** (known repurposing in top-10 candidates) and **MR
 
 Active repurposing candidates the pipeline should surface. These are not yet approved for the repurposed indication.
 
-| Drug | Original Indication | Candidate Repurposing | Mechanism Angle | Evidence | Trial |
-|------|--------------------|-----------------------|-----------------|----------|-------|
-| Metformin | Type 2 diabetes | Ovarian cancer | Cancer stem cell targeting | Phase II: median OS 57.9 months, confirmed impact on cancer stem cells (JCI Insight) | Phase III in development |
-| Semaglutide | Type 2 diabetes / obesity | NASH/MASH | GLP-1 receptor agonist | Strong Phase II data, not yet approved for liver indication | — |
-| Mebendazole | Antiparasitic | Colorectal cancer | Tubulin inhibition | Phase II/III: 25% tumor regression in refractory CRC (The Medical Advisor) | NCT03925662 |
-| Disulfiram | Alcoholism | Glioblastoma | Copper-dependent cytotoxicity | Positive Phase II in recurrent GBM (The Medical Advisor) | NCT03034135 |
-| Itraconazole | Antifungal | Non-small cell lung cancer | Hedgehog pathway inhibition | Positive Phase II: 1-year PFS 45% vs 32% historical (The Medical Advisor) | NCT03664115 |
+| Drug | Original Indication | Candidate Repurposing | Mechanism Angle | Evidence | Trial | Pipeline Validation |
+|------|--------------------|-----------------------|-----------------|----------|-------|---------------------|
+| Metformin | Type 2 diabetes | Ovarian cancer | Cancer stem cell targeting | Phase II: median OS 57.9 months, confirmed impact on cancer stem cells (JCI Insight) | Phase III in development | — |
+| Semaglutide | Type 2 diabetes / obesity | NASH/MASH | GLP-1 receptor agonist | Strong Phase II data, not yet approved for liver indication | — | 2026-05-02: holdout (`--date-before 2022-01-01`) surfaced NASH/MASH as top candidate with strong literature; ✅ candidate recovered |
+| Mebendazole | Antiparasitic | Colorectal cancer | Tubulin inhibition | Phase II/III: 25% tumor regression in refractory CRC (The Medical Advisor) | NCT03925662 | — |
+| Disulfiram | Alcoholism | Glioblastoma | Copper-dependent cytotoxicity | Positive Phase II in recurrent GBM (The Medical Advisor) | NCT03034135 | — |
+| Itraconazole | Antifungal | Non-small cell lung cancer | Hedgehog pathway inhibition | Positive Phase II: 1-year PFS 45% vs 32% historical (The Medical Advisor) | NCT03664115 | — |

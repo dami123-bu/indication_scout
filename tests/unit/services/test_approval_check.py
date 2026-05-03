@@ -1,10 +1,16 @@
 """Unit tests for services/approval_check — no network, no LLM calls."""
 
 import json
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from indication_scout.services.approval_check import (
+    _load_drug_approvals_table,
     extract_approved_from_labels,
+    get_approved_indications,
+    list_approved_indications_at,
     list_approved_indications_from_labels,
 )
 
@@ -295,4 +301,146 @@ async def test_list_approved_indications_caches_result(tmp_path):
     assert first == ["obesity"]
     assert second == ["obesity"]
     mock_llm.assert_awaited_once()
+
+
+# --- get_approved_indications (hardcoded table lookup) ---------------------
+#
+# Reads the real data/drug_approvals.json file. The table is loaded via
+# functools.lru_cache, so each test calls cache_clear() to ensure the file
+# is re-read in the current test's process state.
+
+
+@pytest.fixture(autouse=True)
+def _clear_approvals_cache():
+    """Reset the lru_cache on the table loader between tests."""
+    _load_drug_approvals_table.cache_clear()
+    yield
+    _load_drug_approvals_table.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "as_of, candidate, expected_in_set",
+    [
+        # 2025-01-01 cutoff: MASH approval is 2025-08-15, NOT yet approved
+        # → MASH stays a candidate (this is the holdout-recoverable case).
+        (date(2025, 1, 1), "MASH", False),
+        (date(2025, 1, 1), "non-alcoholic steatohepatitis (MASH)", False),
+        # 2025-08-15 is the approval date itself; the lookup uses strict
+        # less-than, so on the day of approval it's still NOT yet approved.
+        (date(2025, 8, 15), "MASH", False),
+        # 2025-08-16: one day after approval → MASH is approved → dropped.
+        (date(2025, 8, 16), "MASH", True),
+        # 2026-01-01: well after the MASH approval → dropped.
+        (date(2026, 1, 1), "MASH", True),
+        # 2026-01-01: substring match — table entry "MASH" should match a
+        # candidate that contains it. Verifies the substring-matching rule.
+        (date(2026, 1, 1), "non-alcoholic steatohepatitis (MASH)", True),
+    ],
+)
+def test_get_approved_indications_semaglutide_mash(
+    as_of, candidate, expected_in_set
+):
+    """Verify the cutoff semantics for semaglutide × MASH against the real table.
+
+    MASH was approved 2025-08-15. The lookup uses strict less-than on the
+    cutoff, so a holdout dated on or before that day must NOT see MASH as
+    approved (and therefore must NOT drop it from the candidate allowlist).
+    """
+    result = get_approved_indications(
+        drug_name="semaglutide",
+        candidate_diseases=[candidate],
+        as_of=as_of,
+    )
+    if expected_in_set:
+        assert result == {candidate}
+    else:
+        assert result == set()
+
+
+def test_get_approved_indications_semaglutide_pre_2017_returns_empty():
+    """Cutoff before semaglutide's first approval (2017-12-05) → empty set."""
+    result = get_approved_indications(
+        drug_name="semaglutide",
+        candidate_diseases=[
+            "type 2 diabetes mellitus",
+            "MASH",
+            "chronic weight management",
+        ],
+        as_of=date(2017, 1, 1),
+    )
+    assert result == set()
+
+
+def test_get_approved_indications_semaglutide_2022_returns_three():
+    """Cutoff 2022-01-01 → T2DM (2017), CV risk (2020), and chronic weight
+    management (2021) are all approved; CKD (2025) and MASH (2025) are not.
+    """
+    candidates = [
+        "type 2 diabetes mellitus",
+        "cardiovascular risk reduction",
+        "chronic weight management",
+        "chronic kidney disease",
+        "MASH",
+    ]
+    result = get_approved_indications(
+        drug_name="semaglutide",
+        candidate_diseases=candidates,
+        as_of=date(2022, 1, 1),
+    )
+    assert result == {
+        "type 2 diabetes mellitus",
+        "cardiovascular risk reduction",
+        "chronic weight management",
+    }
+
+
+def test_get_approved_indications_returns_empty_when_as_of_is_none():
+    """as_of=None → callers should use the live FDA path; lookup returns empty."""
+    result = get_approved_indications(
+        drug_name="semaglutide",
+        candidate_diseases=["MASH"],
+        as_of=None,
+    )
+    assert result == set()
+
+
+def test_get_approved_indications_uncurated_drug_returns_empty(caplog):
+    """Drug not in the table → empty set + warning logged."""
+    with caplog.at_level("WARNING"):
+        result = get_approved_indications(
+            drug_name="not-a-real-drug",
+            candidate_diseases=["obesity"],
+            as_of=date(2025, 1, 1),
+        )
+    assert result == set()
+    assert any(
+        "not in hardcoded approvals table" in rec.message for rec in caplog.records
+    )
+
+
+# --- list_approved_indications_at ------------------------------------------
+
+
+def test_list_approved_indications_at_semaglutide_2022():
+    """Cutoff 2022-01-01 → only the three pre-2022 approvals returned, in
+    table order (the loader preserves JSON file order).
+    """
+    result = list_approved_indications_at("semaglutide", date(2022, 1, 1))
+    assert result == [
+        "type 2 diabetes mellitus",
+        "cardiovascular risk reduction",
+        "chronic weight management",
+    ]
+
+
+def test_list_approved_indications_at_semaglutide_pre_2017_returns_empty():
+    """Cutoff before any approval → empty list."""
+    result = list_approved_indications_at("semaglutide", date(2017, 1, 1))
+    assert result == []
+
+
+def test_list_approved_indications_at_returns_empty_when_as_of_is_none():
+    """as_of=None → empty list (callers should use the live FDA path)."""
+    result = list_approved_indications_at("semaglutide", None)
+    assert result == []
 

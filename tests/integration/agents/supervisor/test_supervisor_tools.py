@@ -272,6 +272,84 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     )
 
 
+# ------------------------------------------------------------------
+# analyze_mechanism — mechanism-promoted disease is investigatable downstream
+#
+# Closes the loop on the promotion contract: a disease that only enters the
+# allowlist via analyze_mechanism (source='mechanism') must be accepted by
+# analyze_literature and analyze_clinical_trials. Without this, promotion is
+# inert — the test above proves the row gets added, but not that downstream
+# tools honor it.
+# ------------------------------------------------------------------
+
+
+async def test_mechanism_promoted_disease_is_investigatable_downstream(
+    llm, db_session_truncating, test_cache_dir
+):
+    """A disease promoted by analyze_mechanism (source='mechanism') must be accepted
+    by analyze_literature and analyze_clinical_trials — i.e. no REJECTED message and
+    the artifact is the real output type, not the empty default.
+    """
+    svc = RetrievalService(test_cache_dir)
+    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
+
+    await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
+    )
+    await tools["analyze_mechanism"].ainvoke(
+        _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+    )
+
+    allowed_diseases, _ = _allowlist_state(tools)
+    mechanism_only = [
+        canonical
+        for _, (canonical, source) in allowed_diseases.items()
+        if source == "mechanism"
+    ]
+    assert mechanism_only, (
+        f"No mechanism-only candidates promoted for {_MECH_ONLY_DRUG}; "
+        f"cannot exercise downstream investigation path."
+    )
+
+    # Pick a deterministic candidate (sorted) so failures are reproducible.
+    target_disease = sorted(mechanism_only)[0]
+
+    lit_msg = await tools["analyze_literature"].ainvoke(
+        _tc(
+            "analyze_literature",
+            drug_name=_MECH_ONLY_DRUG,
+            disease_name=target_disease,
+        )
+    )
+    assert not lit_msg.content.startswith("REJECTED:"), (
+        f"analyze_literature rejected mechanism-promoted disease {target_disease!r}: "
+        f"{lit_msg.content}"
+    )
+    assert isinstance(lit_msg.artifact, LiteratureOutput)
+    assert lit_msg.artifact != LiteratureOutput(), (
+        f"analyze_literature returned an empty default artifact for mechanism-promoted "
+        f"disease {target_disease!r} — investigation did not run."
+    )
+
+    ct_msg = await tools["analyze_clinical_trials"].ainvoke(
+        _tc(
+            "analyze_clinical_trials",
+            drug_name=_MECH_ONLY_DRUG,
+            disease_name=target_disease,
+        )
+    )
+    assert not ct_msg.content.startswith("REJECTED:"), (
+        f"analyze_clinical_trials rejected mechanism-promoted disease "
+        f"{target_disease!r}: {ct_msg.content}"
+    )
+    assert isinstance(ct_msg.artifact, ClinicalTrialsOutput)
+    assert ct_msg.artifact != ClinicalTrialsOutput(), (
+        f"analyze_clinical_trials returned an empty default artifact for "
+        f"mechanism-promoted disease {target_disease!r} — investigation did not run."
+    )
+
+
 async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
     """finalize_supervisor returns ('Supervisor analysis complete.', summary_input)."""
     svc = RetrievalService(test_cache_dir)
@@ -291,58 +369,63 @@ async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, te
 
 
 # ------------------------------------------------------------------
-# Cutoff plumbing — analyze_clinical_trials must respect a date_before
-# cutoff so the supervisor's investigation is reproducible across runs.
-#
-# NOTE: build_supervisor_tools does not currently accept a date_before
-# parameter — sub-agents are built with no cutoff (see
-# supervisor_tools.py:62). This test is written against the wiring as
-# it should be: if the cutoff is plumbed through, every trial returned
-# for a candidate disease must have a start_date strictly before the
-# cutoff. Until that wiring lands, this test will fail at the
-# build_supervisor_tools(... date_before=...) call.
+# Cutoff plumbing — date_before given to build_supervisor_tools must
+# reach analyze_clinical_trials so the supervisor's investigation is
+# reproducible across runs. Mirrors the cutoff contract verified in
+# tests/integration/agents/clinical_trials/test_clinical_trials_tools.py
+# but driven through the supervisor's tool wrapper.
 # ------------------------------------------------------------------
 
 _CUTOFF = date(2025, 1, 1)
 _CUTOFF_DRUG = "semaglutide"
-_CUTOFF_DISEASE = "hypertension"  # in metformin's candidate list? — use semaglutide's instead.
 
 
 async def test_analyze_clinical_trials_respects_cutoff(
     llm, db_session_truncating, test_cache_dir
 ):
     """When build_supervisor_tools is given date_before=2025-01-01, analyze_clinical_trials
-    must only return trials whose start_date precedes the cutoff. Mirrors the cutoff
-    contract verified in tests/integration/agents/clinical_trials/test_clinical_trials_tools.py.
+    must forward the cutoff to its sub-agent so every returned trial has a
+    start_date strictly before the cutoff.
     """
     svc = RetrievalService(test_cache_dir)
-
-    # TODO: once build_supervisor_tools accepts date_before, switch to:
-    #   tools = _tool_map(
-    #       build_supervisor_tools(
-    #           llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
-    #       )
-    #   )
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
+    )
     tools = _tool_map(tools_list)
 
-    # Populate the allowlist so analyze_clinical_trials doesn't reject the disease.
-    await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_CUTOFF_DRUG))
+    # Populate the allowlist; pick a real candidate from the live result set so the
+    # test doesn't bake in an assumption about a specific OT disease being present.
+    find_msg = await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_CUTOFF_DRUG)
+    )
+    candidates: list[str] = find_msg.artifact
+    assert candidates, (
+        f"find_candidates returned no diseases for {_CUTOFF_DRUG}; "
+        f"cannot exercise cutoff path"
+    )
+    target_disease = candidates[0]
 
-    msg = await tools["analyze_clinical_trials"].ainvoke(
+    ct_msg = await tools["analyze_clinical_trials"].ainvoke(
         _tc(
             "analyze_clinical_trials",
             drug_name=_CUTOFF_DRUG,
-            disease_name=_CUTOFF_DISEASE,
+            disease_name=target_disease,
         )
     )
 
-    output: ClinicalTrialsOutput = msg.artifact
+    assert not ct_msg.content.startswith("REJECTED:"), (
+        f"analyze_clinical_trials rejected {target_disease!r} despite it being "
+        f"returned by find_candidates: {ct_msg.content}"
+    )
+
+    output: ClinicalTrialsOutput = ct_msg.artifact
     assert isinstance(output, ClinicalTrialsOutput)
 
     # Every trial in every scope (search / completed / terminated) must
-    # have started before the cutoff.
-    scopes = []
+    # have started before the cutoff. CT.gov start_date is "YYYY-MM-DD" or
+    # "YYYY-MM" — both compare lexicographically against the ISO cutoff.
+    cutoff_iso = _CUTOFF.isoformat()
+    scopes: list[tuple[str, list]] = []
     if output.search is not None:
         scopes.append(("search", output.search.trials))
     if output.completed is not None:
@@ -350,13 +433,89 @@ async def test_analyze_clinical_trials_respects_cutoff(
     if output.terminated is not None:
         scopes.append(("terminated", output.terminated.trials))
 
+    assert any(trials for _, trials in scopes), (
+        f"No trials returned in any scope for {_CUTOFF_DRUG} × {target_disease!r}; "
+        f"cannot verify cutoff was applied (a no-result run trivially satisfies it)"
+    )
+
     for scope_name, trials in scopes:
         for t in trials:
             assert t.start_date is not None, (
                 f"{scope_name} trial {t.nct_id} has no start_date — "
                 f"cannot verify cutoff compliance"
             )
-            assert t.start_date < _CUTOFF.isoformat(), (
+            assert t.start_date < cutoff_iso, (
                 f"{scope_name} trial {t.nct_id} start_date={t.start_date} "
-                f"is not before cutoff {_CUTOFF.isoformat()}"
+                f"is not before cutoff {cutoff_iso}"
             )
+
+
+# ------------------------------------------------------------------
+# Cutoff plumbing — date_before given to build_supervisor_tools must
+# also reach analyze_literature so PubMed queries respect the same
+# temporal cutoff. Mirrors the literature-tools cutoff test, but driven
+# through the supervisor's analyze_literature wrapper which spins up
+# its own literature sub-agent per call.
+# ------------------------------------------------------------------
+
+
+async def test_analyze_literature_respects_cutoff(
+    llm, db_session_truncating, test_cache_dir
+):
+    """When build_supervisor_tools is given date_before=2025-01-01, analyze_literature
+    must forward the cutoff to its sub-agent so every PMID returned has a
+    publication date strictly before the cutoff.
+    """
+    from indication_scout.data_sources.pubmed import PubMedClient
+
+    svc = RetrievalService(test_cache_dir)
+    tools_list, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
+    )
+    tools = _tool_map(tools_list)
+
+    find_msg = await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_CUTOFF_DRUG)
+    )
+    candidates: list[str] = find_msg.artifact
+    assert candidates, (
+        f"find_candidates returned no diseases for {_CUTOFF_DRUG}; "
+        f"cannot exercise cutoff path"
+    )
+    target_disease = candidates[0]
+
+    lit_msg = await tools["analyze_literature"].ainvoke(
+        _tc(
+            "analyze_literature",
+            drug_name=_CUTOFF_DRUG,
+            disease_name=target_disease,
+        )
+    )
+
+    assert not lit_msg.content.startswith("REJECTED:"), (
+        f"analyze_literature rejected {target_disease!r} despite it being "
+        f"returned by find_candidates: {lit_msg.content}"
+    )
+
+    output: LiteratureOutput = lit_msg.artifact
+    assert isinstance(output, LiteratureOutput)
+    assert output.pmids, (
+        f"analyze_literature returned no PMIDs for {_CUTOFF_DRUG} × {target_disease!r}; "
+        f"cannot verify cutoff was applied (a no-result run trivially satisfies it)"
+    )
+
+    # Re-run the production date filter over the returned PMIDs. If the cutoff
+    # was correctly applied during PubMed search, none should be dropped.
+    # The PubMedClient stores publication dates as text in mixed formats
+    # ("2024", "2024-Mar", "2024-03-15"), so this avoids re-implementing date
+    # parsing and uses esummary's sortpubdate (always YYYY/MM/DD) — the same
+    # field the production filter uses.
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        kept = await client._filter_pmids_by_date(output.pmids, _CUTOFF)
+
+    leaked = sorted(set(output.pmids) - set(kept))
+    assert not leaked, (
+        f"analyze_literature returned {len(leaked)} PMID(s) whose sortpubdate "
+        f"is on or after the cutoff {_CUTOFF.isoformat()} — cutoff was not applied "
+        f"at the PubMed search layer. Leaked PMIDs: {leaked[:10]}"
+    )

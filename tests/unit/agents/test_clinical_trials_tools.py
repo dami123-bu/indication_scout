@@ -1083,8 +1083,14 @@ async def test_get_landscape_returns_landscape_artifact():
     assert "1 competitors" in msg.content
 
 
-async def test_get_landscape_passes_date_before():
-    """get_landscape forwards date_before from closure to the client."""
+async def test_get_landscape_does_not_call_client_when_date_before_set():
+    """get_landscape early-returns under date_before WITHOUT calling the
+    client. The landscape aggregates per-trial overall_status and phase
+    across all competitors; those aggregates would leak post-cutoff trial
+    state and cannot be reconstructed as-of-cutoff without per-competitor
+    scrubbing. Disabled entirely under date_before — the supervisor's core
+    reasoning runs off search/completed/terminated.
+    """
     cutoff = date(2020, 1, 1)
     mock_result = IndicationLandscape(
         total_trial_count=10, competitors=[], phase_distribution={}, recent_starts=[]
@@ -1102,7 +1108,7 @@ async def test_get_landscape_passes_date_before():
             return_value=mock_client,
         ),
     ):
-        await _get_tool(tools, "get_landscape").ainvoke(
+        msg = await _get_tool(tools, "get_landscape").ainvoke(
             LCToolCall(
                 name="get_landscape",
                 args={"indication": "gastroparesis"},
@@ -1111,11 +1117,13 @@ async def test_get_landscape_passes_date_before():
             )
         )
 
-    mock_client.get_landscape.assert_awaited_once_with(
-        "Gastroparesis",
-        date_before=cutoff,
-        top_n=10,
-    )
+    mock_client.get_landscape.assert_not_awaited()
+    assert isinstance(msg.artifact, IndicationLandscape)
+    assert msg.artifact.competitors == []
+    assert msg.artifact.total_trial_count is None
+    assert msg.artifact.phase_distribution == {}
+    assert msg.artifact.recent_starts == []
+    assert "skipped under date_before holdout" in msg.content
 
 
 async def test_get_landscape_returns_empty_when_resolver_returns_none():
@@ -1472,3 +1480,350 @@ async def test_finalize_analysis_returns_summary_as_artifact():
 
     assert msg.artifact == text
     assert "Analysis complete" in msg.content
+
+
+# ------------------------------------------------------------------
+# Holdout scrubber — _scrub_post_cutoff_outcome and its application
+# in the four trial tools.
+# ------------------------------------------------------------------
+
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (  # noqa: E402
+    _scrub_post_cutoff_outcome,
+)
+
+
+def _trial(
+    *,
+    nct_id: str,
+    overall_status: str = "TERMINATED",
+    why_stopped: str | None = "lack of efficacy",
+    completion_date: str | None = "2024-06-15",
+    start_date: str = "2018-01-01",
+    phase: str = "Phase 3",
+    drug_name: str = "trastuzumab",
+) -> Trial:
+    """Minimal Trial for scrubber tests — only the fields the scrubber touches."""
+    return Trial(
+        nct_id=nct_id,
+        title=f"trial {nct_id}",
+        phase=phase,
+        overall_status=overall_status,
+        why_stopped=why_stopped,
+        indications=["Breast Cancer"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name=drug_name)
+        ],
+        sponsor="Sponsor",
+        enrollment=100,
+        start_date=start_date,
+        completion_date=completion_date,
+        primary_outcomes=[],
+        references=[],
+    )
+
+
+# --- _scrub_post_cutoff_outcome (direct unit) ------------------------------
+
+
+def test_scrub_no_completion_date_returns_unchanged():
+    """A trial with no completion_date can't be classified as post-cutoff;
+    return unchanged.
+    """
+    t = _trial(nct_id="NCT001", completion_date=None)
+    out, was_scrubbed = _scrub_post_cutoff_outcome(t, date(2020, 1, 1))
+    assert was_scrubbed is False
+    assert out is t  # same object, no copy made
+    assert out.overall_status == "TERMINATED"
+    assert out.why_stopped == "lack of efficacy"
+    assert out.completion_date is None
+
+
+def test_scrub_completion_before_cutoff_returns_unchanged():
+    """Completion before cutoff is real history; leave it alone."""
+    t = _trial(nct_id="NCT002", completion_date="2019-12-31")
+    out, was_scrubbed = _scrub_post_cutoff_outcome(t, date(2020, 1, 1))
+    assert was_scrubbed is False
+    assert out is t
+    assert out.overall_status == "TERMINATED"
+    assert out.completion_date == "2019-12-31"
+
+
+def test_scrub_completion_after_cutoff_strips_outcome_fields():
+    """Completion after cutoff → scrub status, why_stopped, completion_date."""
+    t = _trial(
+        nct_id="NCT003",
+        overall_status="TERMINATED",
+        why_stopped="lack of efficacy",
+        completion_date="2024-06-15",
+    )
+    out, was_scrubbed = _scrub_post_cutoff_outcome(t, date(2020, 1, 1))
+    assert was_scrubbed is True
+    assert out is not t  # a copy was made — original is untouched
+    assert out.overall_status == "UNKNOWN"
+    assert out.why_stopped is None
+    assert out.completion_date is None
+    # Fields knowable at the cutoff are preserved verbatim
+    assert out.nct_id == "NCT003"
+    assert out.start_date == "2018-01-01"
+    assert out.phase == "Phase 3"
+    assert out.enrollment == 100
+    # Original trial must be unmodified (no in-place mutation)
+    assert t.overall_status == "TERMINATED"
+    assert t.why_stopped == "lack of efficacy"
+    assert t.completion_date == "2024-06-15"
+
+
+def test_scrub_completion_equals_cutoff_strips():
+    """A completion on the cutoff date is on/after the cutoff, so scrub."""
+    t = _trial(nct_id="NCT004", completion_date="2020-01-01")
+    out, was_scrubbed = _scrub_post_cutoff_outcome(t, date(2020, 1, 1))
+    assert was_scrubbed is True
+    assert out.overall_status == "UNKNOWN"
+
+
+def test_scrub_partial_completion_date_lexicographic():
+    """CT.gov partial dates ('YYYY-MM' or 'YYYY') compare lexicographically;
+    '2020-06' >= '2020-01-01' so it scrubs.
+    """
+    t = _trial(nct_id="NCT005", completion_date="2020-06")
+    out, was_scrubbed = _scrub_post_cutoff_outcome(t, date(2020, 1, 1))
+    assert was_scrubbed is True
+    assert out.overall_status == "UNKNOWN"
+
+
+# --- search_trials: scrubber keeps trials, sets status to UNKNOWN ---------
+
+
+async def test_search_trials_scrubs_post_cutoff_outcomes_under_date_before():
+    """search_trials with date_before set: a trial whose completion_date is
+    after the cutoff is KEPT (it was running at the cutoff) but its
+    overall_status, why_stopped, and completion_date are stripped.
+    """
+    pre_trial = _trial(
+        nct_id="NCT_PRE",
+        overall_status="COMPLETED",
+        why_stopped=None,
+        completion_date="2019-08-01",
+    )
+    post_trial = _trial(
+        nct_id="NCT_POST",
+        overall_status="TERMINATED",
+        why_stopped="lack of efficacy",
+        completion_date="2024-06-15",
+    )
+    mock_result = SearchTrialsResult(
+        total_count=2,
+        by_status={
+            "RECRUITING": 0,
+            "ACTIVE_NOT_RECRUITING": 0,
+            "WITHDRAWN": 0,
+            "UNKNOWN": 0,
+        },
+        trials=[pre_trial, post_trial],
+    )
+
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=date(2020, 1, 1))
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["trastuzumab"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "trastuzumab", "indication": "breast cancer"},
+                id="tc_scrub_search",
+                type="tool_call",
+            )
+        )
+
+    result: SearchTrialsResult = msg.artifact
+    # Both trials kept (search_trials does not drop scrubbed entries)
+    assert result.total_count == 2
+    assert len(result.trials) == 2
+    by_id = {t.nct_id: t for t in result.trials}
+
+    # Pre-cutoff trial untouched
+    assert by_id["NCT_PRE"].overall_status == "COMPLETED"
+    assert by_id["NCT_PRE"].why_stopped is None
+    assert by_id["NCT_PRE"].completion_date == "2019-08-01"
+
+    # Post-cutoff trial scrubbed
+    assert by_id["NCT_POST"].overall_status == "UNKNOWN"
+    assert by_id["NCT_POST"].why_stopped is None
+    assert by_id["NCT_POST"].completion_date is None
+
+    # Content string surfaces the scrub note
+    assert "scrubbed post-cutoff outcomes from 1 trial" in msg.content
+
+
+# --- get_completed: scrubbed trials are DROPPED ---------------------------
+
+
+async def test_get_completed_drops_post_cutoff_trials_under_date_before():
+    """get_completed with date_before: a trial that completed AFTER the cutoff
+    was not completed at the cutoff, so drop it from this scope. total_count
+    decrements accordingly.
+    """
+    pre_trial = _trial(
+        nct_id="NCT_PRE",
+        overall_status="COMPLETED",
+        why_stopped=None,
+        completion_date="2019-08-01",
+    )
+    post_trial = _trial(
+        nct_id="NCT_POST",
+        overall_status="COMPLETED",
+        why_stopped=None,
+        completion_date="2024-06-15",
+    )
+    mock_result = CompletedTrialsResult(total_count=2, trials=[pre_trial, post_trial])
+
+    mock_client = _mock_client(get_completed_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=date(2020, 1, 1))
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["trastuzumab"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "trastuzumab", "indication": "breast cancer"},
+                id="tc_scrub_completed",
+                type="tool_call",
+            )
+        )
+
+    result: CompletedTrialsResult = msg.artifact
+    assert result.total_count == 1
+    assert len(result.trials) == 1
+    assert result.trials[0].nct_id == "NCT_PRE"
+    assert "dropped 1 post-cutoff completion" in msg.content
+
+
+# --- get_terminated: scrubbed trials are DROPPED --------------------------
+
+
+async def test_get_terminated_drops_post_cutoff_trials_under_date_before():
+    """get_terminated with date_before: a trial that terminated AFTER the
+    cutoff is dropped. The safety/efficacy count over the remaining shown
+    set is recomputed naturally.
+    """
+    pre_trial = _trial(
+        nct_id="NCT_PRE",
+        overall_status="TERMINATED",
+        why_stopped="safety concerns",
+        completion_date="2019-05-01",
+    )
+    post_trial = _trial(
+        nct_id="NCT_POST",
+        overall_status="TERMINATED",
+        why_stopped="lack of efficacy",
+        completion_date="2024-06-15",
+    )
+    mock_result = TerminatedTrialsResult(
+        total_count=2, trials=[pre_trial, post_trial]
+    )
+
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=date(2020, 1, 1))
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["trastuzumab"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "trastuzumab", "indication": "breast cancer"},
+                id="tc_scrub_terminated",
+                type="tool_call",
+            )
+        )
+
+    result: TerminatedTrialsResult = msg.artifact
+    assert result.total_count == 1
+    assert len(result.trials) == 1
+    assert result.trials[0].nct_id == "NCT_PRE"
+    # The post-cutoff "lack of efficacy" termination must NOT be counted
+    assert "1 safety/efficacy in shown set" in msg.content
+    assert "dropped 1 post-cutoff termination" in msg.content
+
+
+# --- get_landscape (no-cutoff path) ----------------------------------------
+# The date_before-set path is covered by
+# test_get_landscape_does_not_call_client_when_date_before_set above.
+
+
+async def test_get_landscape_runs_normally_without_date_before():
+    """No date_before → landscape executes against the CT.gov client as usual."""
+    landscape = IndicationLandscape(
+        total_trial_count=42,
+        competitors=[
+            CompetitorEntry(
+                sponsor="Sponsor",
+                drug_name="drug",
+                drug_type="Drug",
+                max_phase="Phase 3",
+                trial_count=3,
+                statuses=set(),
+                total_enrollment=300,
+            )
+        ],
+    )
+    mock_client = _mock_client(get_landscape=landscape)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D001943", "Breast Neoplasms")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_landscape").ainvoke(
+            LCToolCall(
+                name="get_landscape",
+                args={"indication": "breast cancer"},
+                id="tc_landscape_normal",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact is landscape
+    mock_client.get_landscape.assert_awaited_once()

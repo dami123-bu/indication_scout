@@ -813,3 +813,74 @@ The clinical_trials test comment for atorvastatin is a good model —
 it explains why *that specific drug* exercises the ≥2 branch,
 including failed alternatives. Drug pick is the hard part; the
 assertions are mechanical once the branch is confirmed.
+
+---
+
+## `date_before` (temporal holdout) — current state and known gaps (added 2026-05-02)
+
+`--date-before YYYY-MM-DD` is wired end-to-end and used for testing only —
+not a production feature. Verified against semaglutide × MASH (2022 holdout
+correctly recovered NASH/MASH/NAFLD/CKD as candidates with pre-cutoff
+evidence, pre-fix the FDA approval check would have stripped them).
+
+**What works:**
+- CLI flag → supervisor → both sub-agents → all data source clients.
+- PubMed search filtered at eutils + post-search `_filter_pmids_by_date`
+  guard.
+- ClinicalTrials.gov: server-side `start_date < cutoff` on all four tools,
+  plus a post-cutoff outcome scrubber (sets `overall_status="UNKNOWN"`,
+  blanks `why_stopped` / `completion_date`). `get_completed` /
+  `get_terminated` drop scrubbed trials. `get_landscape` short-circuits
+  empty under cutoff.
+- FDA approval reasoning: hardcoded `data/drug_approvals.json` table
+  (currently bupropion, semaglutide, duloxetine, imatinib, colchicine).
+  Three call sites (`supervisor_tools.py:215`, `:187`,
+  `clinical_trials_tools.py:check_fda_approval`) swap to the table when
+  `date_before` is set; otherwise fall back to live openFDA + LLM.
+- Output naming: `{drug}_holdout_{cutoff}_{timestamp}.{md,json}`.
+- Unit tests for the FDA lookup helper and the CT scrubber; integration
+  test for literature cutoff (single-cutoff invariant + cutoff-shift
+  verification with a `pubmed_max_results=20` cap so it runs in ~1 min
+  instead of ~4).
+
+**Known limitations (deferred, accepted):**
+
+1. **OpenTargets candidate list is current-state.** The competitor list
+   surfaced by `find_candidates` and the mechanism agent's disease
+   associations aren't date-filtered — OT has no temporal API. So the
+   candidate funnel is hindsight-contaminated. Mitigated because the
+   evidence layer (PubMed + CT.gov) is properly cut, so candidates with
+   no pre-cutoff evidence yield empty reports — the contamination
+   self-cancels for the LLM's ranking, but the candidate *names* still
+   reflect current-state knowledge.
+2. **Mechanism scores are current-state.** OT's literature/clinical
+   scores reflect today's evidence including post-cutoff papers. The
+   mechanism narrative in holdout reports therefore reads "as of today,"
+   not "as of cutoff." Same root cause as #1.
+3. **Hardcoded approval table only covers 5 drugs.** Uncurated drugs
+   under `--date-before` get NO approval reasoning at all (lookup returns
+   empty + warning). The FDA-approval-relationship logic in the
+   supervisor's prompt silently no-ops for those drugs. Adding more
+   drugs is a JSON edit (no code change).
+4. **Trial outcome scrubber is start-date-only at the API layer.** A
+   trial that started before the cutoff but completed after appears in
+   `search_trials` with status scrubbed to UNKNOWN. The scrubber doesn't
+   distinguish "completion in 2024 because it ran to term successfully"
+   from "termination in 2024 because of safety" — both become UNKNOWN.
+   That's the right call (we don't know which from a 2020 perspective),
+   but the supervisor has slightly less signal than a perfect holdout
+   would provide.
+
+**To turn this into a production-grade holdout** (not currently planned):
+- Integrate DrugCentral or FDA Orange Book for per-indication approval
+  dates of arbitrary drugs (replaces the hardcoded table).
+- Date-filter OT competitor candidates by the `clinicalReports[]`
+  timeline already present on `ClinicalIndicationFromDrug` rows
+  (recompute `maxClinicalStage` from pre-cutoff reports only).
+- Either skip mechanism scoring under cutoff or document the asymmetry
+  visibly in report headers so readers don't mistake the score for a
+  point-in-time view.
+
+For the current testing use case (verifying the pipeline can recover
+known repurposings the system "shouldn't have known about" at a given
+date), the wiring is sufficient.

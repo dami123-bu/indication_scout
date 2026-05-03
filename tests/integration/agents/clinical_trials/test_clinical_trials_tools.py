@@ -261,6 +261,61 @@ async def test_get_completed_tool_semaglutide_hypertension():
 
 
 # ------------------------------------------------------------------
+# get_completed — date_before cutoff
+# ------------------------------------------------------------------
+
+
+async def test_get_completed_tool_respects_date_before_cutoff():
+    """get_completed with date_before forwards the cutoff to the client, which
+    excludes any completed trial whose start_date is on/after the cutoff.
+
+    Pair: dupilumab × eosinophilic esophagitis. FDA approved this repurposing
+    on 2022-05-20, so a cutoff of that date should still surface at least one
+    completed trial that started before the cutoff (the Phase 3 pivotal trials
+    supporting the approval started in 2017–2019). This catches a regression
+    where the cutoff filters out all completed trials in a window where they
+    are known to exist.
+    """
+    cutoff = date(2022, 5, 20)
+    tools = build_clinical_trials_tools(date_before=cutoff)
+    get_completed = next(t for t in tools if t.name == "get_completed")
+
+    msg = await get_completed.ainvoke(
+        {
+            "name": "get_completed",
+            "args": {
+                "drug": "dupilumab",
+                "indication": "eosinophilic esophagitis",
+            },
+            "id": "test-completed-cutoff-1",
+            "type": "tool_call",
+        }
+    )
+
+    result = msg.artifact
+    assert isinstance(result, CompletedTrialsResult)
+
+    # Invariant: every returned trial started strictly before the cutoff.
+    # CT.gov start_date is "YYYY-MM-DD" or "YYYY-MM" — both compare
+    # lexicographically against an ISO cutoff prefix.
+    cutoff_iso = cutoff.isoformat()
+    for t in result.trials:
+        assert t.start_date is not None, f"{t.nct_id} missing start_date"
+        assert t.start_date < cutoff_iso, (
+            f"{t.nct_id} start_date={t.start_date} >= cutoff {cutoff_iso}"
+        )
+
+    # At least one completed trial must survive the cutoff. The dupilumab ×
+    # eosinophilic esophagitis approval was supported by Phase 3 trials that
+    # started before 2022-05-20 and had completed by the approval date.
+    assert len(result.trials) >= 1, (
+        f"expected at least one completed dupilumab × eosinophilic esophagitis "
+        f"trial with start_date < {cutoff_iso}; got {result.total_count} total, "
+        f"{len(result.trials)} shown"
+    )
+
+
+# ------------------------------------------------------------------
 # get_terminated — hits real NCBI (MeSH), CT.gov, and ChEMBL (alias filter)
 # ------------------------------------------------------------------
 

@@ -239,3 +239,191 @@ async def test_finalize_analysis(db_session_truncating, test_cache_dir):
 
     assert msg.artifact == summary_text
     assert msg.content == "Analysis complete."
+
+
+# ------------------------------------------------------------------
+# Cutoff plumbing — date_before passed to build_literature_tools must
+# reach PubMed search so every returned PMID has a publication date
+# strictly before the cutoff. Mirrors the cutoff contract verified for
+# the clinical trials supervisor wrapper.
+#
+# Uses a query (semaglutide × MASH) with a sharp empirical cutoff edge:
+# 119 hits today, ~1 hit before 2024-01-01, 0 before 2021-01-01 (verified
+# live against eutils on 2026-05-02). A working cutoff yields a result
+# set every member of which predates the cutoff; a broken cutoff lets
+# the post-2024 publication explosion through.
+# ------------------------------------------------------------------
+
+_CUTOFF_DRUG_LIT = "semaglutide"
+_CUTOFF_DISEASE_LIT = "MASH"
+_LIT_CUTOFF = date(2024, 1, 1)
+
+
+async def test_fetch_and_cache_respects_date_before(
+    db_session_truncating, test_cache_dir
+):
+    """build_literature_tools(date_before=cutoff) must forward the cutoff to PubMed
+    so every PMID returned by fetch_and_cache has a publication date strictly
+    before the cutoff.
+
+    Verifies the invariant by re-running the production date filter
+    (PubMedClient._filter_pmids_by_date) over the result and demanding zero
+    PMIDs are dropped — i.e. the cutoff was already correctly applied upstream.
+    """
+    from indication_scout.data_sources.pubmed import PubMedClient
+
+    svc = RetrievalService(test_cache_dir)
+    tools = _tool_map(
+        build_literature_tools(svc, db_session_truncating, date_before=_LIT_CUTOFF)
+    )
+
+    await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_CUTOFF_DRUG_LIT)
+    )
+    await tools["expand_search_terms"].ainvoke(
+        _tc(
+            "expand_search_terms",
+            drug_name=_CUTOFF_DRUG_LIT,
+            disease_name=_CUTOFF_DISEASE_LIT,
+        )
+    )
+    msg = await tools["fetch_and_cache"].ainvoke(
+        _tc("fetch_and_cache", drug_name=_CUTOFF_DRUG_LIT)
+    )
+
+    pmids: list[str] = msg.artifact
+    assert isinstance(pmids, list)
+    assert pmids, (
+        f"fetch_and_cache returned no PMIDs for {_CUTOFF_DRUG_LIT} × {_CUTOFF_DISEASE_LIT} "
+        f"with cutoff {_LIT_CUTOFF}; expected at least a handful of pre-2024 abstracts. "
+        f"A no-result run trivially satisfies the cutoff invariant and is not a useful test."
+    )
+
+    # The production filter drops any PMID whose sortpubdate is on or after the
+    # cutoff. If the cutoff was correctly applied during fetch_and_cache, running
+    # the same filter again must drop nothing.
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        kept = await client._filter_pmids_by_date(pmids, _LIT_CUTOFF)
+
+    leaked = sorted(set(pmids) - set(kept))
+    assert not leaked, (
+        f"fetch_and_cache returned {len(leaked)} PMID(s) whose sortpubdate is on or "
+        f"after the cutoff {_LIT_CUTOFF.isoformat()} — cutoff was not applied at the "
+        f"PubMed search layer. Leaked PMIDs: {leaked[:10]}"
+    )
+
+
+# ------------------------------------------------------------------
+# Cutoff-shifting test — the cutoff must MATERIALLY change the result
+# set, not just satisfy "every returned PMID < cutoff" trivially.
+#
+# The single-cutoff test above can pass if PubMed quietly ignores the
+# date filter, since the LLM's query expansion tends to surface mostly
+# recent papers anyway. To prove the filter actually fires, run the
+# same drug × disease through fetch_and_cache twice with two cutoffs
+# (2021 vs 2024) and assert:
+#   - Both runs respect their own cutoff (no PMID leaks past it).
+#   - The later cutoff returns at least one PMID published in the
+#     [early_cutoff, late_cutoff) window — proving the cutoff actually
+#     narrows the result set rather than being silently ignored.
+#
+# We do NOT assert strict-subset (early ⊂ late). PubMed's eutils caps
+# results at `pubmed_max_results` per query, ranked by relevance — so a
+# wider date window crowds out older papers from the top-N cap, and the
+# 2021 set can legitimately contain papers the 2024 set didn't surface.
+# That's a property of paginated ranked results, not a leak.
+#
+# Empirical edge for semaglutide × MASH (verified live 2026-05-02 on
+# eutils): 0 hits before 2021-01-01, 1 hit before 2024-01-01, 119 today.
+# So the late set should contain a small handful of [2021, 2024) papers.
+# ------------------------------------------------------------------
+
+
+_EARLY_CUTOFF = date(2021, 1, 1)
+_LATE_CUTOFF = date(2024, 1, 1)
+# Cap each PubMed query at a small N so this test runs in ~1 minute
+# instead of ~4. Real holdouts use ~200; 20 still exercises the full
+# pipeline (search → date filter → fetch → embed → store).
+_TEST_PUBMED_MAX_RESULTS = 20
+
+
+async def test_fetch_and_cache_cutoff_shift_narrows_result_set(
+    db_session_truncating, test_cache_dir, monkeypatch
+):
+    """Run fetch_and_cache twice on the same drug × disease with two
+    different cutoffs. Each run must respect its own cutoff, and the
+    later cutoff must surface at least one PMID dated in the window
+    between the two cutoffs — proving the filter actually fires.
+    """
+    from indication_scout.data_sources.pubmed import PubMedClient
+    from indication_scout.services import retrieval as retrieval_module
+
+    # Cap PubMed results per query so the test stays fast. The cutoff
+    # behavior we want to verify is independent of N. Settings is a frozen
+    # pydantic model, so swap the module-level reference rather than
+    # mutating attributes in place.
+    test_settings = retrieval_module._settings.model_copy(
+        update={"pubmed_max_results": _TEST_PUBMED_MAX_RESULTS}
+    )
+    monkeypatch.setattr(retrieval_module, "_settings", test_settings)
+
+    svc = RetrievalService(test_cache_dir)
+
+    async def _run(cutoff: date) -> list[str]:
+        tools = _tool_map(
+            build_literature_tools(svc, db_session_truncating, date_before=cutoff)
+        )
+        await tools["build_drug_profile"].ainvoke(
+            _tc("build_drug_profile", drug_name=_CUTOFF_DRUG_LIT)
+        )
+        await tools["expand_search_terms"].ainvoke(
+            _tc(
+                "expand_search_terms",
+                drug_name=_CUTOFF_DRUG_LIT,
+                disease_name=_CUTOFF_DISEASE_LIT,
+            )
+        )
+        msg = await tools["fetch_and_cache"].ainvoke(
+            _tc("fetch_and_cache", drug_name=_CUTOFF_DRUG_LIT)
+        )
+        return msg.artifact
+
+    early_pmids = await _run(_EARLY_CUTOFF)
+    late_pmids = await _run(_LATE_CUTOFF)
+
+    early_set = set(early_pmids)
+    late_set = set(late_pmids)
+
+    # Each result must respect its own cutoff (re-run the production filter).
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        early_kept = set(await client._filter_pmids_by_date(early_pmids, _EARLY_CUTOFF))
+        late_kept = set(await client._filter_pmids_by_date(late_pmids, _LATE_CUTOFF))
+
+    early_leaked = sorted(early_set - early_kept)
+    late_leaked = sorted(late_set - late_kept)
+    assert not early_leaked, (
+        f"{len(early_leaked)} PMID(s) leaked past the {_EARLY_CUTOFF} cutoff: "
+        f"{early_leaked[:10]}"
+    )
+    assert not late_leaked, (
+        f"{len(late_leaked)} PMID(s) leaked past the {_LATE_CUTOFF} cutoff: "
+        f"{late_leaked[:10]}"
+    )
+
+    # The cutoff must actually narrow the result set. The late run must
+    # surface at least one PMID dated in [early_cutoff, late_cutoff) that
+    # the early run could not. Verify by re-filtering the late set against
+    # the EARLY cutoff: anything that survives the late filter but NOT the
+    # early one is a paper published in the window between the two cutoffs.
+    async with PubMedClient(cache_dir=test_cache_dir) as client:
+        late_under_early = set(
+            await client._filter_pmids_by_date(late_pmids, _EARLY_CUTOFF)
+        )
+    in_window = late_set - late_under_early
+    assert in_window, (
+        f"{_LATE_CUTOFF} cutoff returned no PMIDs in the window "
+        f"[{_EARLY_CUTOFF}, {_LATE_CUTOFF}) for {_CUTOFF_DRUG_LIT} × "
+        f"{_CUTOFF_DISEASE_LIT}. Either no such literature exists (pick a "
+        f"different test pair) or the cutoff is not being applied — both "
+        f"runs returned only pre-{_EARLY_CUTOFF} papers."
+    )

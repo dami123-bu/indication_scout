@@ -8,7 +8,8 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from indication_scout.constants import (
     CURATED_FDA_APPROVED_CANDIDATES,
     CURATED_FDA_REJECTED_CANDIDATES,
     DEFAULT_CACHE_DIR,
+    DRUG_APPROVALS_PATH,
 )
 from indication_scout.data_sources.chembl import (
     get_all_drug_names,
@@ -120,6 +122,151 @@ def _save_drug_approvals(
         "entries": existing,
     }
     path.write_text(json.dumps(payload, default=str, indent=2))
+
+# --------------------------------------------------------------------------
+# Hardcoded FDA approval lookup (used during temporal holdouts)
+#
+# When the pipeline is invoked with `date_before` set, the live openFDA
+# label path leaks today's approvals into a holdout (e.g. a 2020 holdout
+# would see semaglutide as approved for MASH because the current label
+# lists it). The lookup below replaces the live path with a hardcoded
+# {drug: [{disease, approved}]} table, gated on `as_of`, so a holdout sees
+# only approvals that existed on or before the cutoff.
+# --------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _load_drug_approvals_table() -> dict[str, list[dict[str, str]]]:
+    """Load the hardcoded approvals JSON file once per process."""
+    if not DRUG_APPROVALS_PATH.exists():
+        logger.warning(
+            "drug approvals table not found at %s; lookup will return empty",
+            DRUG_APPROVALS_PATH,
+        )
+        return {}
+    raw = json.loads(DRUG_APPROVALS_PATH.read_text())
+    if not isinstance(raw, dict):
+        logger.error(
+            "drug approvals table at %s is not a JSON object; ignoring",
+            DRUG_APPROVALS_PATH,
+        )
+        return {}
+    return raw
+
+
+def get_approved_indications(
+    drug_name: str,
+    candidate_diseases: list[str],
+    as_of: date | None,
+) -> set[str]:
+    """Return the subset of candidate_diseases that the drug was FDA-approved
+    for on or before `as_of`, sourced from the hardcoded approvals table.
+
+    Matching is case-insensitive substring: a candidate is "approved" iff a
+    table-entry disease string is a substring of the candidate (or vice
+    versa) — this lets candidates like "non-alcoholic steatohepatitis (MASH)"
+    match a table entry of "MASH". Strict equality would require a synonym
+    map; substring is the simplest workable rule for the curated drugs we
+    have today.
+
+    Returns empty set when:
+      - drug is not in the table (logs a warning)
+      - as_of is None (callers should use the live FDA path in that case)
+      - no table entry's `approved` date is < as_of
+    """
+    if as_of is None:
+        return set()
+    if not drug_name or not candidate_diseases:
+        return set()
+
+    table = _load_drug_approvals_table()
+    entries = table.get(drug_name.lower().strip())
+    if entries is None:
+        logger.warning(
+            "get_approved_indications: %r not in hardcoded approvals table; "
+            "returning empty set (approval reasoning disabled for this holdout run)",
+            drug_name,
+        )
+        return set()
+
+    pre_cutoff_diseases: list[str] = []
+    for entry in entries:
+        approved_str = entry.get("approved")
+        disease = entry.get("disease")
+        if not approved_str or not disease:
+            continue
+        try:
+            approved_dt = date.fromisoformat(approved_str)
+        except ValueError:
+            logger.warning(
+                "get_approved_indications: bad date %r for %s/%s; skipping",
+                approved_str, drug_name, disease,
+            )
+            continue
+        if approved_dt < as_of:
+            pre_cutoff_diseases.append(disease.lower().strip())
+
+    if not pre_cutoff_diseases:
+        return set()
+
+    matched: set[str] = set()
+    for candidate in candidate_diseases:
+        cand_lower = candidate.lower().strip()
+        if not cand_lower:
+            continue
+        for approved_disease in pre_cutoff_diseases:
+            if approved_disease in cand_lower or cand_lower in approved_disease:
+                matched.add(candidate)
+                break
+    return matched
+
+
+def list_approved_indications_at(
+    drug_name: str,
+    as_of: date | None,
+) -> list[str]:
+    """Return all approved indication strings for `drug_name` on or before
+    `as_of`, sourced from the hardcoded approvals table.
+
+    Used to seed the supervisor's drug briefing (the analogue of
+    `list_approved_indications_from_labels`) during temporal holdouts.
+    Returns empty list when as_of is None or drug is not in the table.
+    """
+    if as_of is None:
+        return []
+    if not drug_name:
+        return []
+
+    table = _load_drug_approvals_table()
+    entries = table.get(drug_name.lower().strip())
+    if entries is None:
+        logger.warning(
+            "list_approved_indications_at: %r not in hardcoded approvals table; "
+            "returning empty list",
+            drug_name,
+        )
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        approved_str = entry.get("approved")
+        disease = entry.get("disease")
+        if not approved_str or not disease:
+            continue
+        try:
+            approved_dt = date.fromisoformat(approved_str)
+        except ValueError:
+            continue
+        if approved_dt >= as_of:
+            continue
+        key = disease.lower().strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(disease)
+    return out
+
 
 async def list_approved_indications_from_labels(
     label_texts: list[str],

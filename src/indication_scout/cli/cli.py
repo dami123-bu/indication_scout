@@ -9,7 +9,7 @@ Usage:
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import click
@@ -27,7 +27,9 @@ def _load_env() -> None:
     load_dotenv(PROJECT_ROOT / ".env.constants")
 
 
-async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
+async def _run_for_drug(
+    drug: str, out_dir: Path, write: bool, date_before: date | None = None
+) -> None:
     # Imports are deferred until after _load_env() runs in main(), because
     # base_client.py calls get_settings() at import time.
     from langchain_anthropic import ChatAnthropic
@@ -57,8 +59,10 @@ async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
     db = next(get_db())
     svc = RetrievalService(DEFAULT_CACHE_DIR)
 
-    logger.info("Starting %s", drug)
-    agent, get_merged_allowlist = build_supervisor_agent(llm=llm, svc=svc, db=db)
+    logger.info("Starting %s (date_before=%s)", drug, date_before)
+    agent, get_merged_allowlist = build_supervisor_agent(
+        llm=llm, svc=svc, db=db, date_before=date_before
+    )
     output = await run_supervisor_agent(agent, get_merged_allowlist, drug)
 
     if not write:
@@ -67,8 +71,9 @@ async def _run_for_drug(drug: str, out_dir: Path, write: bool) -> None:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    md_path = out_dir / f"{drug}_{timestamp}.md"
-    json_path = out_dir / f"{drug}_{timestamp}.json"
+    cutoff_tag = f"_holdout_{date_before.isoformat()}" if date_before else ""
+    md_path = out_dir / f"{drug}{cutoff_tag}_{timestamp}.md"
+    json_path = out_dir / f"{drug}{cutoff_tag}_{timestamp}.json"
     md_path.write_text(format_report(output), encoding="utf-8")
     json_path.write_text(output.model_dump_json(indent=2), encoding="utf-8")
     logger.info("Finished %s -> %s, %s", drug, md_path, json_path)
@@ -105,13 +110,27 @@ def cli(verbose: bool) -> None:
     is_flag=True,
     help="Print the markdown report to stdout instead of writing to disk.",
 )
-def find(drug: str, out_dir: Path, no_write: bool) -> None:
+@click.option(
+    "--date-before",
+    "date_before",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help=(
+        "Temporal cutoff (YYYY-MM-DD). PubMed and ClinicalTrials.gov queries are restricted to "
+        "records dated strictly before this date. Mechanism (OpenTargets) data has no date "
+        "filter and is always current."
+    ),
+)
+def find(
+    drug: str, out_dir: Path, no_write: bool, date_before: datetime | None
+) -> None:
     """Run the supervisor pipeline on DRUG and produce a repurposing report."""
     if "ANTHROPIC_API_KEY" not in os.environ:
         raise click.ClickException(
             "ANTHROPIC_API_KEY is not set. Add it to your .env or environment."
         )
-    asyncio.run(_run_for_drug(drug, out_dir, write=not no_write))
+    cutoff = date_before.date() if date_before is not None else None
+    asyncio.run(_run_for_drug(drug, out_dir, write=not no_write, date_before=cutoff))
 
 
 def main() -> None:
