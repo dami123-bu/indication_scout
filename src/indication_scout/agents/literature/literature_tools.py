@@ -100,7 +100,10 @@ def build_literature_tools(
         """Synthesize abstracts into a structured evidence summary."""
         abstracts = store.get("abstracts", [])
         chembl_id = await _get_chembl(drug_name)
-        evidence = await svc.synthesize(chembl_id, disease_name, abstracts)
+        evidence = await svc.synthesize(
+            chembl_id, disease_name, abstracts,
+            holdout_mode=date_before is not None,
+        )
         return f"Evidence strength: {evidence.strength}", evidence
 
     @tool(response_format="content_and_artifact")

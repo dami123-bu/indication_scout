@@ -60,10 +60,12 @@ async def _run_for_drug(
     svc = RetrievalService(DEFAULT_CACHE_DIR)
 
     logger.info("Starting %s (date_before=%s)", drug, date_before)
-    agent, get_merged_allowlist = build_supervisor_agent(
+    agent, get_merged_allowlist, get_auto_findings = build_supervisor_agent(
         llm=llm, svc=svc, db=db, date_before=date_before
     )
-    output = await run_supervisor_agent(agent, get_merged_allowlist, drug)
+    output = await run_supervisor_agent(
+        agent, get_merged_allowlist, drug, get_auto_findings=get_auto_findings,
+    )
 
     if not write:
         click.echo(format_report(output))

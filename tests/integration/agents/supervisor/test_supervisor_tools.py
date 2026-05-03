@@ -86,7 +86,7 @@ async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_
     allowlist, and seeds drug aliases + FDA-approved indications into the briefing store.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     msg = await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_DRUG))
@@ -140,7 +140,7 @@ async def test_analyze_rejects_unlisted_disease(
     of the right type and a REJECTED: content message naming the tool.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     msg = await tools[tool_name].ainvoke(
@@ -187,7 +187,7 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     (1) ID match, (2) exact-name match, (3) OT name-resolve fallback.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_MERGE_DRUG))
@@ -239,7 +239,7 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     analyze_literature / analyze_clinical_trials.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(
@@ -291,7 +291,7 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
     the artifact is the real output type, not the empty default.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(
@@ -353,7 +353,7 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
 async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
     """finalize_supervisor returns ('Supervisor analysis complete.', summary_input)."""
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
 
     summary_text = (
@@ -388,7 +388,7 @@ async def test_analyze_clinical_trials_respects_cutoff(
     start_date strictly before the cutoff.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(
+    tools_list, _, _ = build_supervisor_tools(
         llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
     )
     tools = _tool_map(tools_list)
@@ -469,7 +469,7 @@ async def test_analyze_literature_respects_cutoff(
     from indication_scout.data_sources.pubmed import PubMedClient
 
     svc = RetrievalService(test_cache_dir)
-    tools_list, _ = build_supervisor_tools(
+    tools_list, _, _ = build_supervisor_tools(
         llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
     )
     tools = _tool_map(tools_list)

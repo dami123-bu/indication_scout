@@ -63,7 +63,7 @@ def build_supervisor_tools(
     svc: RetrievalService,
     db: Session,
     date_before: date | None = None,
-) -> tuple[list, "callable"]:
+) -> tuple[list, "callable", "callable"]:
     """Build supervisor tools that close over the sub-agents.
 
     The literature and clinical trials agents are compiled once here and reused across calls — no
@@ -102,6 +102,15 @@ def build_supervisor_tools(
     # to the supervisor via get_drug_briefing. Keyed by drug name (normalized).
     # See supervisor_ideas.md for design rationale.
     drug_facts: dict[str, dict] = {}
+
+    # Holdout-only: artifacts produced by investigate_top_candidates. The tool
+    # invokes analyze_literature/analyze_clinical_trials directly (not through
+    # the LangGraph ReAct loop), so their tool messages don't reach
+    # result["messages"]. We stash them here and run_supervisor_agent reads
+    # them via get_auto_findings() after the agent run completes.
+    # Keyed by lowercase canonical disease name → {"literature": LiteratureOutput,
+    # "clinical_trials": ClinicalTrialsOutput}.
+    auto_findings: dict[str, dict] = {}
 
     def _drug_key(drug_name: str) -> str:
         return drug_name.lower().strip()
@@ -172,7 +181,7 @@ def build_supervisor_tools(
     async def _find_candidates_impl(drug_name: str) -> tuple[str, list[str]]:
         drug_name = normalize_drug_name(drug_name)
         chembl_id = await resolve_drug_name(drug_name, svc.cache_dir)
-        competitors = await svc.get_drug_competitors(chembl_id)
+        competitors = await svc.get_drug_competitors(chembl_id, date_before=date_before)
         diseases = list(competitors.keys())
 
         # Drug-level intake: populate the shared store with aliases and any
@@ -240,8 +249,11 @@ def build_supervisor_tools(
                 fda_approved = {disease for disease, is_approved in mapping.items() if is_approved}
             if fda_approved:
                 logger.warning(
-                    "[TOOL] find_candidates FDA approval check removing %d competitor diseases: %s",
-                    len(fda_approved), fda_approved,
+                    "[TOOL] find_candidates FDA approval check removing %d competitor diseases "
+                    "(source: %s): %s",
+                    len(fda_approved),
+                    "hardcoded table" if date_before is not None else "live FDA",
+                    fda_approved,
                 )
                 # Record the approved indications in the shared store. These were
                 # discovered as side effect of candidate filtering — even though
@@ -266,7 +278,7 @@ def build_supervisor_tools(
         # ID. Disease names that don't resolve to an EFO (e.g. renamed by the LLM merge step)
         # simply don't get an entry — analyze_mechanism falls back to name match in that case.
         async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
-            raw = await ot_client.get_drug_competitors(chembl_id)
+            raw = await ot_client.get_drug_competitors(chembl_id, date_before=date_before)
         for disease_lower in allowed_diseases:
             efo_id = raw["disease_efo_ids"].get(disease_lower)
             if efo_id:
@@ -583,6 +595,127 @@ def build_supervisor_tools(
         drug_name = normalize_drug_name(drug_name)
         return _render_briefing(drug_name)
 
+    # Holdout-only tool: bulk-investigate the top-N candidates with no LLM
+    # discretion. The probe (scripts/probe_supervisor_t2dm.py) showed the
+    # supervisor LLM systematically skips "obvious" candidates like T2DM for
+    # semaglutide regardless of prompt instructions. In holdout mode that's
+    # exactly the candidate the holdout is testing, so we remove the LLM's
+    # ability to skip by auto-investigating the top-10.
+    HOLDOUT_INVESTIGATION_CAP = 10
+
+    @tool(response_format="content_and_artifact")
+    async def investigate_top_candidates(
+        drug_name: str,
+    ) -> tuple[str, list[dict]]:
+        """[HOLDOUT MODE ONLY] Auto-investigate the top-10 candidates from the merged allowlist.
+
+        Runs analyze_literature AND analyze_clinical_trials in parallel for the top 10
+        candidates by mechanism+competitor strength. Removes the LLM's ability to skip
+        "obvious" candidates that holdout-mode evaluations specifically need to recover.
+
+        Call this ONCE, after find_candidates and analyze_mechanism complete. After this
+        returns, you may still call analyze_literature / analyze_clinical_trials for
+        candidates beyond the top 10 if you want.
+        """
+        # Wait for both seed tools to finish populating the allowlist.
+        await find_candidates_done.wait()
+        await analyze_mechanism_done.wait()
+
+        drug_name = normalize_drug_name(drug_name)
+
+        # Top-N from the merged allowlist. Insertion order preserves
+        # find_candidates's competitor ranking, with mechanism-promoted
+        # entries appended in the order analyze_mechanism processed them.
+        top_n = list(allowed_diseases.items())[:HOLDOUT_INVESTIGATION_CAP]
+        if not top_n:
+            return "No candidates in allowlist; nothing to investigate.", []
+
+        canonical_diseases = [canonical for _, (canonical, _) in top_n]
+        logger.warning(
+            "[TOOL] investigate_top_candidates auto-investigating %d candidates: %s",
+            len(canonical_diseases), canonical_diseases,
+        )
+
+        # Fan out: analyze_literature + analyze_clinical_trials in parallel.
+        # Pass a ToolCall-shaped dict (not a plain args dict) so .ainvoke()
+        # returns a ToolMessage with .artifact populated. A plain dict input
+        # returns just the content string and we lose the typed artifact.
+        async def _invest(disease: str) -> tuple[str, dict]:
+            disease_slug = disease.lower().replace(" ", "_")
+            lit_call = analyze_literature.ainvoke(
+                {
+                    "name": "analyze_literature",
+                    "args": {"drug_name": drug_name, "disease_name": disease},
+                    "id": f"auto_lit_{disease_slug}",
+                    "type": "tool_call",
+                }
+            )
+            ct_call = analyze_clinical_trials.ainvoke(
+                {
+                    "name": "analyze_clinical_trials",
+                    "args": {"drug_name": drug_name, "disease_name": disease},
+                    "id": f"auto_ct_{disease_slug}",
+                    "type": "tool_call",
+                }
+            )
+            lit_msg, ct_msg = await asyncio.gather(lit_call, ct_call)
+
+            lit_artifact = lit_msg.artifact
+            ct_artifact = ct_msg.artifact
+            # Stash artifacts in the closure so run_supervisor_agent can
+            # merge them into the SupervisorOutput. The LangGraph ReAct
+            # loop doesn't see these tool messages because they were
+            # invoked directly, not through the agent.
+            auto_findings[disease.lower().strip()] = {
+                "literature": lit_artifact,
+                "clinical_trials": ct_artifact,
+            }
+            strength = (
+                lit_artifact.evidence_summary.strength
+                if lit_artifact and lit_artifact.evidence_summary
+                else "no data"
+            )
+            n_pmids = len(lit_artifact.pmids) if lit_artifact else 0
+            n_total = (
+                ct_artifact.search.total_count
+                if ct_artifact and ct_artifact.search
+                else 0
+            )
+            n_completed = (
+                ct_artifact.completed.total_count
+                if ct_artifact and ct_artifact.completed
+                else 0
+            )
+            n_terminated = (
+                ct_artifact.terminated.total_count
+                if ct_artifact and ct_artifact.terminated
+                else 0
+            )
+            return disease, {
+                "disease": disease,
+                "literature_strength": strength,
+                "literature_pmids": n_pmids,
+                "trials_total": n_total,
+                "trials_completed": n_completed,
+                "trials_terminated": n_terminated,
+            }
+
+        results = await asyncio.gather(*(_invest(d) for d in canonical_diseases))
+        artifacts = [a for _, a in results]
+
+        # One-line-per-disease compact summary the LLM can rank against.
+        lines = [
+            f"Auto-investigated {len(artifacts)} top candidates "
+            f"for {drug_name}:"
+        ]
+        for a in artifacts:
+            lines.append(
+                f"  - {a['disease']}: literature {a['literature_strength']}, "
+                f"{a['literature_pmids']} PMIDs; trials {a['trials_total']} total, "
+                f"{a['trials_completed']} completed, {a['trials_terminated']} terminated"
+            )
+        return "\n".join(lines), artifacts
+
     @tool(response_format="content_and_artifact")
     async def finalize_supervisor(summary: str) -> tuple[str, str]:
         """Signal that the repurposing analysis is complete.
@@ -602,6 +735,14 @@ def build_supervisor_tools(
         """
         return dict(allowed_diseases)
 
+    def get_auto_findings() -> dict[str, dict]:
+        """Snapshot artifacts produced by investigate_top_candidates (holdout-only).
+
+        Returns {lowercase_canonical_disease: {"literature": LiteratureOutput,
+        "clinical_trials": ClinicalTrialsOutput}}. Empty in non-holdout runs.
+        """
+        return dict(auto_findings)
+
     tools = [
         find_candidates,
         analyze_mechanism,
@@ -610,4 +751,8 @@ def build_supervisor_tools(
         get_drug_briefing,
         finalize_supervisor,
     ]
-    return tools, get_merged_allowlist
+    if date_before is not None:
+        # Holdout-only: insert investigate_top_candidates before finalize so
+        # the LLM can see it after seed-phase tools but before terminating.
+        tools.insert(-1, investigate_top_candidates)
+    return tools, get_merged_allowlist, get_auto_findings

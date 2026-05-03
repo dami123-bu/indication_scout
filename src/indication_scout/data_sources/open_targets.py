@@ -11,7 +11,7 @@ Plus convenience accessors for specific target data slices.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -228,12 +228,25 @@ class OpenTargetsClient(BaseClient):
         return drug_data
 
     async def get_drug_competitors(
-        self, chembl_id: str, min_stage: str = "PHASE_3"
+        self, chembl_id: str, min_stage: str = "PHASE_3",
+        date_before: date | None = None,
     ) -> CompetitorRawData:
-        """Fetch competitor drugs for a given drug, grouped by disease."""
+        """Fetch competitor drugs for a given drug, grouped by disease.
+
+        When `date_before` is set (temporal holdout mode), the OT-derived
+        approved-indications strip is suppressed: OT's `drug.indications`
+        reflects today's approval state and would leak post-cutoff
+        approvals into a holdout. The caller is expected to apply its own
+        cutoff-aware approval filter (the hardcoded approvals table) on the
+        returned competitor list.
+        """
         min_rank = CLINICAL_STAGE_RANK.get(min_stage, 0)
 
-        cache_params = {"chembl_id": chembl_id, "min_stage": min_stage}
+        cache_params = {
+            "chembl_id": chembl_id,
+            "min_stage": min_stage,
+            "date_before": date_before.isoformat() if date_before else None,
+        }
         cached = cache_get("competitors_raw", cache_params, self.cache_dir)
         if cached is not None:
             return CompetitorRawData(
@@ -247,12 +260,16 @@ class OpenTargetsClient(BaseClient):
         drug = await self.get_drug(chembl_id)
         targets = drug.targets
 
-        # Build set of approved indication names to exclude from repurposing candidates.
-        approved_indications: set[str] = {
-            i.disease_name.lower()
-            for i in drug.indications
-            if i.max_clinical_stage == "APPROVAL" and i.disease_name is not None
-        }
+        # Build set of approved indication names to exclude from repurposing
+        # candidates. Skipped under date_before — see method docstring.
+        if date_before is None:
+            approved_indications: set[str] = {
+                i.disease_name.lower()
+                for i in drug.indications
+                if i.max_clinical_stage == "APPROVAL" and i.disease_name is not None
+            }
+        else:
+            approved_indications = set()
 
         siblings_with_stage: dict[str, dict[str, int]] = {}
         id_to_canonical: dict[str, str] = {}

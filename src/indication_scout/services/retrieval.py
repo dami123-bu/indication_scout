@@ -85,7 +85,9 @@ class RetrievalService:
     #             merged[key] = set(diseases[original])
     #     return merged
 
-    async def get_drug_competitors(self, chembl_id: str) -> dict[str, set[str]]:
+    async def get_drug_competitors(
+        self, chembl_id: str, date_before: date | None = None
+    ) -> dict[str, set[str]]:
         """Fetch top disease indications and their competitor drugs from Open Targets.
 
         Fetches raw competitor data from the client, then uses an LLM to merge
@@ -93,11 +95,18 @@ class RetrievalService:
 
         Args:
             chembl_id: ChEMBL ID of the drug (e.g. "CHEMBL1431").
+            date_before: Optional temporal holdout cutoff. Forwarded to the
+                OT client to suppress its current-state approved-indications
+                strip; cache key is keyed on the cutoff so cutoff and no-cutoff
+                runs do not share cached competitor lists.
 
         Returns:
             Dict mapping disease name to set of competitor drug names.
         """
-        cache_params = {"chembl_id": chembl_id}
+        cache_params = {
+            "chembl_id": chembl_id,
+            "date_before": date_before.isoformat() if date_before else None,
+        }
         cached = cache_get("competitors_merged", cache_params, self.cache_dir)
         if cached is not None and len(cached) > 0:
             logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
@@ -105,7 +114,9 @@ class RetrievalService:
             return {disease: set(drugs) for disease, drugs in cached.items()}
 
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
-            raw: CompetitorRawData = await client.get_drug_competitors(chembl_id)
+            raw: CompetitorRawData = await client.get_drug_competitors(
+                chembl_id, date_before=date_before
+            )
             logger.warning("[COMP] raw from OT: %d diseases: %s",
                            len(raw["diseases"]), list(raw["diseases"].keys()))
 
@@ -563,7 +574,11 @@ class RetrievalService:
         return results
 
     async def synthesize(
-        self, chembl_id: str, disease: str, top_abstracts: list[AbstractResult]
+        self,
+        chembl_id: str,
+        disease: str,
+        top_abstracts: list[AbstractResult],
+        holdout_mode: bool = False,
     ) -> EvidenceSummary:
         """Summarize PubMed evidence for a drug-disease pair using an LLM.
 
@@ -575,6 +590,11 @@ class RetrievalService:
             disease: Candidate disease (e.g. "colorectal cancer").
             top_abstracts: Output of semantic_search — list of dicts with keys
                 "pmid", "title", "abstract", "similarity".
+            holdout_mode: When True, swap to synthesize_holdout.txt — a relaxed
+                rubric that allows class-level evidence (other drugs in the
+                same mechanism class) to score weak/moderate when the cutoff
+                predates drug-specific publications. Used during temporal
+                holdout runs only.
 
         Returns:
             EvidenceSummary with all fields populated from the LLM response.
@@ -585,7 +605,9 @@ class RetrievalService:
             for r in top_abstracts
         )
 
-        template = (_PROMPTS_DIR / "synthesize.txt").read_text()
+        prompt_file = "synthesize_holdout.txt" if holdout_mode else "synthesize.txt"
+        logger.info("synthesize prompt: %s", prompt_file)
+        template = (_PROMPTS_DIR / prompt_file).read_text()
         prompt = template.format(
             drug_name=pref_name, disease_name=disease, abstracts=formatted
         )
