@@ -163,8 +163,8 @@ async def test_analyze_rejects_unlisted_disease(
 
 
 # ------------------------------------------------------------------
-# finalize_supervisor — echoes the input summary as the artifact and
-# returns the canonical completion content. No external APIs.
+# finalize_supervisor — returns the canonical completion content and a
+# {summary, blurbs} artifact dict. No external APIs.
 # ------------------------------------------------------------------
 
 
@@ -359,7 +359,11 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
 
 
 async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
-    """finalize_supervisor returns ('Supervisor analysis complete.', summary_input)."""
+    """finalize_supervisor returns ('Supervisor analysis complete.', {summary, blurbs}).
+
+    Blurbs for diseases not in the allowlist are dropped at the tool boundary; with no prior
+    find_candidates / analyze_mechanism call, the allowlist is empty so all blurbs drop.
+    """
     svc = RetrievalService(test_cache_dir)
     tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
     tools = _tool_map(tools_list)
@@ -369,11 +373,17 @@ async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, te
         "with supporting literature and active trials."
     )
     msg = await tools["finalize_supervisor"].ainvoke(
-        _tc("finalize_supervisor", summary=summary_text)
+        _tc(
+            "finalize_supervisor",
+            summary=summary_text,
+            blurbs=[],
+        )
     )
 
     assert msg.content == "Supervisor analysis complete."
-    assert msg.artifact == summary_text
+    assert isinstance(msg.artifact, dict)
+    assert msg.artifact["summary"] == summary_text
+    assert msg.artifact["blurbs"] == []
 
 
 # ------------------------------------------------------------------

@@ -109,16 +109,16 @@ class RetrievalService:
         }
         cached = cache_get("competitors_merged", cache_params, self.cache_dir)
         if cached is not None and len(cached) > 0:
-            logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
-                           chembl_id, len(cached), list(cached.keys()))
+            # logger.warning("[COMP] cache HIT for %r, %d diseases: %s",
+            #                chembl_id, len(cached), list(cached.keys()))
             return {disease: set(drugs) for disease, drugs in cached.items()}
 
         async with OpenTargetsClient(cache_dir=self.cache_dir) as client:
             raw: CompetitorRawData = await client.get_drug_competitors(
                 chembl_id, date_before=date_before
             )
-            logger.warning("[COMP] raw from OT: %d diseases: %s",
-                           len(raw["diseases"]), list(raw["diseases"].keys()))
+            # logger.warning("[COMP] raw from OT: %d diseases: %s",
+            #                len(raw["diseases"]), list(raw["diseases"].keys()))
 
         top_40=raw["diseases"]
         logger.warning("[COMP] after normalize: %d diseases: %s",
@@ -610,10 +610,10 @@ class RetrievalService:
         }
         cached = cache_get("synthesize", cache_params, self.cache_dir)
         if cached is not None:
-            logger.debug(
-                "Cache hit for synthesize: %s / %s (%d pmids)",
-                chembl_id, disease, len(cache_params["pmids"]),
-            )
+            # logger.debug(
+            #     "Cache hit for synthesize: %s / %s (%d pmids)",
+            #     chembl_id, disease, len(cache_params["pmids"]),
+            # )
             return EvidenceSummary(**cached)
 
         pref_name = (await get_all_drug_names(chembl_id, self.cache_dir))[0]
@@ -654,7 +654,7 @@ class RetrievalService:
         """Return the primary organ or tissue for a disease name via a small LLM call."""
         cached = cache_get("organ_term", {"disease_name": disease_name}, self.cache_dir)
         if cached is not None:
-            logger.debug("Cache hit for organ_term: %s", disease_name)
+            # logger.debug("Cache hit for organ_term: %s", disease_name)
             return cached
 
         template = (_PROMPTS_DIR / "extract_organ_term.txt").read_text()
@@ -717,9 +717,9 @@ class RetrievalService:
             self.cache_dir,
         )
         if cached is not None:
-            logger.debug(
-                "Cache hit for expand_search_terms: %s / %s", chembl_id, disease_name
-            )
+            # logger.debug(
+            #     "Cache hit for expand_search_terms: %s / %s", chembl_id, disease_name
+            # )
             return cached
 
         all_names = await get_all_drug_names(chembl_id, self.cache_dir)

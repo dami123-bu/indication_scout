@@ -20,11 +20,18 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_OUT_DIR = PROJECT_ROOT / "snapshots"
 
+# Manually set this to point at a different constants file (e.g. ".env.constants.experiment").
+# Path is resolved relative to PROJECT_ROOT.
+CONSTANTS_FILE = ".env.constants.test"
+
 
 def _load_env() -> None:
     """Load .env files before importing modules that read settings at import time."""
     load_dotenv(PROJECT_ROOT / ".env")
-    load_dotenv(PROJECT_ROOT / ".env.constants")
+    constants_path = PROJECT_ROOT / CONSTANTS_FILE
+    load_dotenv(constants_path)
+    # Also export so config.py's pydantic Settings picks up the same file.
+    os.environ["CONSTANTS_FILE"] = str(constants_path)
 
 
 async def _run_for_drug(
@@ -76,16 +83,13 @@ async def _run_for_drug(
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     cutoff_tag = f"_holdout_{date_before.isoformat()}" if date_before else ""
     md_path = write_dir / f"{drug}{cutoff_tag}_{timestamp}.md"
-    json_path = write_dir / f"{drug}{cutoff_tag}_{timestamp}.json"
     report_md = format_report(output)
     if date_before is not None:
         banner = f"> **HOLDOUT** — date_before={date_before.isoformat()}\n\n"
         report_md = banner + report_md
     md_path.write_text(report_md, encoding="utf-8")
-    json_path.write_text(output.model_dump_json(indent=2), encoding="utf-8")
-    logger.info("Finished %s -> %s, %s", drug, md_path, json_path)
+    logger.info("Finished %s -> %s", drug, md_path)
     click.echo(f"Report:    {md_path}")
-    click.echo(f"Structured: {json_path}")
 
 
 @click.group()

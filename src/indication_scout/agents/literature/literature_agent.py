@@ -166,11 +166,13 @@ async def run_literature_agent(
         logger.warning("Literature agent finished without a finalize_analysis summary for %s/%s",
                        drug_name, disease_name)
 
-    logger.warning(
-        "Literature agent run complete for %s/%s: queries=%d pmids=%d abstracts=%d",
-        drug_name, disease_name,
-        len(artifacts["queries"]), len(artifacts["pmids"]), len(artifacts["abstracts"]),
-    )
+    # logger.warning(
+    #     "Literature agent run complete for %s/%s: queries=%d pmids=%d abstracts=%d",
+    #     drug_name, disease_name,
+    #     len(artifacts["queries"]), len(artifacts["pmids"]), len(artifacts["abstracts"]),
+    # )
+    # logger.warning(
+    #     f"literature agent SUMMARY: {summary}")
 
     return LiteratureOutput(
         search_results=artifacts["queries"],

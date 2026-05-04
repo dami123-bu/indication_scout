@@ -1,12 +1,23 @@
 """Format a SupervisorOutput as a Markdown report."""
 
+import re
 from datetime import datetime
 
-from indication_scout.agents.supervisor.supervisor_output import SupervisorOutput
+from indication_scout.agents.supervisor.supervisor_output import (
+    CandidateFindings,
+    SupervisorOutput,
+)
 from indication_scout.agents.clinical_trials.clinical_trials_output import ClinicalTrialsOutput
 from indication_scout.agents.clinical_trials.clinical_trials_tools import _classify_stop_reason
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
+
+
+def _title_case_disease(name: str) -> str:
+    """Capitalize the first letter of each whitespace-separated word, leaving the
+    rest of each word untouched so acronyms (e.g. NSCLC) and possessives (e.g.
+    Alzheimer's) are preserved."""
+    return " ".join(w[:1].upper() + w[1:] if w else w for w in name.split(" "))
 
 
 def _fmt_literature(lit: LiteratureOutput) -> str:
@@ -87,7 +98,7 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
                 lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
 
     if ct.landscape and ct.landscape.competitors:
-        scope = f" for {indication}" if indication else ""
+        scope = f" for {_title_case_disease(indication)}" if indication else ""
         lines.append(
             f"\n**Competitive landscape{scope} "
             f"({len(ct.landscape.competitors)} competitors):**"
@@ -120,7 +131,7 @@ def _fmt_mechanism(mech: MechanismOutput) -> str:
     if mech.candidates:
         lines.append("\n**Repurposing candidates:**")
         for c in mech.candidates:
-            lines.append(f"- **{c.target_symbol} ({c.action_type}) → {c.disease_name}**")
+            lines.append(f"- **{c.target_symbol} ({c.action_type}) → {_title_case_disease(c.disease_name)}**")
             if c.disease_description:
                 lines.append(f"  - {c.disease_description}")
             if c.target_function:
@@ -129,24 +140,103 @@ def _fmt_mechanism(mech: MechanismOutput) -> str:
     return "\n".join(lines)
 
 
+def _title_case_known_diseases(text: str, disease_names: list[str]) -> str:
+    """Replace every case-insensitive occurrence of each known disease name in ``text``
+    with its title-cased form. Longest names first so multi-word names aren't shadowed
+    by their substrings (e.g. "non-small cell lung cancer" before "lung cancer")."""
+    if not text or not disease_names:
+        return text
+    seen: set[str] = set()
+    unique_names: list[str] = []
+    for name in disease_names:
+        if not name:
+            continue
+        key = name.lower().strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique_names.append(name)
+    unique_names.sort(key=len, reverse=True)
+    for name in unique_names:
+        pattern = re.compile(re.escape(name), re.IGNORECASE)
+        text = pattern.sub(_title_case_disease(name), text)
+    return text
+
+
+def _splice_blurbs_into_summary(
+    summary: str, findings: list[CandidateFindings]
+) -> str:
+    """Replace each ranked summary line's structured tail with the matching blurb.
+
+    The supervisor's summary string is a ranked list of the form
+    `N. <disease> — literature: ..., trials: ...; FDA approval: ...`. For each line
+    that matches a finding with a non-empty blurb, the structured tail (everything
+    from the em-dash onward) is stripped and replaced with the blurb on the next
+    line. Lines that don't match any finding (e.g. the trailing "Closed signals:"
+    line) and lines without an em-dash are passed through unchanged. Disease
+    matching is case-insensitive on the disease name only.
+    """
+    blurb_by_disease = {
+        f.disease.lower().strip(): f.blurb.strip()
+        for f in findings
+        if f.blurb and f.blurb.strip()
+    }
+    if not blurb_by_disease:
+        return summary
+
+    # Group 1: rank prefix ("N. "). Group "head": disease portion (before em-dash).
+    # The em-dash separator and structured tail are dropped on a successful match.
+    rank_line = re.compile(r"^(\s*\d+\.\s+)(?P<head>.+?)\s+—\s+.+$")
+    out_lines: list[str] = []
+    for line in summary.splitlines():
+        m = rank_line.match(line)
+        if m is None:
+            out_lines.append(line)
+            continue
+        head = m.group("head")
+        head_lower = head.lower()
+        match_key: str | None = None
+        # Longest-match avoids "lung cancer" stealing a match meant for
+        # "non-small cell lung cancer".
+        for key in sorted(blurb_by_disease.keys(), key=len, reverse=True):
+            if key and key in head_lower:
+                match_key = key
+                break
+        if match_key is None:
+            out_lines.append(line)
+            continue
+        blurb = blurb_by_disease.pop(match_key)
+        prefix = m.group(1)
+        out_lines.append(f"{prefix}{_title_case_disease(head)}")
+        out_lines.append(f"   _{blurb}_")
+    return "\n".join(out_lines)
+
+
 def format_report(output: SupervisorOutput) -> str:
     """Render a SupervisorOutput as a Markdown string."""
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     drug = output.drug_name or "Unknown drug"
 
     lines: list[str] = [
-        f"# IndicationScout Report: {drug}",
+        f"# IndicationScout Report: {_title_case_disease(drug)}",
         f"_Generated {now}_",
         "",
         "---",
         "",
     ]
 
-    # Summary
+    # Summary — splice each top-5 candidate's blurb directly under its ranked line,
+    # then title-case any known disease names that appear inside the LLM-generated text.
+    if output.summary:
+        summary_text = _splice_blurbs_into_summary(output.summary, output.findings)
+        known_diseases = [f.disease for f in output.findings] + list(output.candidates or [])
+        summary_text = _title_case_known_diseases(summary_text, known_diseases)
+    else:
+        summary_text = "_No summary produced._"
     lines += [
         "## Summary",
         "",
-        output.summary if output.summary else "_No summary produced._",
+        summary_text,
         "",
         "_Note: trial counts in this summary reflect ClinicalTrials.gov only and may "
         "undercount activity registered in ex-US registries (e.g. jRCT, ChiCTR, "
@@ -167,7 +257,7 @@ def format_report(output: SupervisorOutput) -> str:
         )
         lines.append("")
         for c in output.candidates:
-            lines.append(f"- {c}")
+            lines.append(f"- {_title_case_disease(c)}")
     else:
         lines.append("_No candidates surfaced._")
     lines += ["", "---", ""]
@@ -188,13 +278,13 @@ def format_report(output: SupervisorOutput) -> str:
         investigated_keys = {f.disease.lower().strip() for f in output.findings}
 
         for finding in output.findings:
-            lines += [f"## {finding.disease} _(source: {finding.source})_", ""]
+            lines += [f"## {_title_case_disease(finding.disease)} _(source: {finding.source})_", ""]
 
             if finding.literature:
-                lines += [f"### Literature — {finding.disease}", "", _fmt_literature(finding.literature), ""]
+                lines += [f"### Literature — {_title_case_disease(finding.disease)}", "", _fmt_literature(finding.literature), ""]
 
             if finding.clinical_trials:
-                lines += [f"### Clinical Trials — {finding.disease}", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
+                lines += ["### Clinical Trials", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
 
             lines.append("---")
             lines.append("")
@@ -209,7 +299,7 @@ def format_report(output: SupervisorOutput) -> str:
                 if not key or key in seen or key in investigated_keys:
                     continue
                 seen.add(key)
-                mech_only_uninvestigated.append(c.disease_name)
+                mech_only_uninvestigated.append(_title_case_disease(c.disease_name))
 
         if mech_only_uninvestigated:
             lines += [

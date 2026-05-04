@@ -18,6 +18,15 @@ class CandidateFindings(BaseModel):
     source: Literal["competitor", "mechanism", "both"] = "competitor"
     literature: LiteratureOutput | None = None
     clinical_trials: ClinicalTrialsOutput | None = None
+    blurb: str = Field(
+        default="",
+        description=(
+            "Exactly 2-sentence supervisor-written synthesis of the literature and "
+            "clinical-trials sub-agent summaries for this disease. Populated only "
+            "for the supervisor's top 5 ranked candidates in production runs; "
+            "empty in holdout runs and for un-ranked candidates."
+        ),
+    )
 
 
 class SupervisorOutput(BaseModel):

@@ -76,7 +76,8 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
                    len(all_mech_diseases), sorted(all_mech_diseases))
 
     candidates = await _assemble_candidates(drug_name, drug_targets, mechanisms_of_action)
-
+    logger.warning(
+        f"mechanism_agent SUMMARY: {summary}")
     return MechanismOutput(
         drug_targets=drug_targets,
         mechanisms_of_action=mechanisms_of_action,

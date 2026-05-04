@@ -96,6 +96,7 @@ async def run_supervisor_agent(
 
     mechanism: MechanismOutput | None = None
     summary: str = ""
+    blurbs: list[dict] = []
     findings_by_disease: dict[str, CandidateFindings] = {}
 
     # Build a map from tool_call_id → args so we can recover the disease_name argument passed to
@@ -107,13 +108,16 @@ async def run_supervisor_agent(
                 tool_call_args[tc["id"]] = tc["args"]
 
     # First pass: capture mechanism artifact and the supervisor's final summary.
+    # finalize_supervisor's artifact is {"summary": str, "blurbs": list[dict]}.
     for msg in result["messages"]:
         if not isinstance(msg, ToolMessage):
             continue
         if msg.name == "analyze_mechanism":
             mechanism = msg.artifact
         elif msg.name == "finalize_supervisor":
-            summary = msg.artifact or ""
+            artifact = msg.artifact or {}
+            summary = artifact.get("summary", "") or ""
+            blurbs = artifact.get("blurbs", []) or []
 
     # Single source of truth: the merged allowlist the runtime tools enforced. Keyed by
     # lowercase disease name → (canonical_name, source). Source is "competitor", "mechanism",
@@ -174,6 +178,31 @@ async def run_supervisor_agent(
                 findings.literature = artifacts["literature"]
             if findings.clinical_trials is None and artifacts.get("clinical_trials") is not None:
                 findings.clinical_trials = artifacts["clinical_trials"]
+
+    # Attach supervisor-written blurbs to the matching CandidateFindings. Blurbs only attach to
+    # diseases the supervisor actually investigated this run (i.e. already present in
+    # findings_by_disease). Names are canonicalised through the merged allowlist so casing /
+    # synonym variants land on the right finding. Holdout runs send an empty blurbs list.
+    for entry in blurbs:
+        disease_raw = entry.get("disease", "")
+        blurb_text = entry.get("blurb", "")
+        if not disease_raw or not blurb_text:
+            continue
+        match = _canonical(disease_raw)
+        if match is None:
+            logger.warning(
+                "Skipping blurb for disease=%r (not in allowlist)", disease_raw
+            )
+            continue
+        canonical, _ = match
+        finding = findings_by_disease.get(canonical)
+        if finding is None:
+            logger.warning(
+                "Skipping blurb for disease=%r (not investigated this run)",
+                disease_raw,
+            )
+            continue
+        finding.blurb = blurb_text
 
     # Candidates surfaced to downstream consumers = every disease in the merged allowlist,
     # mapped back to its canonical name. Includes mechanism-promoted diseases.

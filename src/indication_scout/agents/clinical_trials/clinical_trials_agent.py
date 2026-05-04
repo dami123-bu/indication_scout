@@ -93,9 +93,9 @@ async def run_clinical_trials_agent(
     agent, drug_name: str, disease_name: str
 ) -> ClinicalTrialsOutput:
     """Invoke the agent and assemble a ClinicalTrialsOutput from the run."""
-    logger.warning(
-        "clinical_trials_agent: starting run for %s × %s", drug_name, disease_name
-    )
+    # logger.warning(
+    #     "clinical_trials_agent: starting run for %s × %s", drug_name, disease_name
+    # )
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
     )
@@ -147,6 +147,8 @@ async def run_clinical_trials_agent(
         )
 
     summary = artifacts.get("summary") or ""
+    # logger.warning(
+    #     f"clinical_trials_agent SUMMARY: {summary}")
 
     return ClinicalTrialsOutput(
         search=artifacts["search"],

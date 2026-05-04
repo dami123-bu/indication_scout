@@ -46,10 +46,24 @@ pip install -e ".[dev]"
 
 ### Environment Setup
 
-Copy the example environment file and fill in your API keys:
+The app loads two env files in order: `.env` (secrets, DB credentials, API keys,
+model names) and `.env.constants` (tunable numeric limits — top-k, timeouts,
+batch sizes, etc.). `.env.constants` has **no defaults**; if a field is missing
+the app fails to start. Both files must exist before running the CLI or API.
+
+Copy `.env.example` to `.env` and fill in your API keys. A checked-in
+`.env.constants` provides the tunable numeric limits — leave it as-is unless
+you have a reason to change a limit.
 
 ```bash
 cp .env.example .env
+```
+
+To swap the constants file at runtime (e.g. for tests or experiments):
+
+```bash
+CONSTANTS_FILE=.env.constants.test pytest
+CONSTANTS_FILE=.env.constants.experiment scout find -d "metformin"
 ```
 
 Required environment variables:
@@ -127,13 +141,12 @@ What it does:
   openFDA labels as usual. Drugs not in the table get no approval reasoning
   during a holdout (a warning is logged).
 
-Holdout reports are written to `snapshots/{drug}_holdout_{cutoff}_{timestamp}.{md,json}`
+Holdout reports are written to `snapshots/holdouts/{drug}_holdout_{cutoff}_{timestamp}.{md,json}`
 to keep them visually distinct from current-state runs.
 
 Known limitations are documented in [`future.md`](future.md) — most notably,
 the OpenTargets candidate list and mechanism scores remain current-state
-because OT has no temporal API. See [`PLAN_date_before.md`](PLAN_date_before.md)
-for the design rationale.
+because OT has no temporal API.
 
 ### API
 

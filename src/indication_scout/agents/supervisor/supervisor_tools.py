@@ -17,6 +17,7 @@ from typing import Literal
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
+from indication_scout.config import get_settings
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.fda import FDAClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
@@ -218,12 +219,12 @@ def build_supervisor_tools(
                 for ind in seeded:
                     if ind.lower().strip() not in existing:
                         entry["approved_indications"].append(ind)
-                logger.warning(
-                    "[TOOL] find_candidates seeded %d approved indication(s) from %s: %s",
-                    len(seeded),
-                    "hardcoded table" if date_before is not None else "label",
-                    seeded,
-                )
+                # logger.warning(
+                #     "[TOOL] find_candidates seeded %d approved indication(s) from %s: %s",
+                #     len(seeded),
+                #     "hardcoded table" if date_before is not None else "label",
+                #     seeded,
+                # )
         except Exception as e:
             logger.warning(
                 "find_candidates: approved-indication seed failed for %s: %s",
@@ -268,6 +269,17 @@ def build_supervisor_tools(
 
         diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
 
+        # Cap how many candidates the supervisor sees. Order is preserved from upstream
+        # ranking (OpenTargets competitor merge), so this keeps the top-N.
+        candidate_cap = get_settings().supervisor_candidate_cap
+        if len(diseases) > candidate_cap:
+            logger.warning(
+                "[TOOL] find_candidates capping candidates from %d to %d (SUPERVISOR_CANDIDATE_CAP)",
+                len(diseases),
+                candidate_cap,
+            )
+            diseases = diseases[:candidate_cap]
+
         allowed_diseases.clear()
         allowed_efo_ids.clear()
         for d in diseases:
@@ -284,7 +296,7 @@ def build_supervisor_tools(
             if efo_id:
                 allowed_efo_ids[efo_id] = disease_lower
 
-        logger.warning("[TOOL] find_candidates(%r [%s]) -> %s", drug_name, chembl_id, diseases)
+        # logger.warning("[TOOL] find_candidates(%r [%s]) -> %s", drug_name, chembl_id, diseases)
         return (
             f"Found {len(diseases)} candidate diseases for {drug_name} ({chembl_id})",
             diseases,
@@ -299,7 +311,7 @@ def build_supervisor_tools(
             f"Do not reword, substitute synonyms, or introduce diseases from training knowledge. "
             f"Valid candidates: {valid}"
         )
-        logger.warning("[TOOL] %s REJECTED disease=%r", tool_label, disease_name)
+        #logger.warning("[TOOL] %s REJECTED disease=%r", tool_label, disease_name)
         return msg, empty_output
 
     @tool(response_format="content_and_artifact")
@@ -323,12 +335,12 @@ def build_supervisor_tools(
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_literature", LiteratureOutput())
 
-        logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
+        #logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 
 
         lit_agent = build_literature_agent(llm=llm, svc=svc, db=db, date_before=date_before)
         t0 = time.perf_counter()
-        logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
+        #logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 
         output = await run_literature_agent(lit_agent, drug_name, disease_name)
         logger.info("analyze_literature took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
@@ -366,10 +378,10 @@ def build_supervisor_tools(
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_clinical_trials", ClinicalTrialsOutput())
 
-        logger.warning("[TOOL] analyze_clinical_trials(drug=%r, disease=%r)", drug_name, disease_name)
+        #logger.warning("[TOOL] analyze_clinical_trials(drug=%r, disease=%r)", drug_name, disease_name)
         t0 = time.perf_counter()
         output = await run_clinical_trials_agent(ct_agent, drug_name, disease_name)
-        logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
+        #logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
 
         # Drug-level write-through: when the FDA check matches the candidate
         # against an approved indication, capture it in the supervisor's
@@ -486,7 +498,7 @@ def build_supervisor_tools(
     async def _analyze_mechanism_impl(drug_name: str) -> tuple[str, MechanismOutput]:
         drug_name = normalize_drug_name(drug_name)
         output = await run_mechanism_agent(mech_agent, drug_name)
-        logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
+        # logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
         # The mechanism sub-agent can run in parallel with find_candidates, but the merge step
         # below must observe a fully-populated competitor allowlist. Wait here so we don't dedup
@@ -631,10 +643,10 @@ def build_supervisor_tools(
             return "No candidates in allowlist; nothing to investigate.", []
 
         canonical_diseases = [canonical for _, (canonical, _) in top_n]
-        logger.warning(
-            "[TOOL] investigate_top_candidates auto-investigating %d candidates: %s",
-            len(canonical_diseases), canonical_diseases,
-        )
+        # logger.warning(
+        #     "[TOOL] investigate_top_candidates auto-investigating %d candidates: %s",
+        #     len(canonical_diseases), canonical_diseases,
+        # )
 
         # Fan out: analyze_literature + analyze_clinical_trials in parallel.
         # Pass a ToolCall-shaped dict (not a plain args dict) so .ainvoke()
@@ -717,13 +729,40 @@ def build_supervisor_tools(
         return "\n".join(lines), artifacts
 
     @tool(response_format="content_and_artifact")
-    async def finalize_supervisor(summary: str) -> tuple[str, str]:
+    async def finalize_supervisor(
+        summary: str, blurbs: list[dict] | None = None
+    ) -> tuple[str, dict]:
         """Signal that the repurposing analysis is complete.
 
-        Call this as the very last step, passing your 4-6 sentence plain-text summary of the most
-        promising candidates. This terminates the agent loop.
+        Call this as the very last step. This terminates the agent loop.
+
+        Arguments:
+        - summary: your ranked structured fact list of investigated candidates
+          (see WRITING THE SUMMARY in the system prompt).
+        - blurbs: a list of {"disease": <name>, "blurb": <exactly 2 sentences>} entries
+          for the TOP 5 ranked candidates in your summary, in rank order. Each
+          blurb must synthesize ONLY the literature and clinical_trials sub-agent
+          summaries you saw for that disease this run — do not include mechanism
+          content. Pass an empty list if no candidates were investigated. The
+          disease name must match a name returned verbatim by find_candidates
+          or promoted by analyze_mechanism (otherwise the blurb is dropped).
         """
-        return "Supervisor analysis complete.", summary
+        validated: list[dict] = []
+        for item in blurbs or []:
+            disease = (item.get("disease") or "").strip()
+            blurb = (item.get("blurb") or "").strip()
+            if not disease or not blurb:
+                continue
+            if disease.lower().strip() not in allowed_diseases:
+                logger.warning(
+                    "[TOOL] finalize_supervisor dropping blurb for disease=%r "
+                    "(not in allowlist)",
+                    disease,
+                )
+                continue
+            validated.append({"disease": disease, "blurb": blurb})
+        artifact = {"summary": summary, "blurbs": validated}
+        return "Supervisor analysis complete.", artifact
 
     def get_merged_allowlist() -> dict[
         str, tuple[str, Literal["competitor", "mechanism", "both"]]
