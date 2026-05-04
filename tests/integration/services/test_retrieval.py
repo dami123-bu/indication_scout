@@ -565,3 +565,43 @@ async def test_synthesize_contraindication(svc, db_session_truncating):
 
     assert result.strength == "none"
     assert result.supporting_pmids == []
+
+
+async def test_synthesize_caches_result(tmp_path, db_session_truncating):
+    """Second synthesize call with the same inputs returns the cached EvidenceSummary
+    without invoking the LLM.
+
+    Uses an isolated tmp_path cache so the first call is guaranteed to miss.
+    Verifies:
+      - a cache file is written under the "synthesize" namespace after the first call
+      - the second call returns an equal EvidenceSummary
+      - no LLM call is made on the second call (query_llm is patched to raise)
+      - reordering top_abstracts still hits the cache (key uses sorted PMIDs)
+    """
+    from unittest.mock import patch
+
+    svc = RetrievalService(tmp_path)
+    queries = ["empagliflozin AND diabetic nephropathy"]
+    pmids = await svc.fetch_and_cache(queries, db_session_truncating)
+    top_5 = await svc.semantic_search(
+        "diabetic nephropathy", "CHEMBL2107830", pmids, db_session_truncating
+    )
+
+    first = await svc.synthesize("CHEMBL2107830", "diabetic nephropathy", top_5)
+
+    cache_files = list((tmp_path / "synthesize").glob("*.json"))
+    assert len(cache_files) == 1
+
+    async def _fail(*args, **kwargs):
+        raise AssertionError("query_llm must not be called on cache hit")
+
+    with patch("indication_scout.services.retrieval.query_llm", side_effect=_fail):
+        second = await svc.synthesize("CHEMBL2107830", "diabetic nephropathy", top_5)
+        reordered = await svc.synthesize(
+            "CHEMBL2107830", "diabetic nephropathy", list(reversed(top_5))
+        )
+
+    assert isinstance(second, EvidenceSummary)
+    assert second.model_dump() == first.model_dump()
+    assert reordered.model_dump() == first.model_dump()
+    assert len(list((tmp_path / "synthesize").glob("*.json"))) == 1

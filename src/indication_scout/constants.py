@@ -53,6 +53,11 @@ PUBMED_SEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 PUBMED_FETCH_URL: str = f"{NCBI_BASE_URL}/efetch.fcgi"
 PUBMED_SUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
 
+# Process-wide cap on concurrent in-flight requests to NCBI eutils. With a
+# valid NCBI api_key the per-IP rate ceiling is 10 req/sec; 8 leaves headroom
+# for retry/backoff traffic and for the MeSH resolver, which uses the same IP.
+PUBMED_MAX_CONCURRENT_REQUESTS: int = 8
+
 # -- MeSH resolver ----------------------------------------------------------
 NCBI_ESEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 NCBI_ESUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"

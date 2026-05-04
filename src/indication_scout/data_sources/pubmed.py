@@ -9,6 +9,8 @@ Three methods:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, timedelta
@@ -19,6 +21,7 @@ from indication_scout.config import get_settings
 from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     PUBMED_FETCH_URL,
+    PUBMED_MAX_CONCURRENT_REQUESTS,
     PUBMED_SEARCH_URL,
     PUBMED_SUMMARY_URL,
 )
@@ -40,6 +43,12 @@ class PubMedClient(BaseClient):
     FETCH_URL = PUBMED_FETCH_URL
     SUMMARY_URL = PUBMED_SUMMARY_URL
 
+    # Process-wide concurrency cap on NCBI eutils requests. Class-level so the
+    # bound holds across the multiple PubMedClient instances the supervisor
+    # spins up in parallel (each RetrievalService call creates a new client).
+    # Created lazily so the semaphore binds to the running event loop.
+    _request_semaphore: asyncio.Semaphore | None = None
+
     def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR) -> None:
         super().__init__()
         self.cache_dir = cache_dir
@@ -51,11 +60,30 @@ class PubMedClient(BaseClient):
     def _source_name(self) -> str:
         return "pubmed"
 
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        if cls._request_semaphore is None:
+            cls._request_semaphore = asyncio.Semaphore(PUBMED_MAX_CONCURRENT_REQUESTS)
+        return cls._request_semaphore
+
     def _inject_api_key(self, params: dict[str, Any]) -> dict[str, Any]:
         """Add the NCBI api_key to request params if configured."""
         if self._api_key:
             params["api_key"] = self._api_key
         return params
+
+    async def _rest_get_json_tolerant(
+        self, url: str, params: dict[str, Any]
+    ) -> Any:
+        """GET JSON, tolerating raw control characters in the response body.
+
+        NCBI eutils occasionally echoes user-supplied query terms back inside
+        ``querytranslation`` / ``translationstack`` with stray control bytes,
+        which strict ``json.loads`` rejects. Fetch as text and parse with
+        ``strict=False`` so those responses don't crash the supervisor.
+        """
+        text = await self._request("GET", url, params=params, as_text=True)
+        return json.loads(text, strict=False)
 
     async def search(
         self, query: str, max_results: int | None = None, date_before: date | None = None
@@ -84,7 +112,10 @@ class PubMedClient(BaseClient):
             params["mindate"] = "1900/01/01"
             params["maxdate"] = effective_maxdate.strftime("%Y/%m/%d")
 
-        data = await self._rest_get(self.SEARCH_URL, self._inject_api_key(params))
+        async with self._get_semaphore():
+            data = await self._rest_get_json_tolerant(
+                self.SEARCH_URL, self._inject_api_key(params)
+            )
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
 
         # NOTE: the post-search esummary date guard used to live here. It
@@ -110,7 +141,10 @@ class PubMedClient(BaseClient):
             params["mindate"] = "1900/01/01"
             params["maxdate"] = (date_before - timedelta(days=1)).strftime("%Y/%m/%d")
 
-        data = await self._rest_get(self.SEARCH_URL, self._inject_api_key(params))
+        async with self._get_semaphore():
+            data = await self._rest_get_json_tolerant(
+                self.SEARCH_URL, self._inject_api_key(params)
+            )
 
         count_str = data.get("esearchresult", {}).get("count", "0")
         return int(count_str)
@@ -134,7 +168,10 @@ class PubMedClient(BaseClient):
                 "id": ",".join(batch),
                 "retmode": "json",
             }
-            data = await self._rest_get(self.SUMMARY_URL, self._inject_api_key(params))
+            async with self._get_semaphore():
+                data = await self._rest_get_json_tolerant(
+                    self.SUMMARY_URL, self._inject_api_key(params)
+                )
             result = data.get("result", {})
             for pmid in batch:
                 summary = result.get(pmid, {})
@@ -171,9 +208,10 @@ class PubMedClient(BaseClient):
                 "rettype": "abstract",
             }
 
-            xml_text = await self._rest_get_xml(
-                self.FETCH_URL, self._inject_api_key(params)
-            )
+            async with self._get_semaphore():
+                xml_text = await self._rest_get_xml(
+                    self.FETCH_URL, self._inject_api_key(params)
+                )
 
             articles = self._parse_pubmed_xml(xml_text)
             all_articles.extend(articles)

@@ -599,6 +599,23 @@ class RetrievalService:
         Returns:
             EvidenceSummary with all fields populated from the LLM response.
         """
+        # Cache key uses sorted PMIDs so two abstract orderings that contain the
+        # same evidence collapse to one cache entry. Holdout mode uses a different
+        # prompt template, so it must be part of the key.
+        cache_params = {
+            "chembl_id": chembl_id,
+            "disease": disease,
+            "pmids": sorted(r.pmid for r in top_abstracts),
+            "holdout_mode": holdout_mode,
+        }
+        cached = cache_get("synthesize", cache_params, self.cache_dir)
+        if cached is not None:
+            logger.debug(
+                "Cache hit for synthesize: %s / %s (%d pmids)",
+                chembl_id, disease, len(cache_params["pmids"]),
+            )
+            return EvidenceSummary(**cached)
+
         pref_name = (await get_all_drug_names(chembl_id, self.cache_dir))[0]
         formatted = "\n\n".join(
             f"PMID: {r.pmid}\nTitle: {r.title}\nAbstract: {r.abstract}"
@@ -623,7 +640,15 @@ class RetrievalService:
                 response,
             )
             raise
-        return EvidenceSummary(**data)
+        summary = EvidenceSummary(**data)
+        cache_set(
+            "synthesize",
+            cache_params,
+            summary.model_dump(mode="json"),
+            self.cache_dir,
+            ttl=CACHE_TTL,
+        )
+        return summary
 
     async def extract_organ_term(self, disease_name: str) -> str:
         """Return the primary organ or tissue for a disease name via a small LLM call."""

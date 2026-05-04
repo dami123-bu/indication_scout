@@ -71,12 +71,17 @@ async def _run_for_drug(
         click.echo(format_report(output))
         return
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    write_dir = out_dir / "holdouts" if date_before else out_dir
+    write_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     cutoff_tag = f"_holdout_{date_before.isoformat()}" if date_before else ""
-    md_path = out_dir / f"{drug}{cutoff_tag}_{timestamp}.md"
-    json_path = out_dir / f"{drug}{cutoff_tag}_{timestamp}.json"
-    md_path.write_text(format_report(output), encoding="utf-8")
+    md_path = write_dir / f"{drug}{cutoff_tag}_{timestamp}.md"
+    json_path = write_dir / f"{drug}{cutoff_tag}_{timestamp}.json"
+    report_md = format_report(output)
+    if date_before is not None:
+        banner = f"> **HOLDOUT** — date_before={date_before.isoformat()}\n\n"
+        report_md = banner + report_md
+    md_path.write_text(report_md, encoding="utf-8")
     json_path.write_text(output.model_dump_json(indent=2), encoding="utf-8")
     logger.info("Finished %s -> %s, %s", drug, md_path, json_path)
     click.echo(f"Report:    {md_path}")

@@ -23,7 +23,9 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
 from indication_scout.services.retrieval import RetrievalService
-
+from indication_scout.constants import (
+    DEFAULT_CACHE_DIR,
+)
 logger = logging.getLogger(__name__)
 
 # Counter to give each ToolCall a unique id within a test run
@@ -80,6 +82,12 @@ _EXPECTED_CANDIDATES_SUBSET = {
 # TODO: fill in expected FDA-approved indications seeded for metformin from openFDA
 # _EXPECTED_APPROVED_INDICATIONS_SUBSET: set[str] = {"type 2 diabetes mellitus"}
 
+async def test_find_candidates_random(llm, db_session_truncating, test_cache_dir):
+    svc = RetrievalService(test_cache_dir)
+    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools = _tool_map(tools_list)
+    msg = await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name="citalopram"))
+    diseases: list[str] = msg.artifact
 
 async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_dir):
     """find_candidates returns Open Targets candidate diseases, populates the closure-scoped

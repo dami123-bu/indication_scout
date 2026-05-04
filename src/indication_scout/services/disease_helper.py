@@ -375,9 +375,10 @@ async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
 
     async with aiohttp.ClientSession() as session:
         await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-        esearch_data = await _ncbi_get_json(
-            session, NCBI_ESEARCH_URL, esearch_params, indication
-        )
+        async with PubMedClient._get_semaphore():
+            esearch_data = await _ncbi_get_json(
+                session, NCBI_ESEARCH_URL, esearch_params, indication
+            )
 
         uids = esearch_data.get("esearchresult", {}).get("idlist", [])
         if not uids:
@@ -389,9 +390,10 @@ async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
             retry_params = dict(esearch_params)
             retry_params["term"] = indication
             await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-            esearch_data = await _ncbi_get_json(
-                session, NCBI_ESEARCH_URL, retry_params, indication
-            )
+            async with PubMedClient._get_semaphore():
+                esearch_data = await _ncbi_get_json(
+                    session, NCBI_ESEARCH_URL, retry_params, indication
+                )
             translation = esearch_data.get("esearchresult", {}).get(
                 "querytranslation", ""
             )
@@ -416,9 +418,10 @@ async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
             esummary_params["api_key"] = api_key
 
         await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-        esummary_data = await _ncbi_get_json(
-            session, NCBI_ESUMMARY_URL, esummary_params, indication
-        )
+        async with PubMedClient._get_semaphore():
+            esummary_data = await _ncbi_get_json(
+                session, NCBI_ESUMMARY_URL, esummary_params, indication
+            )
 
     result = esummary_data.get("result", {})
     uid = uids[0]

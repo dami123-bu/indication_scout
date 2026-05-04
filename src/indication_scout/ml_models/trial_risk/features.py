@@ -69,8 +69,13 @@ class FeatureRow:
 def build_features(
     trial: Trial,
     lit: LiteratureSignals,
+    include_fingerprint: bool = False,
 ) -> FeatureRow:
-    """Build the feature vector for one trial + its precomputed lit signals."""
+    """Build the feature vector for one trial + its precomputed lit signals.
+
+    If `include_fingerprint`, also emit `fp_0..fp_{N-1}` columns from the
+    mean-pooled BioLORD embedding (768-dim).
+    """
     f: dict[str, float] = {}
 
     # Phase one-hot
@@ -103,6 +108,10 @@ def build_features(
     f["lit_safety_signal"] = lit.safety_signal
     f["lit_efficacy_signal"] = lit.efficacy_signal
     f["lit_signal_available"] = 1.0 if lit.available else 0.0
+
+    if include_fingerprint and lit.embedding_fingerprint:
+        for i, v in enumerate(lit.embedding_fingerprint):
+            f[f"fp_{i:03d}"] = float(v)
 
     return FeatureRow(nct_id=trial.nct_id, features=f)
 

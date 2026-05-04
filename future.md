@@ -884,3 +884,60 @@ evidence, pre-fix the FDA approval check would have stripped them).
 For the current testing use case (verifying the pipeline can recover
 known repurposings the system "shouldn't have known about" at a given
 date), the wiring is sufficient.
+
+---
+
+## Holdout — supervisor LLM training-knowledge leakage in prose (added 2026-05-03)
+
+Even with `supervisor_holdout.txt` instructing the LLM to defer to the
+briefing for approval status and ignore training knowledge of the drug's
+"obvious" use, the supervisor still leaks future-dated knowledge into the
+narrative prose of the candidate findings sections. Observed in the
+2016-01-01 semaglutide holdout:
+
+- The obesity clinical-trials write-up cited "the well-known regulatory
+  history of semaglutide" and named the post-2016 STEP program by name.
+- The diabetes mellitus write-up referenced an "already-approved narrower
+  label" (semaglutide had ZERO FDA approvals before 2017-12).
+- The NAFLD write-up cited the 2023 MASLD/MASH nomenclature change.
+
+The pipeline itself fed the LLM only pre-cutoff data. Tool artifacts,
+PMID citations, trial NCT IDs, and structured fields (counts, dates,
+strength labels) are all clean. The leakage is purely in the LLM's
+free-text reasoning on top of the artifacts — the supervisor LLM weaves
+in training-data facts that the briefing does not contain.
+
+**Investigation findings (probe in `scripts/probe_supervisor_t2dm.py`):**
+- Confirmed that the bias is **not specific to drugs the LLM recognizes**:
+  the same skip-the-obvious-candidate behavior reproduces with anonymous
+  drug names and redacted target names.
+- The mitigation (force-investigate top-N via `investigate_top_candidates`
+  tool) handles candidate selection successfully — T2DM is now ranked #1
+  in the report. But the prose-leakage problem is downstream of selection
+  and not addressed by it.
+
+**Why this is hard to fully fix at the prompt level:**
+The supervisor's job inherently requires interpretive prose ("name the
+relationship," "lead with it," etc.). Telling the LLM "do not use any
+knowledge from your training" without breaking the interpretive task is
+not straightforward. Prompt instructions ("treat all candidates as open
+hypotheses") shift candidate selection but not narrative fidelity.
+
+**Possible future mitigations (none planned):**
+- Strengthen the holdout supervisor prompt with an explicit ban on naming
+  post-cutoff trial programs (STEP, SUSTAIN-6 outcome, FLOW, etc.) and
+  post-cutoff nomenclature changes (MASLD/MASH terminology). Brittle —
+  every new holdout drug needs new banned terms.
+- Move the report-writing step to a separate, more constrained LLM call
+  with a stricter prompt that has no `analyze_*` tool history (forced to
+  use only the structured artifacts). Bigger refactor.
+- Post-hoc check: scan the rendered report for date-stamped claims newer
+  than the cutoff and flag them for human review. Detective control, not
+  preventive.
+
+**Practical impact for the testing use case:**
+Structured fields (PMIDs, NCT IDs, counts, strength labels) remain
+trustworthy. Free-text prose should be read with awareness that the LLM
+may reference post-cutoff knowledge. For "did the system recover the
+target repurposing?" evaluation purposes the structured data answers the
+question; the prose is informative but not citable as a 2016 view.
