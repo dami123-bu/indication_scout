@@ -5,8 +5,8 @@ signal queries (failure / safety / efficacy), restricted to the same date
 cutoff used at training time.
 
 Run:
-    python -m indication_scout.trial_risk.inspect NCT00064337
-    python -m indication_scout.trial_risk.inspect NCT00064337 --top-k 10
+    python -m indication_scout.ml_models.trial_risk.inspect NCT00064337
+    python -m indication_scout.ml_models.trial_risk.inspect NCT00064337 --top-k 10
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.db.session import get_db
 from indication_scout.services.embeddings import embed_async
 from indication_scout.services.retrieval import RetrievalService
-from indication_scout.trial_risk.data import load_labeled_trials
-from indication_scout.trial_risk.literature import (
+from indication_scout.ml_models.trial_risk.data import load_labeled_trials
+from indication_scout.ml_models.trial_risk.literature import (
     DEFAULT_LOOKBACK_MONTHS,
     EFFICACY_QUERY,
     FAILURE_QUERY,

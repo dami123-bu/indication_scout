@@ -1,8 +1,8 @@
 """Score trials with the trained trial-risk classifier.
 
 Run:
-    python -m indication_scout.trial_risk.score NCT00064337 NCT01234567
-    python -m indication_scout.trial_risk.score --all-terminated
+    python -m indication_scout.ml_models.trial_risk.score NCT00064337 NCT01234567
+    python -m indication_scout.ml_models.trial_risk.score --all-terminated
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ import numpy as np
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.db.session import get_db
 from indication_scout.models.model_clinical_trials import Trial
-from indication_scout.trial_risk.data import LabeledTrial, load_labeled_trials
-from indication_scout.trial_risk.features import build_features
-from indication_scout.trial_risk.literature import (
+from indication_scout.ml_models.trial_risk.data import LabeledTrial, load_labeled_trials
+from indication_scout.ml_models.trial_risk.features import build_features
+from indication_scout.ml_models.trial_risk.literature import (
     LiteratureSignals,
     signals_for_trial,
 )
-from indication_scout.trial_risk.train import ARTIFACT_PATH
+from indication_scout.ml_models.trial_risk.train import ARTIFACT_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def load_artifact(path: Path = ARTIFACT_PATH) -> dict:
     if not path.exists():
         raise FileNotFoundError(
-            f"No trained artifact at {path}. Run `python -m indication_scout.trial_risk.train` first."
+            f"No trained artifact at {path}. Run `python -m indication_scout.ml_models.trial_risk.train` first."
         )
     with path.open("rb") as f:
         return pickle.load(f)

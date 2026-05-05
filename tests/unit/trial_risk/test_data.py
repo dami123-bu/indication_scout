@@ -2,7 +2,7 @@
 
 import json
 
-from indication_scout.trial_risk.data import load_labeled_trials
+from indication_scout.ml_models.trial_risk.data import load_labeled_trials
 
 
 def _write_cache_entry(cache_dir, namespace, drug, mesh_term, trials):

@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from indication_scout.models.model_clinical_trials import Trial
-from indication_scout.trial_risk.literature import (
+from indication_scout.ml_models.trial_risk.literature import (
     cutoff_for_trial,
     parse_trial_date,
 )

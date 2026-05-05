@@ -10,14 +10,14 @@ from indication_scout.models.model_clinical_trials import (
     PrimaryOutcome,
     Trial,
 )
-from indication_scout.trial_risk.features import (
+from indication_scout.ml_models.trial_risk.features import (
     PHASES,
     build_features,
     parse_year,
     sponsor_class,
     vectorize,
 )
-from indication_scout.trial_risk.literature import LiteratureSignals
+from indication_scout.ml_models.trial_risk.literature import LiteratureSignals
 
 
 @pytest.mark.parametrize(

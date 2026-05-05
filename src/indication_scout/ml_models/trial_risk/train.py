@@ -6,8 +6,8 @@ runs leave-one-drug-out cross-validation, and saves the artifact + metrics
 under `models/`.
 
 Run:
-    python -m indication_scout.trial_risk.train
-    python -m indication_scout.trial_risk.train --lookback-months 12
+    python -m indication_scout.ml_models.trial_risk.train
+    python -m indication_scout.ml_models.trial_risk.train --lookback-months 12
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ from sklearn.preprocessing import StandardScaler
 
 from indication_scout.constants import DEFAULT_CACHE_DIR
 from indication_scout.db.session import get_db
-from indication_scout.trial_risk.data import LabeledTrial, load_labeled_trials
-from indication_scout.trial_risk.features import FeatureRow, build_features, vectorize
-from indication_scout.trial_risk.literature import (
+from indication_scout.ml_models.trial_risk.data import LabeledTrial, load_labeled_trials
+from indication_scout.ml_models.trial_risk.features import FeatureRow, build_features, vectorize
+from indication_scout.ml_models.trial_risk.literature import (
     DEFAULT_LOOKBACK_MONTHS,
     LiteratureSignals,
     signals_for_trial,

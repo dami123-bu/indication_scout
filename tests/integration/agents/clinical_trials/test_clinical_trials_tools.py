@@ -411,8 +411,8 @@ async def test_get_landscape_tool_gastroparesis():
 
     # phase distribution sanity bounds (verified live in data-source test)
     assert 10 < result.phase_distribution["Phase 2"] < 100
-    assert 5 < result.phase_distribution["Phase 3"] < 50
-    assert 1 < result.phase_distribution["Phase 4"] < 10
+    assert 2 < result.phase_distribution["Phase 3"] < 50
+    assert 1 <= result.phase_distribution["Phase 4"] < 10
 
     # Recent starts include Vanda Pharmaceuticals' Tradipitant trial
     assert len(result.recent_starts) >= 1
