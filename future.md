@@ -43,105 +43,6 @@ sleep proves insufficient under realistic supervisor parallelism.
 
 ---
 
-## Supervisor — drug-level shared store (added 2026-04-26)
-
-Observed in a semaglutide snapshot: the supervisor demoted NAFLD as "settled
-and unfavorable" because `(semaglutide, NAFLD)` returned `is_approved=False,
-completed.phase3=1`. Locally correct, globally wrong — semaglutide IS approved
-for NASH (the inflammatory subset of NAFLD, per 2024 Wegovy expansion). The
-supervisor never saw that fact because no candidate was named "NASH."
-
-Two structural gaps:
-
-1. **No drug-level facts visible to the supervisor.** Each sub-agent call is
-   per-pair. FDA-approval discoveries, ChEMBL aliases, and mechanism context
-   get computed and discarded once the pair is analyzed. A fact discovered for
-   `(drug, candidate_A)` is invisible when the supervisor reasons about
-   `(drug, candidate_B)`.
-2. **Strict GROUNDING RULE blocks training-knowledge inference.** Even if the
-   model knows NASH ⊂ NAFLD, the prompt blocks that inference (rightly —
-   opening that door invites hallucinated approvals).
-
-Fix: a closure-scoped shared store inside `build_supervisor_tools`, populated
-by sub-agents as side effect, surfaced to the supervisor via two tools.
-
-**Store fields (Tier 1, in scope):**
-- `drug_aliases` (ChEMBL trade/generic names)
-- `approved_indications` (`(text, matched_label_text)` tuples)
-- `mechanism_targets` (gene + action_type pairs)
-- `mechanism_disease_associations` (high-score target→disease pairs)
-
-**Tools (Tier 2):**
-- `analyze_drug(drug_name)` — runs once at start, resolves ChEMBL aliases +
-  FDA approval check across known indications. Writes to store. Returns
-  briefing as content.
-- `get_drug_briefing()` — read-only view of current store, rendered as
-  markdown. Supervisor calls before `finalize_supervisor`.
-
-**Sub-agent write-throughs:**
-- `analyze_mechanism` populates `mechanism_targets` and
-  `mechanism_disease_associations`.
-- `analyze_clinical_trials` appends any `is_approved=True` matched_indication.
-
-**Briefing shape (terse, structured, no prose):**
-```
-DRUG INTAKE: semaglutide
-- Trade names: Ozempic, Wegovy, Rybelsus
-- FDA-approved indications:
-  - Type 2 diabetes mellitus
-  - Chronic weight management
-  - MASH
-- Targets: SLC6A2 (INHIBITOR), SLC6A3 (INHIBITOR)
-- Top mechanism-disease associations:
-  - SLC6A2 → ADHD (score 0.95)
-  - SLC6A3 → ADHD (score 0.93)
-```
-
-**Prompt change:** add to RECONCILIATION RULE that the supervisor must call
-`get_drug_briefing()` before finalize and check whether any candidate is
-related to an approved indication (subset/superset/sibling). If so, name the
-relationship explicitly — do not treat the candidate as a closed unfavorable
-hypothesis when its sister indication is already approved.
-
-**Implementation order:** closure dict → `analyze_drug` tool → briefing
-renderer → `get_drug_briefing` tool → mechanism write-through → trials
-write-through → supervisor prompt update → regression test against
-semaglutide × NAFLD case.
-
-**Out of scope (added back when concrete trigger conditions appear):**
-- Drug-level safety signals (accumulate from terminated `why_stopped`).
-  Add when the same drug repeatedly stops for the same reason across pairs.
-- `related_terms` for approved indications (precomputed synonym/subset/
-  superset hints). Add if the LLM proves unable to make the NASH↔NAFLD
-  inference from the flat approved list alone.
-
----
-
-## Reconsider drug_wide and indication_wide scopes (added 2026-04-25)
-
-The current refactor (see `trial_refactor.md`) drops `drug_wide` and
-`indication_wide` from `TrialOutcomes` entirely. They were causing the same
-unrelated trials (e.g. a bupropion weight-loss futility stop) to appear under
-every candidate disease in the report, where they have no causal relation to
-the candidate.
-
-Both signals are legitimately useful at the right layer — they were just being
-computed and reported at the wrong one (per pair, repeated per candidate).
-When time allows, consider re-introducing them deliberately:
-
-- **drug_wide** (this drug × any indication, safety/efficacy terminations) is a
-  drug-level fact. Natural home: the supervisor or mechanism agent, fetched
-  once per drug and surfaced once at the top of the report — not per candidate.
-- **indication_wide** (any drug × this indication, terminations) is an
-  indication-level fact about how hard the disease area is. Natural home:
-  inside `get_landscape`, alongside the competitor list — that tool already
-  owns the indication-level view.
-
-See also the existing "Clinical Trials agent — collapse to a single precise
-search" section near the bottom of this file, which framed the same direction.
-
----
-
 ## Clinical Trials Query Quality
 
 ### 0. MeSH resolver — ambiguous term handling
@@ -167,31 +68,6 @@ resolver proves insufficient:
 - LLM fallback via `query_small_llm` + a new `prompts/resolve_mesh.txt` for
   disambiguation, biased toward the disorder form for repurposing context.
 
-### 1. Expand drug synonyms before querying
-ChEMBL/DrugBank already have synonym lists. Pass the top N synonyms as an OR query
-(e.g. `metformin OR glucophage OR dimethylbiguanide`) to `query.intr`.
-This addresses false whitespace signals caused by trials registered under brand names
-or salt forms rather than the INN.
-
-### 2. Phase 3
-Put in something about pivotal trials in the final synthesis
-A pivotal study is a clinical trial whose results form the primary basis for a regulatory approval decision (FDA, EMA, etc.).
-
-Key characteristics:
-
-Phase 3 (occasionally Phase 2 in rare disease / oncology / accelerated approval contexts)
-Adequate and well-controlled — randomized, blinded, with a pre-specified primary endpoint
-Powered to demonstrate efficacy on that endpoint with statistical significance
-Conducted under an IND with the design pre-agreed with the regulator (often via End-of-Phase-2 meeting / SPA)
-The FDA typically requires two independent pivotal trials ("substantial evidence of effectiveness", FDCA §505(d)), though one pivotal + confirmatory evidence is accepted in some cases (e.g. rare diseases, oncology with strong effect size).
-
-Example: For dupilumab in eosinophilic esophagitis, the pivotal trial was LIBERTY EoE TREET (NCT03633617) — a Phase 3 randomized placebo-controlled trial whose Part A and Part B results supported the May 2022 approval.
-
-Distinct from:
-
-Supportive studies — Phase 2 dose-finding, PK/PD, mechanism studies cited alongside but not the basis for approval
-Post-marketing studies (Phase 4) — run after approval to confirm safety/effectiveness in broader populations
-
 ## Literature Agent — Adaptive Search
 
 The MVP uses a fixed call sequence with no retry logic. Once time allows, add:
@@ -201,21 +77,6 @@ The MVP uses a fixed call sequence with no retry logic. Once time allows, add:
   → `"liver disease"`) before proceeding to `semantic_search`.
 - **Low similarity retry**: if `semantic_search` returns all similarity scores below ~0.6,
   try `fetch_and_cache` with different queries before calling `synthesize`.
-
----
-
-## Clinical Trials — WITHDRAWN Coverage Gap
-
-`get_terminated` only queries `filter.overallStatus=TERMINATED`. Trials with status
-`WITHDRAWN` (pulled before any participants were enrolled) are not captured at all.
-
-These are a distinct signal: a sponsor committing to a trial and then backing out before
-enrollment may indicate early safety signals, failed IND, or strategic retreat — all
-relevant to repurposing analysis.
-
-Consider adding a separate `WITHDRAWN` query (drug-wide and/or indication-specific) and
-a corresponding `WithdrawnTrial` model or an extended `TerminatedTrial` with a
-`pre_enrollment: bool` flag to distinguish the two statuses.
 
 ---
 
@@ -267,25 +128,6 @@ Consider a fallback bucket: keep these trials in a separate `unfiltered` list on
 so agents can decide whether to inspect them manually, rather than losing them entirely.
 
 ---
-
-## Report — `pair_completed` Rendering
-
-`format_report._fmt_clinical_trials` currently skips `stop_category` for the
-`pair_completed` bucket because `TrialOutcomes.pair_completed` is `list[Trial]`,
-and `Trial` has no `stop_category` field (only the three `TerminatedTrial`
-buckets do). Completed trials are rendered with phase + `overall_status` only.
-
-This loses signal: the interesting question for a completed pair-specific trial
-is whether it *met its primary endpoint*. ClinicalTrials.gov marks endpoint
-failures as COMPLETED, not TERMINATED, so the report currently cannot
-distinguish "ran and succeeded" from "ran and missed endpoint."
-
-Options when time allows:
-- Surface `primary_outcomes` text in the rendered line for `pair_completed`.
-- Add an `outcome_category` (e.g. met / missed / unclear) to `Trial` or a new
-  `CompletedTrial` model, populated from results-section parsing or LLM
-  classification of the primary-outcomes text.
-- Pull results data via the CT.gov results endpoint for these specific NCT IDs.
 
 ## FDA approval check — fallback when no label is found (added 2026-04-22)
 
@@ -457,59 +299,12 @@ Options if precision matters for a specific path:
 Estimated effort: low for path-specific cap lifts; medium for a clean
 "countOnly" mode that bypasses pagination.
 
-## Clinical Trials agent — collapse to a single precise search
-
-The clinical trials agent currently issues four scoped queries per (drug,
-indication) pair via `data_sources/clinical_trials.py::get_terminated`:
-
-  - drug_wide: this drug, any indication, terminated only.
-  - indication_wide: this indication, any drug, terminated only.
-  - pair_specific: this drug + this indication, terminated.
-  - pair_completed: this drug + this indication, completed.
-
-The LLM then has to reason across all four scopes simultaneously. Two issues:
-
-1. The agent's output frequently surfaces counts ("12 completed trials")
-   without making clear which scope they came from, and downstream summaries
-   blur the boundary between drug-scoped, indication-scoped, and pair-scoped
-   findings.
-2. The MeSH descriptor used for `_filter_by_mesh` rolls subtypes up into the
-   parent (e.g. NASH/MASH trials are tagged with the NAFLD MeSH descriptor
-   D065626), so even pair-specific counts can lump clinically distinct
-   populations together. Combined with the multi-scope structure, the user
-   has no easy way to tell what the count represents.
-
-Proposed direction: drop the multi-scope structure entirely and do one
-precise pair-scoped search per call. Report what's there; don't aggregate
-indication-wide attrition or drug-wide failures into the same answer.
-Whitespace / landscape / drug-wide failure context becomes a separate tool
-call (or moves out of the clinical-trials agent entirely), so each tool
-returns one clean signal.
-
-Out of scope for now — the mechanism agent is unaffected, and the current
-behavior is acceptable for it. This change should be a deliberate redesign
-of the clinical trials agent's tool surface, not a quick patch.
-
-Estimated effort: medium — touches the data-source method signature, the
-agent's tool definitions, the agent's prompt, and downstream supervisor
-prompts that reason about completed/terminated counts.
-
 ## Clinical Trials sub-agent — two-stage list → drill-down (added 2026-04-30)
 
-The clinical_trials sub-agent's tools use `@tool(response_format="content_and_artifact")`.
-LangChain serializes only `ToolMessage.content` into the API payload sent to the LLM; the
-`artifact` (the typed Pydantic object carrying the trials list, phase, why_stopped, etc.)
-stays Python-side and is invisible to the model. Today the content strings carry only
-aggregate counts ("4 total"), so the sub-agent's LLM has no per-trial visibility — yet the
-system prompt explicitly tells it to "look at the phase field on each Trial in the returned
-list" (clinical_trials_agent.py:45-46) and to "inspect search_trials.trials for any UNKNOWN
-entries with Phase 3" (clinical_trials_agent.py:69-72). Symptom: the sub-agent's prose
-contradicts the report's own trials table — claims "no Phase 3" while NCT00763867 (RELAX)
-and NCT01726049 are listed as Phase 3 right below it.
-
-A near-term content-string enrichment (per-trial NCT id + phase + title in the content
-returned by `search_trials` / `get_completed` / `get_terminated`) fixes the immediate bug
-and is what we'd ship first. This entry is about the longer-arc architectural shape.
+Content-string enrichment (per-trial NCT id + phase + title in `search_trials` /
+`get_completed` / `get_terminated`) has shipped and fixed the immediate
+"prose contradicts trials table" bug. This entry is about the longer-arc
+architectural shape if the curated content string proves insufficient.
 
 **Proposed direction: two-stage list → drill-down.**
 
@@ -560,12 +355,10 @@ detail into its prose.
 
 **Dependencies / order of work:**
 
-1. Ship the content-string enrichment first (option 2). Confirms phase data flows correctly,
-   fixes the immediate report contradiction, no architectural risk.
-2. If the LLM proves unable to reason adequately even with the enriched content (e.g. it
+1. If the LLM proves unable to reason adequately even with the enriched content (e.g. it
    keeps missing subtype hints in titles, or fails to flag adequately powered Phase 2s),
    then add `get_trial_details` and the prompt update.
-3. Same architectural pattern likely applies to the literature sub-agent's PubMed tools —
+2. Same architectural pattern likely applies to the literature sub-agent's PubMed tools —
    abstracts on triage, full text on drill-down — but that's a separate piece of work.
 
 Not urgent. Defer until the content-string fix proves insufficient on a real failure case.
@@ -833,7 +626,8 @@ evidence, pre-fix the FDA approval check would have stripped them).
   `get_terminated` drop scrubbed trials. `get_landscape` short-circuits
   empty under cutoff.
 - FDA approval reasoning: hardcoded `data/drug_approvals.json` table
-  (currently bupropion, semaglutide, duloxetine, imatinib, colchicine).
+  (currently bupropion, semaglutide, duloxetine, imatinib, colchicine,
+  tadalafil, sildenafil, botox, methotrexate, propranolol, everolimus).
   Three call sites (`supervisor_tools.py:215`, `:187`,
   `clinical_trials_tools.py:check_fda_approval`) swap to the table when
   `date_before` is set; otherwise fall back to live openFDA + LLM.
@@ -857,7 +651,7 @@ evidence, pre-fix the FDA approval check would have stripped them).
    scores reflect today's evidence including post-cutoff papers. The
    mechanism narrative in holdout reports therefore reads "as of today,"
    not "as of cutoff." Same root cause as #1.
-3. **Hardcoded approval table only covers 5 drugs.** Uncurated drugs
+3. **Hardcoded approval table only covers a small curated set.** Uncurated drugs
    under `--date-before` get NO approval reasoning at all (lookup returns
    empty + warning). The FDA-approval-relationship logic in the
    supervisor's prompt silently no-ops for those drugs. Adding more
