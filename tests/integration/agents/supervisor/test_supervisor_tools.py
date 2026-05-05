@@ -26,6 +26,7 @@ from indication_scout.services.retrieval import RetrievalService
 from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
 )
+
 logger = logging.getLogger(__name__)
 
 # Counter to give each ToolCall a unique id within a test run
@@ -52,7 +53,10 @@ def _allowlist_state(tools: dict) -> tuple[dict, dict]:
     outer = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
     impl = outer["_analyze_mechanism_impl"].cell_contents
     inner = dict(zip(impl.__code__.co_freevars, impl.__closure__))
-    return inner["allowed_diseases"].cell_contents, inner["allowed_efo_ids"].cell_contents
+    return (
+        inner["allowed_diseases"].cell_contents,
+        inner["allowed_efo_ids"].cell_contents,
+    )
 
 
 @pytest.fixture
@@ -82,22 +86,32 @@ _EXPECTED_CANDIDATES_SUBSET = {
 # TODO: fill in expected FDA-approved indications seeded for metformin from openFDA
 # _EXPECTED_APPROVED_INDICATIONS_SUBSET: set[str] = {"type 2 diabetes mellitus"}
 
+
 async def test_find_candidates_random(llm, db_session_truncating, test_cache_dir):
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
-    msg = await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name="citalopram"))
+    msg = await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name="citalopram")
+    )
     diseases: list[str] = msg.artifact
+
 
 async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_dir):
     """find_candidates returns Open Targets candidate diseases, populates the closure-scoped
     allowlist, and seeds drug aliases + FDA-approved indications into the briefing store.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
-    msg = await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_DRUG))
+    msg = await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_DRUG)
+    )
 
     diseases: list[str] = msg.artifact
     assert isinstance(diseases, list)
@@ -105,7 +119,9 @@ async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_
     assert _EXPECTED_CANDIDATES_SUBSET.issubset(set(diseases))
 
     # content string format from supervisor_tools.find_candidates
-    assert msg.content.startswith(f"Found {len(diseases)} candidate diseases for {_DRUG}")
+    assert msg.content.startswith(
+        f"Found {len(diseases)} candidate diseases for {_DRUG}"
+    )
 
     # Briefing must reflect the seeded aliases + FDA-approved indications
     briefing = tools["get_drug_briefing"].invoke({"drug_name": _DRUG})
@@ -148,14 +164,18 @@ async def test_analyze_rejects_unlisted_disease(
     of the right type and a REJECTED: content message naming the tool.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
     msg = await tools[tool_name].ainvoke(
         _tc(tool_name, drug_name=_DRUG, disease_name="not-a-real-disease")
     )
 
-    assert msg.content.startswith("REJECTED: 'not-a-real-disease' is not in the allowed")
+    assert msg.content.startswith(
+        "REJECTED: 'not-a-real-disease' is not in the allowed"
+    )
     assert tool_name in msg.content
     assert isinstance(msg.artifact, empty_artifact_type)
     # An empty default-constructed artifact has no sub-results populated
@@ -195,24 +215,32 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     (1) ID match, (2) exact-name match, (3) OT name-resolve fallback.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
-    await tools["find_candidates"].ainvoke(_tc("find_candidates", drug_name=_MERGE_DRUG))
-    await tools["analyze_mechanism"].ainvoke(_tc("analyze_mechanism", drug_name=_MERGE_DRUG))
+    await tools["find_candidates"].ainvoke(
+        _tc("find_candidates", drug_name=_MERGE_DRUG)
+    )
+    await tools["analyze_mechanism"].ainvoke(
+        _tc("analyze_mechanism", drug_name=_MERGE_DRUG)
+    )
 
     allowed_diseases, allowed_efo_ids = _allowlist_state(tools)
 
-    assert allowed_diseases, "find_candidates should have seeded competitor allowlist entries"
+    assert (
+        allowed_diseases
+    ), "find_candidates should have seeded competitor allowlist entries"
 
     # No two allowlist rows share an OT disease ID — the original bug.
     id_to_keys: dict[str, list[str]] = {}
     for disease_id, key in allowed_efo_ids.items():
         id_to_keys.setdefault(disease_id, []).append(key)
     duplicates = {did: keys for did, keys in id_to_keys.items() if len(keys) > 1}
-    assert not duplicates, (
-        f"OT disease IDs must map to a single allowlist row; found duplicates: {duplicates}"
-    )
+    assert (
+        not duplicates
+    ), f"OT disease IDs must map to a single allowlist row; found duplicates: {duplicates}"
 
     # At least one row should be tagged "both" — confirms the merge fired and the
     # assertion above isn't holding trivially because the merge never touched anything.
@@ -247,7 +275,9 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     analyze_literature / analyze_clinical_trials.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(
@@ -259,7 +289,9 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     competitor_keys_before = {
         k for k, (_, source) in allowed_diseases.items() if source == "competitor"
     }
-    assert competitor_keys_before, "find_candidates should seed competitor entries first"
+    assert (
+        competitor_keys_before
+    ), "find_candidates should seed competitor entries first"
 
     await tools["analyze_mechanism"].ainvoke(
         _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
@@ -299,7 +331,9 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
     the artifact is the real output type, not the empty default.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
     await tools["find_candidates"].ainvoke(
@@ -358,14 +392,18 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
     )
 
 
-async def test_finalize_supervisor_echoes_summary(llm, db_session_truncating, test_cache_dir):
+async def test_finalize_supervisor_echoes_summary(
+    llm, db_session_truncating, test_cache_dir
+):
     """finalize_supervisor returns ('Supervisor analysis complete.', {summary, blurbs}).
 
     Blurbs for diseases not in the allowlist are dropped at the tool boundary; with no prior
     find_candidates / analyze_mechanism call, the allowlist is empty so all blurbs drop.
     """
     svc = RetrievalService(test_cache_dir)
-    tools_list, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db_session_truncating)
+    tools_list, _, _ = build_supervisor_tools(
+        llm=llm, svc=svc, db=db_session_truncating
+    )
     tools = _tool_map(tools_list)
 
     summary_text = (

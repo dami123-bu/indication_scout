@@ -6,9 +6,18 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from indication_scout.constants import CACHE_TTL, CHEMBL_BASE_URL, DEFAULT_CACHE_DIR, OPEN_TARGETS_BASE_URL
+from indication_scout.constants import (
+    CACHE_TTL,
+    CHEMBL_BASE_URL,
+    DEFAULT_CACHE_DIR,
+    OPEN_TARGETS_BASE_URL,
+)
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
-from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
+from indication_scout.models.model_chembl import (
+    ATCDescription,
+    MoleculeData,
+    MoleculeSynonym,
+)
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -199,6 +208,7 @@ class ChEMBLClient(BaseClient):
             molecule_synonyms=synonyms,
         )
 
+
 class _OTSearchClient(BaseClient):
     """Minimal client for Open Targets GraphQL search.
 
@@ -278,9 +288,7 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
 
     parent_id = molecule.parent_chembl_id
     if parent_id and parent_id != search_chembl_id:
-        logger.info(
-            "Salt detected: %s -> parent %s", search_chembl_id, parent_id
-        )
+        logger.info("Salt detected: %s -> parent %s", search_chembl_id, parent_id)
         canonical_id = parent_id
     else:
         canonical_id = search_chembl_id
@@ -296,7 +304,9 @@ async def resolve_drug_name(drug_name: str, cache_dir: Path = DEFAULT_CACHE_DIR)
     return canonical_id
 
 
-async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> list[str]:
+async def get_all_drug_names(
+    chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
+) -> list[str]:
     """Fetch all known names for a drug from ChEMBL.
 
     Returns a list where the first element is always pref_name (the
@@ -333,10 +343,7 @@ async def get_all_drug_names(chembl_id: str, cache_dir: Path = DEFAULT_CACHE_DIR
         parent = await client.get_molecule(chembl_id)
         pref_name = parent.pref_name if parent.pref_name else chembl_id
 
-        all_names.extend(
-            s.molecule_synonym
-            for s in parent.molecule_synonyms
-        )
+        all_names.extend(s.molecule_synonym for s in parent.molecule_synonyms)
 
         # 2. Discover salt forms via molecule_hierarchy
         hierarchy_url = f"{CHEMBL_BASE_URL}/molecule.json"

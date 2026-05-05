@@ -71,7 +71,9 @@ def build_features(
     # which proxies "loss of function helps." Computed across datatypes that carry
     # the field (animal_model, clinical — but clinical is masked here).
     directional = [
-        r for r in non_clinical_records if r.get("direction_on_trait") in ("protect", "risk")
+        r
+        for r in non_clinical_records
+        if r.get("direction_on_trait") in ("protect", "risk")
     ]
     if directional:
         n_protect = sum(

@@ -51,19 +51,25 @@ _EXPECTED_TOP5 = [
     ("36051145", "Semaglutide might be a key for breaking the viciou"),
     ("38464718", "Evolving role of semaglutide in NAFLD: in combinat"),
 ]
-_EXPECTED_SUPPORTING_PMIDS = {"36051145", "38464718", "37950798", "38155202", "37994050"}
+_EXPECTED_SUPPORTING_PMIDS = {
+    "36051145",
+    "38464718",
+    "37950798",
+    "38155202",
+    "37994050",
+}
 
 # --- Values to fill in from a live run -----------------------------
 # build_drug_profile expected values (Semaglutide / CHEMBL2108724)
-_EXPECTED_TARGET_GENE_SYMBOLS: list[str] = []        # TODO: fill in, e.g. ["GLP1R"]
-_EXPECTED_MECHANISMS_OF_ACTION: list[str] = []       # TODO: fill in
-_EXPECTED_ATC_CODES: list[str] = []                  # TODO: fill in, e.g. ["A10BJ06"]
-_EXPECTED_ATC_DESCRIPTIONS: list[str] = []           # TODO: fill in
-_EXPECTED_DRUG_TYPE: str = "Protein"                        # TODO: fill in, e.g. "Protein"
+_EXPECTED_TARGET_GENE_SYMBOLS: list[str] = []  # TODO: fill in, e.g. ["GLP1R"]
+_EXPECTED_MECHANISMS_OF_ACTION: list[str] = []  # TODO: fill in
+_EXPECTED_ATC_CODES: list[str] = []  # TODO: fill in, e.g. ["A10BJ06"]
+_EXPECTED_ATC_DESCRIPTIONS: list[str] = []  # TODO: fill in
+_EXPECTED_DRUG_TYPE: str = "Protein"  # TODO: fill in, e.g. "Protein"
 
 # Synthesize expected values
-_EXPECTED_STRENGTH: str = "moderate"                     # confirmed by literature_agent test
-_EXPECTED_MIN_STUDY_COUNT: int = 2                   # confirmed by literature_agent test
+_EXPECTED_STRENGTH: str = "moderate"  # confirmed by literature_agent test
+_EXPECTED_MIN_STUDY_COUNT: int = 2  # confirmed by literature_agent test
 # -------------------------------------------------------------------
 
 
@@ -80,7 +86,9 @@ async def test_build_drug_profile(db_session_truncating, test_cache_dir):
     svc = RetrievalService(test_cache_dir)
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
-    msg = await tools["build_drug_profile"].ainvoke(_tc("build_drug_profile", drug_name=_DRUG))
+    msg = await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_DRUG)
+    )
 
     profile: DrugProfile = msg.artifact
     assert isinstance(profile, DrugProfile)
@@ -101,7 +109,9 @@ async def test_expand_search_terms(db_session_truncating, test_cache_dir):
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
     # build_drug_profile populates the store; expand_search_terms reads from it
-    await tools["build_drug_profile"].ainvoke(_tc("build_drug_profile", drug_name=_DRUG))
+    await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_DRUG)
+    )
     msg = await tools["expand_search_terms"].ainvoke(
         _tc("expand_search_terms", drug_name=_DRUG, disease_name=_DISEASE)
     )
@@ -111,7 +121,6 @@ async def test_expand_search_terms(db_session_truncating, test_cache_dir):
     assert all(isinstance(q, str) and q for q in queries)
     # case-insensitive dedup by retrieval.expand_search_terms
     assert len({q.lower().strip() for q in queries}) == len(queries)
-
 
     queries_lower = [q.lower() for q in queries]
     assert any("semaglutide" in q or "glp-1" in q or "glp1" in q for q in queries_lower)
@@ -128,7 +137,9 @@ async def test_fetch_and_cache_without_queries(db_session_truncating, test_cache
     svc = RetrievalService(test_cache_dir)
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
-    msg = await tools["fetch_and_cache"].ainvoke(_tc("fetch_and_cache", drug_name=_DRUG))
+    msg = await tools["fetch_and_cache"].ainvoke(
+        _tc("fetch_and_cache", drug_name=_DRUG)
+    )
 
     assert msg.artifact == []
     assert msg.content == "No queries — call expand_search_terms first."
@@ -139,11 +150,15 @@ async def test_fetch_and_cache(db_session_truncating, test_cache_dir):
     svc = RetrievalService(test_cache_dir)
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
-    await tools["build_drug_profile"].ainvoke(_tc("build_drug_profile", drug_name=_DRUG))
+    await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_DRUG)
+    )
     await tools["expand_search_terms"].ainvoke(
         _tc("expand_search_terms", drug_name=_DRUG, disease_name=_DISEASE)
     )
-    msg = await tools["fetch_and_cache"].ainvoke(_tc("fetch_and_cache", drug_name=_DRUG))
+    msg = await tools["fetch_and_cache"].ainvoke(
+        _tc("fetch_and_cache", drug_name=_DRUG)
+    )
 
     pmids: list[str] = msg.artifact
     assert isinstance(pmids, list)
@@ -173,7 +188,9 @@ async def test_semantic_search(db_session_truncating, test_cache_dir):
     svc = RetrievalService(test_cache_dir)
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
-    await tools["build_drug_profile"].ainvoke(_tc("build_drug_profile", drug_name=_DRUG))
+    await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_DRUG)
+    )
     await tools["expand_search_terms"].ainvoke(
         _tc("expand_search_terms", drug_name=_DRUG, disease_name=_DISEASE)
     )
@@ -192,12 +209,17 @@ async def test_semantic_search(db_session_truncating, test_cache_dir):
 
     result_pmids = [r.pmid for r in results]
     for expected_pmid, expected_title_fragment in _EXPECTED_TOP5:
-        assert expected_pmid in result_pmids, f"Expected PMID {expected_pmid} not in top-5"
+        assert (
+            expected_pmid in result_pmids
+        ), f"Expected PMID {expected_pmid} not in top-5"
         match = next(r for r in results if r.pmid == expected_pmid)
         assert expected_title_fragment in match.title
         assert isinstance(match.abstract, str) and len(match.abstract) > 0
 
-    assert msg.content == f"Found {len(results)} abstracts (top sim: {results[0].similarity:.2f})"
+    assert (
+        msg.content
+        == f"Found {len(results)} abstracts (top sim: {results[0].similarity:.2f})"
+    )
 
 
 async def test_synthesize(db_session_truncating, test_cache_dir):
@@ -205,7 +227,9 @@ async def test_synthesize(db_session_truncating, test_cache_dir):
     svc = RetrievalService(test_cache_dir)
     tools = _tool_map(_build_tools(svc, db_session_truncating))
 
-    await tools["build_drug_profile"].ainvoke(_tc("build_drug_profile", drug_name=_DRUG))
+    await tools["build_drug_profile"].ainvoke(
+        _tc("build_drug_profile", drug_name=_DRUG)
+    )
     await tools["expand_search_terms"].ainvoke(
         _tc("expand_search_terms", drug_name=_DRUG, disease_name=_DISEASE)
     )

@@ -394,7 +394,9 @@ def test_target_data_function_descriptions_populates():
 
 
 def test_variant_functional_consequence_fields_populate():
-    vfc = VariantFunctionalConsequence(id="SO_0002054", label="loss_of_function_variant")
+    vfc = VariantFunctionalConsequence(
+        id="SO_0002054", label="loss_of_function_variant"
+    )
     assert vfc.id == "SO_0002054"
     assert vfc.label == "loss_of_function_variant"
 
@@ -417,7 +419,9 @@ def test_variant_functional_consequence_coerces_nones():
 
 
 def test_evidence_record_all_fields_populate():
-    vfc = VariantFunctionalConsequence(id="SO_0002054", label="loss_of_function_variant")
+    vfc = VariantFunctionalConsequence(
+        id="SO_0002054", label="loss_of_function_variant"
+    )
     e = EvidenceRecord(
         disease_id="EFO_0003847",
         datatype_id="genetic_association",

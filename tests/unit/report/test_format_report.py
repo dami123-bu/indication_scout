@@ -131,7 +131,12 @@ def test_fmt_clinical_trials_completed_renders_count_and_top_trials():
 
 def test_fmt_clinical_trials_completed_caps_at_ten():
     trials = [
-        Trial(nct_id=f"NCT{i:08d}", title=f"Trial {i}", phase="Phase 2", overall_status="Completed")
+        Trial(
+            nct_id=f"NCT{i:08d}",
+            title=f"Trial {i}",
+            phase="Phase 2",
+            overall_status="Completed",
+        )
         for i in range(15)
     ]
     out = ClinicalTrialsOutput(
@@ -156,8 +161,7 @@ def test_fmt_clinical_trials_terminated_with_why_stopped():
     assert "**Terminated trials (1):**" in rendered
     assert (
         "[NCT01112233](https://clinicaltrials.gov/study/NCT01112233) Cardio Trial (Phase 2)"
-        " [enrollment] — *Sponsor decision due to slow enrollment*"
-        in rendered
+        " [enrollment] — *Sponsor decision due to slow enrollment*" in rendered
     )
 
 

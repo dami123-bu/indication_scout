@@ -14,7 +14,6 @@ from indication_scout.services.approval_check import (
     list_approved_indications_from_labels,
 )
 
-
 # --- extract_approved_from_labels ---
 
 
@@ -214,7 +213,9 @@ async def test_list_approved_indications_strips_markdown_fences(tmp_path):
         new=AsyncMock(return_value=llm_response),
     ):
         result = await list_approved_indications_from_labels(
-            label_texts=["Indicated for MASH with moderate to advanced liver fibrosis."],
+            label_texts=[
+                "Indicated for MASH with moderate to advanced liver fibrosis."
+            ],
             cache_dir=tmp_path,
         )
 
@@ -252,7 +253,9 @@ async def test_list_approved_indications_extracts_array_from_wrapped_object(tmp_
 
 
 async def test_list_approved_indications_dedupes_case_insensitively(tmp_path):
-    llm_response = json.dumps(["Obesity", "obesity", "  type 2 diabetes mellitus  ", ""])
+    llm_response = json.dumps(
+        ["Obesity", "obesity", "  type 2 diabetes mellitus  ", ""]
+    )
 
     with patch(
         "indication_scout.services.approval_check.query_llm",
@@ -337,9 +340,7 @@ def _clear_approvals_cache():
         (date(2026, 1, 1), "non-alcoholic steatohepatitis (MASH)", True),
     ],
 )
-def test_get_approved_indications_semaglutide_mash(
-    as_of, candidate, expected_in_set
-):
+def test_get_approved_indications_semaglutide_mash(as_of, candidate, expected_in_set):
     """Verify the cutoff semantics for semaglutide × MASH against the real table.
 
     MASH was approved 2025-08-15. The lookup uses strict less-than on the
@@ -443,4 +444,3 @@ def test_list_approved_indications_at_returns_empty_when_as_of_is_none():
     """as_of=None → empty list (callers should use the live FDA path)."""
     result = list_approved_indications_at("semaglutide", None)
     assert result == []
-

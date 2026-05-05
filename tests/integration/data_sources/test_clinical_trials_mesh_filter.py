@@ -40,7 +40,9 @@ _PAIRS: list[tuple[str, str]] = [
 ]
 
 
-async def test_mesh_filter_pre_vs_post_counts(clinical_trials_client: ClinicalTrialsClient):
+async def test_mesh_filter_pre_vs_post_counts(
+    clinical_trials_client: ClinicalTrialsClient,
+):
     results: list[tuple[str, str, str, int, int]] = []
 
     for drug, indication in _PAIRS:
@@ -71,9 +73,9 @@ async def test_mesh_filter_pre_vs_post_counts(clinical_trials_client: ClinicalTr
         )
 
         # Filter only narrows.
-        assert post <= pre, (
-            f"{drug} x {indication}: post-filter count {post} exceeds pre-filter {pre}"
-        )
+        assert (
+            post <= pre
+        ), f"{drug} x {indication}: post-filter count {post} exceeds pre-filter {pre}"
 
     # Allow at most one pair to collapse to zero post-filter (e.g. a
     # resolver mis-pick on a single ambiguous indication). If more than
@@ -82,6 +84,6 @@ async def test_mesh_filter_pre_vs_post_counts(clinical_trials_client: ClinicalTr
     # be commented out locally without breaking the assertion.
     nonempty = sum(1 for *_, post in results if post > 0)
     min_nonempty = max(1, len(results) - 1)
-    assert nonempty >= min_nonempty, (
-        f"only {nonempty}/{len(results)} pairs retained trials post-filter: {results}"
-    )
+    assert (
+        nonempty >= min_nonempty
+    ), f"only {nonempty}/{len(results)} pairs retained trials post-filter: {results}"

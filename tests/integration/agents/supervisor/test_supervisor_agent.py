@@ -68,7 +68,10 @@ async def test_metformin_supervisor_agent(supervisor_agent):
     """
     agent, get_merged_allowlist, get_auto_findings = supervisor_agent
     output = await run_supervisor_agent(
-        agent, get_merged_allowlist, "metformin", get_auto_findings=get_auto_findings,
+        agent,
+        get_merged_allowlist,
+        "metformin",
+        get_auto_findings=get_auto_findings,
     )
 
     assert isinstance(output, SupervisorOutput)

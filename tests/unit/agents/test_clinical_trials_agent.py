@@ -228,7 +228,9 @@ async def test_run_clinical_trials_agent_active_trials_path():
         _tool_msg("search_trials", ACTIVE_SEARCH),
         _tool_msg("get_completed", COMPLETED),
         _tool_msg("get_landscape", LANDSCAPE),
-        _tool_msg("finalize_analysis", "5 trials found. ALS space is moderately active."),
+        _tool_msg(
+            "finalize_analysis", "5 trials found. ALS space is moderately active."
+        ),
     ]
     agent = _make_agent(messages)
 
@@ -308,7 +310,10 @@ async def test_run_clinical_trials_agent_approval_path():
         _tool_msg("search_trials", SEARCH),
         _tool_msg("get_landscape", LANDSCAPE),
         _tool_msg("check_fda_approval", APPROVAL),
-        _tool_msg("finalize_analysis", "Semaglutide is FDA-approved for type 2 diabetes mellitus."),
+        _tool_msg(
+            "finalize_analysis",
+            "Semaglutide is FDA-approved for type 2 diabetes mellitus.",
+        ),
     ]
     agent = _make_agent(messages)
 
@@ -326,10 +331,7 @@ async def test_run_clinical_trials_agent_approval_path():
         "wegovy",
         "rybelsus",
     ]
-    assert (
-        output.summary
-        == "Semaglutide is FDA-approved for type 2 diabetes mellitus."
-    )
+    assert output.summary == "Semaglutide is FDA-approved for type 2 diabetes mellitus."
 
 
 async def test_run_clinical_trials_agent_approval_defaults_to_none_when_absent():

@@ -60,7 +60,9 @@ def build_supervisor_agent(llm, svc, db, date_before: date | None = None):
     tools, get_merged_allowlist, get_auto_findings = build_supervisor_tools(
         llm=llm, svc=svc, db=db, date_before=date_before
     )
-    prompt_file = "supervisor_holdout.txt" if date_before is not None else "supervisor.txt"
+    prompt_file = (
+        "supervisor_holdout.txt" if date_before is not None else "supervisor.txt"
+    )
     logger.info("supervisor prompt: %s (date_before=%s)", prompt_file, date_before)
     prompt = _load_system_prompt(holdout_mode=date_before is not None)
     agent = create_react_agent(model=llm, tools=tools, prompt=prompt)
@@ -124,7 +126,9 @@ async def run_supervisor_agent(
     # or "both".
     allowed_lower = get_merged_allowlist()
 
-    def _canonical(disease_raw: str) -> tuple[str, Literal["competitor", "mechanism", "both"]] | None:
+    def _canonical(
+        disease_raw: str,
+    ) -> tuple[str, Literal["competitor", "mechanism", "both"]] | None:
         """Return (canonical_name, source) for disease_raw, or None if not allowed."""
         key = disease_raw.lower().strip()
         return allowed_lower.get(key)
@@ -176,7 +180,10 @@ async def run_supervisor_agent(
             )
             if findings.literature is None and artifacts.get("literature") is not None:
                 findings.literature = artifacts["literature"]
-            if findings.clinical_trials is None and artifacts.get("clinical_trials") is not None:
+            if (
+                findings.clinical_trials is None
+                and artifacts.get("clinical_trials") is not None
+            ):
                 findings.clinical_trials = artifacts["clinical_trials"]
 
     # Attach supervisor-written blurbs to the matching CandidateFindings. Blurbs only attach to

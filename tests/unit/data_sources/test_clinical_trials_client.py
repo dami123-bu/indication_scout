@@ -70,9 +70,7 @@ async def test_count_trials_total_returns_total_count_with_pagesize_one(tmp_path
 async def test_count_trials_total_zero_when_missing_total(tmp_path):
     """When the API response lacks totalCount, _count_trials_total returns 0."""
     client = ClinicalTrialsClient(cache_dir=tmp_path)
-    with patch.object(
-        client, "_rest_get", new=AsyncMock(return_value={"studies": []})
-    ):
+    with patch.object(client, "_rest_get", new=AsyncMock(return_value={"studies": []})):
         count = await client._count_trials_total(
             drug="x", indication='AREA[ConditionMeshTerm]"Y"'
         )
@@ -204,7 +202,9 @@ async def test_get_completed_trials_returns_total_and_trials(tmp_path):
             new=AsyncMock(return_value=([fake_trial], False)),
         ) as mock_fetch,
     ):
-        result = await client.get_completed_trials("semaglutide", "Diabetes Mellitus, Type 2")
+        result = await client.get_completed_trials(
+            "semaglutide", "Diabetes Mellitus, Type 2"
+        )
 
     assert result.total_count == 20
     assert len(result.trials) == 1

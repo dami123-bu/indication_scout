@@ -14,6 +14,10 @@ A **Supervisor** agent orchestrates three specialist sub-agents:
 
 The Supervisor first calls `find_candidates` (Open Targets competitor analysis) and `analyze_mechanism` in parallel, then delegates to the Literature and Clinical Trials agents per candidate disease.
 
+### Top-5 candidate blurbs
+
+After investigating candidates, the Supervisor produces a ranked Summary. For each of the **top 5 ranked candidates**, the Supervisor also writes a **2-sentence interpretive blurb** characterizing the *state of the hypothesis* — live, stalled, niche, untested, post-readout-and-stuck, etc. — grounded in the literature and clinical-trials sub-agent summaries seen during that run. Mechanism content is intentionally excluded from the blurb to keep it focused on clinical evidence. Blurbs are produced by the same `finalize_supervisor` tool call that emits the ranked summary (no extra LLM call) and rendered inline under each disease in the Summary section of both the Markdown report and the Streamlit Overview tab. Holdout runs (`--date-before`) skip blurbs.
+
 Data sources:
 
 - Open Targets (GraphQL) — drug targets, disease associations, competitor drugs

@@ -85,7 +85,9 @@ def _print_block(label: str, hits: list[tuple[str, str, str, float]]) -> None:
 
 
 async def main_async(nct_id: str, top_k: int, cache_dir: Path) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
 
     labeled = load_labeled_trials(cache_dir)
     by_nct = {lt.trial.nct_id: lt for lt in labeled}
@@ -148,9 +150,13 @@ async def main_async(nct_id: str, top_k: int, cache_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect lit-signal abstracts for a trial.")
+    parser = argparse.ArgumentParser(
+        description="Inspect lit-signal abstracts for a trial."
+    )
     parser.add_argument("nct_id", help="NCT ID to inspect.")
-    parser.add_argument("--top-k", type=int, default=5, help="Number of abstracts to show per category.")
+    parser.add_argument(
+        "--top-k", type=int, default=5, help="Number of abstracts to show per category."
+    )
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     args = parser.parse_args()
     asyncio.run(main_async(args.nct_id, args.top_k, args.cache_dir))

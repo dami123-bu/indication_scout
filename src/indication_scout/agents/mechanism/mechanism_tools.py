@@ -59,9 +59,10 @@ def build_mechanism_tools() -> list:
         }
         moas = drug.mechanisms_of_action
 
-        summary = ", ".join(
-            f"{m.action_type} ({m.mechanism_of_action})" for m in moas
-        ) or "none"
+        summary = (
+            ", ".join(f"{m.action_type} ({m.mechanism_of_action})" for m in moas)
+            or "none"
+        )
         return (
             f"Found {len(moas)} mechanism(s) for {drug_name} ({chembl_id}): {summary}",
             moas,
@@ -80,19 +81,25 @@ def build_mechanism_tools() -> list:
         target_ids: dict[str, str] = store.get("target_ids", {})
         target_id = target_ids.get(target_symbol)
         if not target_id:
-            return f"Target '{target_symbol}' not found in store — call get_drug first", {}
+            return (
+                f"Target '{target_symbol}' not found in store — call get_drug first",
+                {},
+            )
 
         async with OpenTargetsClient() as client:
             associations = await client.get_target_data_associations(target_id)
 
         filtered = [
-            a for a in associations
+            a
+            for a in associations
             if any(
                 a.datatype_scores.get(k, 0) >= _settings.mechanism_signal_threshold
                 for k in MECHANISM_SIGNAL_KEYS
             )
         ]
-        top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[:_settings.mechanism_associations_cap]
+        top = sorted(filtered, key=lambda a: a.overall_score or 0, reverse=True)[
+            : _settings.mechanism_associations_cap
+        ]
 
         fetched = store.setdefault("fetched_associations", {})
         for a in top:

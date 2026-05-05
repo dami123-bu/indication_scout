@@ -32,6 +32,7 @@ def _stub_candidate_assembly():
     ):
         yield
 
+
 MECHANISMS_OF_ACTION = [
     MechanismOfAction(
         mechanism_of_action="Complex I inhibitor",
@@ -83,7 +84,10 @@ async def test_run_mechanism_agent_assembles_all_fields():
 
     assert isinstance(output, MechanismOutput)
     assert output.mechanisms_of_action == MECHANISMS_OF_ACTION
-    assert output.drug_targets == {"PRKAA1": "ENSG00000132356", "PRKAA2": "ENSG00000162409"}
+    assert output.drug_targets == {
+        "PRKAA1": "ENSG00000132356",
+        "PRKAA2": "ENSG00000162409",
+    }
     assert output.summary == NARRATIVE
 
 
@@ -101,7 +105,10 @@ async def test_run_mechanism_agent_ignores_non_tool_messages():
 
     output = await run_mechanism_agent(agent, "metformin")
 
-    assert output.drug_targets == {"PRKAA1": "ENSG00000132356", "PRKAA2": "ENSG00000162409"}
+    assert output.drug_targets == {
+        "PRKAA1": "ENSG00000132356",
+        "PRKAA2": "ENSG00000162409",
+    }
     assert output.summary == NARRATIVE
 
 
@@ -113,7 +120,9 @@ async def test_run_mechanism_agent_ignores_non_tool_messages():
         ("finalize_analysis", "summary", ""),
     ],
 )
-async def test_run_mechanism_agent_missing_tool_leaves_default(omit_tool, field, default):
+async def test_run_mechanism_agent_missing_tool_leaves_default(
+    omit_tool, field, default
+):
     """When a tool's ToolMessage is absent, the corresponding output field stays at its default."""
     all_messages = [
         HumanMessage(content="Analyse the targets of metformin"),
@@ -121,7 +130,11 @@ async def test_run_mechanism_agent_missing_tool_leaves_default(omit_tool, field,
         _tool_msg("get_target_associations", {"PRKAA1": ASSOCIATIONS_PRKAA1}),
         _tool_msg("finalize_analysis", NARRATIVE),
     ]
-    messages = [m for m in all_messages if not (isinstance(m, ToolMessage) and m.name == omit_tool)]
+    messages = [
+        m
+        for m in all_messages
+        if not (isinstance(m, ToolMessage) and m.name == omit_tool)
+    ]
     agent = _make_agent(messages)
 
     output = await run_mechanism_agent(agent, "metformin")

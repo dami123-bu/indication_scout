@@ -57,7 +57,9 @@ async def score_trial_async(
                 lookback_months=artifact["lookback_months"],
             )
         except Exception as exc:
-            logger.warning("Lit signal failed for %s: %s — using empty signals", trial.nct_id, exc)
+            logger.warning(
+                "Lit signal failed for %s: %s — using empty signals", trial.nct_id, exc
+            )
             lit = LiteratureSignals()
     finally:
         db.close()
@@ -83,7 +85,9 @@ async def main_async(
     all_terminated: bool,
     cache_dir: Path,
 ) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
     artifact = load_artifact()
     labeled = load_labeled_trials(cache_dir)
 
@@ -99,18 +103,25 @@ async def main_async(
     print(f"{'NCT_ID':<14}  {'P(term)':>7}  {'label':>5}  {'phase':<18}  drug")
     for lt in targets:
         p = await score_trial_async(lt.trial, lt.drug, artifact, cache_dir)
-        print(f"{lt.trial.nct_id:<14}  {p:>7.3f}  {lt.label:>5d}  {lt.trial.phase:<18}  {lt.drug}")
+        print(
+            f"{lt.trial.nct_id:<14}  {p:>7.3f}  {lt.label:>5d}  {lt.trial.phase:<18}  {lt.drug}"
+        )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Score trials with trial-risk classifier.")
+    parser = argparse.ArgumentParser(
+        description="Score trials with trial-risk classifier."
+    )
     parser.add_argument("nct_ids", nargs="*", help="NCT IDs to score.")
     parser.add_argument(
-        "--all-terminated", action="store_true",
+        "--all-terminated",
+        action="store_true",
         help="Score every terminated trial in the cache (sanity check).",
     )
     parser.add_argument(
-        "--cache-dir", type=Path, default=DEFAULT_CACHE_DIR,
+        "--cache-dir",
+        type=Path,
+        default=DEFAULT_CACHE_DIR,
         help="Path to the IndicationScout cache directory.",
     )
     args = parser.parse_args()

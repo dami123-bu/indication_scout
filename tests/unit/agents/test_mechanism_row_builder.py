@@ -20,7 +20,9 @@ from indication_scout.models.model_open_targets import (
 )
 
 
-def _assoc(disease_id: str, disease_name: str, score: float, desc: str = "") -> Association:
+def _assoc(
+    disease_id: str, disease_name: str, score: float, desc: str = ""
+) -> Association:
     return Association(
         disease_id=disease_id,
         disease_name=disease_name,
@@ -40,7 +42,9 @@ def _ev(disease_id: str, dir_t: str = "GoF", dir_trait: str = "risk") -> Evidenc
     )
 
 
-def _mock_client(target: TargetData, evidences_by_disease: dict[str, list[EvidenceRecord]]) -> MagicMock:
+def _mock_client(
+    target: TargetData, evidences_by_disease: dict[str, list[EvidenceRecord]]
+) -> MagicMock:
     client = MagicMock()
     client.get_target_data = AsyncMock(return_value=target)
     client.get_target_evidences = AsyncMock(return_value=evidences_by_disease)
@@ -90,7 +94,9 @@ async def test_build_candidate_rows_sorts_by_score_desc_and_trims_top_n():
 
     assert [r["disease_name"] for r in rows] == ["high", "mid"]
     # get_target_evidences was called with the top-2 efo_ids in sorted order.
-    client.get_target_evidences.assert_awaited_once_with("ENSG0001", ["EFO_HIGH", "EFO_MID"])
+    client.get_target_evidences.assert_awaited_once_with(
+        "ENSG0001", ["EFO_HIGH", "EFO_MID"]
+    )
 
 
 async def test_build_candidate_rows_empty_function_descriptions_defaults_empty_string():

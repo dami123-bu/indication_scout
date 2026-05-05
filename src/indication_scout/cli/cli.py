@@ -22,7 +22,7 @@ DEFAULT_OUT_DIR = PROJECT_ROOT / "snapshots"
 
 # Manually set this to point at a different constants file (e.g. ".env.constants.experiment").
 # Path is resolved relative to PROJECT_ROOT.
-CONSTANTS_FILE = ".env.constants.test"
+CONSTANTS_FILE = ".env.constants.custom"
 
 
 def _load_env() -> None:
@@ -71,7 +71,10 @@ async def _run_for_drug(
         llm=llm, svc=svc, db=db, date_before=date_before
     )
     output = await run_supervisor_agent(
-        agent, get_merged_allowlist, drug, get_auto_findings=get_auto_findings,
+        agent,
+        get_merged_allowlist,
+        drug,
+        get_auto_findings=get_auto_findings,
     )
 
     if not write:

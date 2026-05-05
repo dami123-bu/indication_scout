@@ -87,7 +87,9 @@ def build_supervisor_tools(
     # Closure-scoped allowlist — populated by find_candidates and analyze_mechanism, checked by
     # analyze_literature / analyze_clinical_trials.
     # allowed_diseases: lowercase disease name → (canonical_name, source)
-    allowed_diseases: dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]] = {}
+    allowed_diseases: dict[
+        str, tuple[str, Literal["competitor", "mechanism", "both"]]
+    ] = {}
     # EFO ID → lowercase disease name (key into allowed_diseases). Lets analyze_mechanism dedup
     # mechanism candidates against competitor entries by ontology ID even when names differ
     # (e.g. "NSCLC" vs "non-small cell lung cancer").
@@ -121,9 +123,9 @@ def build_supervisor_tools(
         if key not in drug_facts:
             drug_facts[key] = {
                 "drug_name": key,
-                "drug_aliases": [],               # ChEMBL trade/generic names
-                "approved_indications": [],       # list of indication strings
-                "mechanism_targets": [],          # list of (gene, action_type)
+                "drug_aliases": [],  # ChEMBL trade/generic names
+                "approved_indications": [],  # list of indication strings
+                "mechanism_targets": [],  # list of (gene, action_type)
                 "mechanism_disease_associations": [],  # list of (gene, disease, score)
             }
         return drug_facts[key]
@@ -191,7 +193,9 @@ def build_supervisor_tools(
         try:
             entry["drug_aliases"] = await get_all_drug_names(chembl_id, svc.cache_dir)
         except Exception as e:
-            logger.warning("find_candidates: get_all_drug_names failed for %s: %s", chembl_id, e)
+            logger.warning(
+                "find_candidates: get_all_drug_names failed for %s: %s", chembl_id, e
+            )
 
         # Seed approved_indications from the drug's own FDA label, independent of
         # any candidate list. Without this, an approved indication that doesn't
@@ -209,13 +213,17 @@ def build_supervisor_tools(
                 seeded = list_approved_indications_at(drug_name, date_before)
             else:
                 async with FDAClient(cache_dir=svc.cache_dir) as fda_client:
-                    label_texts = await fda_client.get_all_label_indications(seed_aliases)
+                    label_texts = await fda_client.get_all_label_indications(
+                        seed_aliases
+                    )
                 seeded = await list_approved_indications_from_labels(
                     label_texts=label_texts,
                     cache_dir=svc.cache_dir,
                 )
             if seeded:
-                existing = {ind.lower().strip() for ind in entry["approved_indications"]}
+                existing = {
+                    ind.lower().strip() for ind in entry["approved_indications"]
+                }
                 for ind in seeded:
                     if ind.lower().strip() not in existing:
                         entry["approved_indications"].append(ind)
@@ -228,7 +236,8 @@ def build_supervisor_tools(
         except Exception as e:
             logger.warning(
                 "find_candidates: approved-indication seed failed for %s: %s",
-                drug_name, e,
+                drug_name,
+                e,
             )
 
         # Drop competitor diseases already approved for this drug. Same swap as
@@ -247,7 +256,9 @@ def build_supervisor_tools(
                     candidate_diseases=diseases,
                     cache_dir=svc.cache_dir,
                 )
-                fda_approved = {disease for disease, is_approved in mapping.items() if is_approved}
+                fda_approved = {
+                    disease for disease, is_approved in mapping.items() if is_approved
+                }
             if fda_approved:
                 logger.warning(
                     "[TOOL] find_candidates FDA approval check removing %d competitor diseases "
@@ -261,7 +272,9 @@ def build_supervisor_tools(
                 # they're dropped from the candidate list, the supervisor needs
                 # to see them to reason about subset/superset relationships
                 # (e.g. CML approval makes "myeloid leukemia" candidate ambiguous).
-                existing = {ind.lower().strip() for ind in entry["approved_indications"]}
+                existing = {
+                    ind.lower().strip() for ind in entry["approved_indications"]
+                }
                 for ind in fda_approved:
                     if ind.lower().strip() not in existing:
                         entry["approved_indications"].append(ind)
@@ -290,7 +303,9 @@ def build_supervisor_tools(
         # ID. Disease names that don't resolve to an EFO (e.g. renamed by the LLM merge step)
         # simply don't get an entry — analyze_mechanism falls back to name match in that case.
         async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
-            raw = await ot_client.get_drug_competitors(chembl_id, date_before=date_before)
+            raw = await ot_client.get_drug_competitors(
+                chembl_id, date_before=date_before
+            )
         for disease_lower in allowed_diseases:
             efo_id = raw["disease_efo_ids"].get(disease_lower)
             if efo_id:
@@ -311,7 +326,7 @@ def build_supervisor_tools(
             f"Do not reword, substitute synonyms, or introduce diseases from training knowledge. "
             f"Valid candidates: {valid}"
         )
-        #logger.warning("[TOOL] %s REJECTED disease=%r", tool_label, disease_name)
+        # logger.warning("[TOOL] %s REJECTED disease=%r", tool_label, disease_name)
         return msg, empty_output
 
     @tool(response_format="content_and_artifact")
@@ -335,19 +350,23 @@ def build_supervisor_tools(
         if disease_name.lower().strip() not in allowed_diseases:
             return _reject(disease_name, "analyze_literature", LiteratureOutput())
 
-        #logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
+        # logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 
-
-        lit_agent = build_literature_agent(llm=llm, svc=svc, db=db, date_before=date_before)
+        lit_agent = build_literature_agent(
+            llm=llm, svc=svc, db=db, date_before=date_before
+        )
         t0 = time.perf_counter()
-        #logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
+        # logger.warning("[TOOL] analyze_literature(drug=%r, disease=%r)", drug_name, disease_name)
 
         output = await run_literature_agent(lit_agent, drug_name, disease_name)
-        logger.info("analyze_literature took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
+        logger.info(
+            "analyze_literature took %.2fs for %s × %s",
+            time.perf_counter() - t0,
+            drug_name,
+            disease_name,
+        )
         strength = (
-            output.evidence_summary.strength
-            if output.evidence_summary
-            else "no data"
+            output.evidence_summary.strength if output.evidence_summary else "no data"
         )
         header = (
             f"Literature for {drug_name} × {disease_name}: "
@@ -355,9 +374,7 @@ def build_supervisor_tools(
         )
         sub_agent_summary = output.summary or ""
         summary = (
-            f"{header}\n\n{sub_agent_summary}".strip()
-            if sub_agent_summary
-            else header
+            f"{header}\n\n{sub_agent_summary}".strip() if sub_agent_summary else header
         )
         return summary, output
 
@@ -376,12 +393,14 @@ def build_supervisor_tools(
 
         drug_name = normalize_drug_name(drug_name)
         if disease_name.lower().strip() not in allowed_diseases:
-            return _reject(disease_name, "analyze_clinical_trials", ClinicalTrialsOutput())
+            return _reject(
+                disease_name, "analyze_clinical_trials", ClinicalTrialsOutput()
+            )
 
-        #logger.warning("[TOOL] analyze_clinical_trials(drug=%r, disease=%r)", drug_name, disease_name)
+        # logger.warning("[TOOL] analyze_clinical_trials(drug=%r, disease=%r)", drug_name, disease_name)
         t0 = time.perf_counter()
         output = await run_clinical_trials_agent(ct_agent, drug_name, disease_name)
-        #logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
+        # logger.info("analyze_clinical_trials took %.2fs for %s × %s", time.perf_counter() - t0, drug_name, disease_name)
 
         # Drug-level write-through: when the FDA check matches the candidate
         # against an approved indication, capture it in the supervisor's
@@ -414,10 +433,12 @@ def build_supervisor_tools(
         # terminated trials; if total_count > len(trials) this is a floor.
         n_safety_efficacy_shown = (
             sum(
-                1 for t in terminated.trials
+                1
+                for t in terminated.trials
                 if _classify_stop_reason(t.why_stopped) in {"safety", "efficacy"}
             )
-            if terminated else 0
+            if terminated
+            else 0
         )
         header = (
             f"Clinical trials for {drug_name} × {disease_name}: "
@@ -524,7 +545,9 @@ def build_supervisor_tools(
                 elif key in allowed_diseases:
                     existing_key = key
                 else:
-                    resolved_id = await ot_client.resolve_disease_id(candidate.disease_name)
+                    resolved_id = await ot_client.resolve_disease_id(
+                        candidate.disease_name
+                    )
                     if resolved_id and resolved_id in allowed_efo_ids:
                         existing_key = allowed_efo_ids[resolved_id]
 
@@ -535,7 +558,10 @@ def build_supervisor_tools(
                     # Record the disease ID against the existing row when we learned it from
                     # this mechanism candidate (e.g. competitor entry had no ID). Improves
                     # dedup for subsequent candidates in the same run.
-                    if candidate.disease_id and candidate.disease_id not in allowed_efo_ids:
+                    if (
+                        candidate.disease_id
+                        and candidate.disease_id not in allowed_efo_ids
+                    ):
                         allowed_efo_ids[candidate.disease_id] = existing_key
                 else:
                     allowed_diseases[key] = (candidate.disease_name, "mechanism")
@@ -546,7 +572,8 @@ def build_supervisor_tools(
         if promoted:
             logger.warning(
                 "[TOOL] analyze_mechanism promoted %d mechanism-only candidates to allowlist: %s",
-                len(promoted), promoted,
+                len(promoted),
+                promoted,
             )
 
         # Drug-level write-through: populate mechanism_targets and
@@ -588,9 +615,7 @@ def build_supervisor_tools(
         )
         sub_agent_summary = output.summary or ""
         summary = (
-            f"{header}\n\n{sub_agent_summary}".strip()
-            if sub_agent_summary
-            else header
+            f"{header}\n\n{sub_agent_summary}".strip() if sub_agent_summary else header
         )
         return summary, output
 
@@ -717,8 +742,7 @@ def build_supervisor_tools(
 
         # One-line-per-disease compact summary the LLM can rank against.
         lines = [
-            f"Auto-investigated {len(artifacts)} top candidates "
-            f"for {drug_name}:"
+            f"Auto-investigated {len(artifacts)} top candidates " f"for {drug_name}:"
         ]
         for a in artifacts:
             lines.append(
@@ -764,9 +788,9 @@ def build_supervisor_tools(
         artifact = {"summary": summary, "blurbs": validated}
         return "Supervisor analysis complete.", artifact
 
-    def get_merged_allowlist() -> dict[
-        str, tuple[str, Literal["competitor", "mechanism", "both"]]
-    ]:
+    def get_merged_allowlist() -> (
+        dict[str, tuple[str, Literal["competitor", "mechanism", "both"]]]
+    ):
         """Snapshot the post-merge competitor + mechanism disease allowlist.
 
         Returns a copy keyed by lowercase disease name → (canonical_name, source). Sources are

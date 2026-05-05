@@ -116,9 +116,9 @@ async def test_search_trials_tool_respects_date_before_cutoff():
     cutoff_iso = cutoff.isoformat()
     for t in result.trials:
         assert t.start_date is not None, f"{t.nct_id} missing start_date"
-        assert t.start_date < cutoff_iso, (
-            f"{t.nct_id} start_date={t.start_date} >= cutoff {cutoff_iso}"
-        )
+        assert (
+            t.start_date < cutoff_iso
+        ), f"{t.nct_id} start_date={t.start_date} >= cutoff {cutoff_iso}"
 
     # At least one Phase 3 trial must survive the cutoff — the dupilumab
     # eosinophilic esophagitis approval was supported by Phase 3 trials that
@@ -301,9 +301,9 @@ async def test_get_completed_tool_respects_date_before_cutoff():
     cutoff_iso = cutoff.isoformat()
     for t in result.trials:
         assert t.start_date is not None, f"{t.nct_id} missing start_date"
-        assert t.start_date < cutoff_iso, (
-            f"{t.nct_id} start_date={t.start_date} >= cutoff {cutoff_iso}"
-        )
+        assert (
+            t.start_date < cutoff_iso
+        ), f"{t.nct_id} start_date={t.start_date} >= cutoff {cutoff_iso}"
 
     # At least one completed trial must survive the cutoff. The dupilumab ×
     # eosinophilic esophagitis approval was supported by Phase 3 trials that
@@ -441,5 +441,3 @@ async def test_get_landscape_tool_gastroparesis():
     assert tradipitant_comp.statuses == {"COMPLETED", "RECRUITING"}
     assert tradipitant_comp.total_enrollment == 1092
     assert tradipitant_comp.most_recent_start == "2024-01-09"
-
-

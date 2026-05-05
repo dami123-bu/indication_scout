@@ -10,7 +10,6 @@ from indication_scout.agents.mechanism.mechanism_output import (
 )
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
 
-
 # --- semaglutide × NAFLD regression: briefing surfaces MASH so the prompt's ---
 # --- APPROVED-CANDIDATE SHORT-CIRCUIT case C can fire on NAFLD. -----------------
 
@@ -29,12 +28,15 @@ def _build_tools_with_drug_facts(
     llm = MagicMock()
     svc = MagicMock()
     db = MagicMock()
-    with patch(
-        "indication_scout.agents.supervisor.supervisor_tools.build_clinical_trials_agent",
-        new=MagicMock(return_value=MagicMock()),
-    ), patch(
-        "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
-        new=MagicMock(return_value=MagicMock()),
+    with (
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.build_clinical_trials_agent",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
+            new=MagicMock(return_value=MagicMock()),
+        ),
     ):
         tools, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db)
 
@@ -124,12 +126,15 @@ def _build_tools_and_allowlists(
     llm = MagicMock()
     svc = MagicMock()
     db = MagicMock()
-    with patch(
-        "indication_scout.agents.supervisor.supervisor_tools.build_clinical_trials_agent",
-        new=MagicMock(return_value=MagicMock()),
-    ), patch(
-        "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
-        new=MagicMock(return_value=MagicMock()),
+    with (
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.build_clinical_trials_agent",
+            new=MagicMock(return_value=MagicMock()),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.build_mechanism_agent",
+            new=MagicMock(return_value=MagicMock()),
+        ),
     ):
         tools, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db)
 
@@ -272,12 +277,15 @@ async def test_analyze_mechanism_merges_by_efo_id(
     ]
     mech_output = MechanismOutput(candidates=candidates)
 
-    with patch(
-        "indication_scout.agents.supervisor.supervisor_tools.run_mechanism_agent",
-        new=AsyncMock(return_value=mech_output),
-    ), patch(
-        "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
-        new=_ot_client_mock(resolved_ids),
+    with (
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.run_mechanism_agent",
+            new=AsyncMock(return_value=mech_output),
+        ),
+        patch(
+            "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
+            new=_ot_client_mock(resolved_ids),
+        ),
     ):
         await am.coroutine(drug_name="testdrug")
 

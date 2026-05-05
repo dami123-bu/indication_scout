@@ -573,7 +573,9 @@ async def test_get_target_evidences_empty_efo_ids_short_circuits(tmp_path):
     mock_gql.assert_not_awaited()
 
 
-def _evidence_row(disease_id: str, dir_t: str, dir_trait: str, vfc_label: str | None = None) -> dict:
+def _evidence_row(
+    disease_id: str, dir_t: str, dir_trait: str, vfc_label: str | None = None
+) -> dict:
     return {
         "datatypeId": "genetic_association",
         "score": 0.8,
@@ -643,10 +645,14 @@ async def test_get_target_evidences_caches_per_efo(tmp_path):
 
     with patch.object(client, "_graphql", mock_gql):
         # Prime both.
-        await client.get_target_evidences("ENSG00000112164", ["EFO_0000400", "EFO_0001073"])
+        await client.get_target_evidences(
+            "ENSG00000112164", ["EFO_0000400", "EFO_0001073"]
+        )
         assert mock_gql.await_count == 2
         # Repeat the same pair: zero extra calls.
-        await client.get_target_evidences("ENSG00000112164", ["EFO_0000400", "EFO_0001073"])
+        await client.get_target_evidences(
+            "ENSG00000112164", ["EFO_0000400", "EFO_0001073"]
+        )
         assert mock_gql.await_count == 2
         # Add a new efo: one extra call, the cached two stay cached.
         efo_to_rows["EFO_NEW"] = []
@@ -662,7 +668,9 @@ async def test_get_target_evidences_empty_response_per_efo(tmp_path):
     mock_gql = _mock_per_efo_response({"EFO_001": [], "EFO_002": []})
 
     with patch.object(client, "_graphql", mock_gql):
-        result = await client.get_target_evidences("ENSG00000000001", ["EFO_001", "EFO_002"])
+        result = await client.get_target_evidences(
+            "ENSG00000000001", ["EFO_001", "EFO_002"]
+        )
 
     assert result == {"EFO_001": [], "EFO_002": []}
 

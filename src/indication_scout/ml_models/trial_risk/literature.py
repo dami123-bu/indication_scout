@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOOKBACK_MONTHS = 6
 DEFAULT_TOP_K = 5
-PUBMED_SLEEP_SECONDS = 1.0  # NCBI cushion (only matters on actual fetches; cache hits are free)
+PUBMED_SLEEP_SECONDS = (
+    1.0  # NCBI cushion (only matters on actual fetches; cache hits are free)
+)
 MAX_DRUG_ALIASES = 5  # cap drug-name expansion to avoid 30+ PubMed queries per pair
 
 # Embedding-based queries (kept for inspect.py / backwards compat; not used by signals).
@@ -61,16 +63,33 @@ EFFICACY_QUERY = (
 # Keyword sets for the v2 fraction-of-abstracts signal. Case-insensitive
 # substring match against `title || ' ' || abstract` in pgvector.
 FAILURE_KEYWORDS = [
-    "terminat", "discontinu", "withdraw", "halted", "suspended",
-    "lack of efficacy", "futility", "futile",
+    "terminat",
+    "discontinu",
+    "withdraw",
+    "halted",
+    "suspended",
+    "lack of efficacy",
+    "futility",
+    "futile",
 ]
 SAFETY_KEYWORDS = [
-    "adverse event", "adverse drug", "side effect", "toxicit", "toxic",
-    "safety concern", "serious adverse",
+    "adverse event",
+    "adverse drug",
+    "side effect",
+    "toxicit",
+    "toxic",
+    "safety concern",
+    "serious adverse",
 ]
 EFFICACY_KEYWORDS = [
-    "efficac", "remission", "response rate", "improved", "improvement",
-    "benefit", "effective treatment", "clinical response",
+    "efficac",
+    "remission",
+    "response rate",
+    "improved",
+    "improvement",
+    "benefit",
+    "effective treatment",
+    "clinical response",
 ]
 
 
@@ -259,9 +278,13 @@ async def compute_signals(
 
     try:
         chembl_id = await resolve_drug_name(drug, cache_dir)
-        drug_aliases = (await get_all_drug_names(chembl_id, cache_dir))[:MAX_DRUG_ALIASES]
+        drug_aliases = (await get_all_drug_names(chembl_id, cache_dir))[
+            :MAX_DRUG_ALIASES
+        ]
     except Exception as exc:
-        logger.warning("Drug name expansion failed for %s: %s — using bare name", drug, exc)
+        logger.warning(
+            "Drug name expansion failed for %s: %s — using bare name", drug, exc
+        )
         drug_aliases = [drug]
 
     queries = [f"{alias} AND {disease}" for alias in drug_aliases if alias]
@@ -289,7 +312,11 @@ async def compute_signals(
     )
     query_vector = (await embed_async([query_text]))[0]
     fingerprint = _mean_pooled_embedding(
-        pmids, cutoff_date, db, top_k=20, query_vector=query_vector,
+        pmids,
+        cutoff_date,
+        db,
+        top_k=20,
+        query_vector=query_vector,
     )
     return LiteratureSignals(
         failure_signal=failure,

@@ -7,8 +7,12 @@ from indication_scout.agents.supervisor.supervisor_output import (
     CandidateFindings,
     SupervisorOutput,
 )
-from indication_scout.agents.clinical_trials.clinical_trials_output import ClinicalTrialsOutput
-from indication_scout.agents.clinical_trials.clinical_trials_tools import _classify_stop_reason
+from indication_scout.agents.clinical_trials.clinical_trials_output import (
+    ClinicalTrialsOutput,
+)
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    _classify_stop_reason,
+)
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
@@ -57,20 +61,34 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
             matched = f" ({ap.matched_indication})" if ap.matched_indication else ""
             lines.append(f"\n**FDA approval:** Approved{matched}")
         elif ap.label_found:
-            lines.append("\n**FDA approval:** Not found on FDA label for this indication")
+            lines.append(
+                "\n**FDA approval:** Not found on FDA label for this indication"
+            )
         else:
-            names = ", ".join(ap.drug_names_checked) if ap.drug_names_checked else "drug"
-            lines.append(f"\n**FDA approval:** No FDA label found for {names} — status undetermined")
+            names = (
+                ", ".join(ap.drug_names_checked) if ap.drug_names_checked else "drug"
+            )
+            lines.append(
+                f"\n**FDA approval:** No FDA label found for {names} — status undetermined"
+            )
 
     if ct.search:
         s = ct.search
-        lines.append(f"\n**Trial activity:** {s.total_count} total trial(s) for this pair")
+        lines.append(
+            f"\n**Trial activity:** {s.total_count} total trial(s) for this pair"
+        )
         if s.by_status:
-            status_bits = [f"{count} {status.lower().replace('_', ' ')}" for status, count in s.by_status.items() if count]
+            status_bits = [
+                f"{count} {status.lower().replace('_', ' ')}"
+                for status, count in s.by_status.items()
+                if count
+            ]
             if status_bits:
                 lines.append(f"- {', '.join(status_bits)}")
         if s.total_count == 0:
-            lines.append("- _Whitespace: no trials found for this drug × indication pair._")
+            lines.append(
+                "- _Whitespace: no trials found for this drug × indication pair._"
+            )
 
     if ct.completed:
         c = ct.completed
@@ -78,7 +96,9 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
         for trial in c.trials[:10]:
             phase = trial.phase or "Unknown phase"
             status = trial.overall_status or ""
-            lines.append(f"- [{trial.nct_id}](https://clinicaltrials.gov/study/{trial.nct_id}) — {trial.title} ({phase}{', ' + status if status else ''})")
+            lines.append(
+                f"- [{trial.nct_id}](https://clinicaltrials.gov/study/{trial.nct_id}) — {trial.title} ({phase}{', ' + status if status else ''})"
+            )
 
     if ct.terminated:
         term = ct.terminated
@@ -95,7 +115,9 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
                     and classified != t.why_stopped
                     else ""
                 )
-                lines.append(f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}")
+                lines.append(
+                    f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}"
+                )
 
     if ct.landscape and ct.landscape.competitors:
         scope = f" for {_title_case_disease(indication)}" if indication else ""
@@ -104,7 +126,9 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
             f"({len(ct.landscape.competitors)} competitors):**"
         )
         for comp in ct.landscape.competitors[:10]:
-            lines.append(f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)")
+            lines.append(
+                f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)"
+            )
 
     if not lines:
         lines.append("_No clinical trials data available._")
@@ -131,7 +155,9 @@ def _fmt_mechanism(mech: MechanismOutput) -> str:
     if mech.candidates:
         lines.append("\n**Repurposing candidates:**")
         for c in mech.candidates:
-            lines.append(f"- **{c.target_symbol} ({c.action_type}) → {_title_case_disease(c.disease_name)}**")
+            lines.append(
+                f"- **{c.target_symbol} ({c.action_type}) → {_title_case_disease(c.disease_name)}**"
+            )
             if c.disease_description:
                 lines.append(f"  - {c.disease_description}")
             if c.target_function:
@@ -163,9 +189,7 @@ def _title_case_known_diseases(text: str, disease_names: list[str]) -> str:
     return text
 
 
-def _splice_blurbs_into_summary(
-    summary: str, findings: list[CandidateFindings]
-) -> str:
+def _splice_blurbs_into_summary(summary: str, findings: list[CandidateFindings]) -> str:
     """Replace each ranked summary line's structured tail with the matching blurb.
 
     The supervisor's summary string is a ranked list of the form
@@ -207,8 +231,13 @@ def _splice_blurbs_into_summary(
             continue
         blurb = blurb_by_disease.pop(match_key)
         prefix = m.group(1)
+        # Markdown collapses adjacent non-blank lines into one paragraph, so emit
+        # a blank line between the ranked disease line and its blurb (and a trailing
+        # blank so the next ranked entry doesn't fold back into this blurb).
         out_lines.append(f"{prefix}{_title_case_disease(head)}")
-        out_lines.append(f"   _{blurb}_")
+        out_lines.append("")
+        out_lines.append(f"_{blurb}_")
+        out_lines.append("")
     return "\n".join(out_lines)
 
 
@@ -229,7 +258,9 @@ def format_report(output: SupervisorOutput) -> str:
     # then title-case any known disease names that appear inside the LLM-generated text.
     if output.summary:
         summary_text = _splice_blurbs_into_summary(output.summary, output.findings)
-        known_diseases = [f.disease for f in output.findings] + list(output.candidates or [])
+        known_diseases = [f.disease for f in output.findings] + list(
+            output.candidates or []
+        )
         summary_text = _title_case_known_diseases(summary_text, known_diseases)
     else:
         summary_text = "_No summary produced._"
@@ -278,13 +309,26 @@ def format_report(output: SupervisorOutput) -> str:
         investigated_keys = {f.disease.lower().strip() for f in output.findings}
 
         for finding in output.findings:
-            lines += [f"## {_title_case_disease(finding.disease)} _(source: {finding.source})_", ""]
+            lines += [
+                f"## {_title_case_disease(finding.disease)} _(source: {finding.source})_",
+                "",
+            ]
 
             if finding.literature:
-                lines += [f"### Literature — {_title_case_disease(finding.disease)}", "", _fmt_literature(finding.literature), ""]
+                lines += [
+                    f"### Literature — {_title_case_disease(finding.disease)}",
+                    "",
+                    _fmt_literature(finding.literature),
+                    "",
+                ]
 
             if finding.clinical_trials:
-                lines += ["### Clinical Trials", "", _fmt_clinical_trials(finding.clinical_trials, finding.disease), ""]
+                lines += [
+                    "### Clinical Trials",
+                    "",
+                    _fmt_clinical_trials(finding.clinical_trials, finding.disease),
+                    "",
+                ]
 
             lines.append("---")
             lines.append("")

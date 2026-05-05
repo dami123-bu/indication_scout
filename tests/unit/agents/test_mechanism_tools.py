@@ -77,7 +77,12 @@ async def test_get_drug_returns_mechanisms_of_action():
         ),
     ):
         msg = await tool_map["get_drug"].ainvoke(
-            ToolCall(name="get_drug", args={"drug_name": "metformin"}, id="tc0", type="tool_call")
+            ToolCall(
+                name="get_drug",
+                args={"drug_name": "metformin"},
+                id="tc0",
+                type="tool_call",
+            )
         )
 
     assert isinstance(msg.artifact, list)
@@ -103,7 +108,9 @@ async def test_get_target_associations_returns_dict_keyed_by_symbol():
         targets=[AsyncMock(target_symbol="PRKAA1", target_id="ENSG00000132356")],
         mechanisms_of_action=[MOA],
     )
-    mock_client = _mock_ot_client(get_drug=mock_drug, get_target_data_associations=[ASSOCIATION])
+    mock_client = _mock_ot_client(
+        get_drug=mock_drug, get_target_data_associations=[ASSOCIATION]
+    )
 
     with (
         patch(
@@ -117,10 +124,20 @@ async def test_get_target_associations_returns_dict_keyed_by_symbol():
     ):
         # Populate the store via get_drug
         await tool_map["get_drug"].ainvoke(
-            ToolCall(name="get_drug", args={"drug_name": "metformin"}, id="tc1", type="tool_call")
+            ToolCall(
+                name="get_drug",
+                args={"drug_name": "metformin"},
+                id="tc1",
+                type="tool_call",
+            )
         )
         msg = await tool_map["get_target_associations"].ainvoke(
-            ToolCall(name="get_target_associations", args={"target_symbol": "PRKAA1"}, id="tc2", type="tool_call")
+            ToolCall(
+                name="get_target_associations",
+                args={"target_symbol": "PRKAA1"},
+                id="tc2",
+                type="tool_call",
+            )
         )
 
     assert isinstance(msg.artifact, dict)
@@ -135,7 +152,12 @@ async def test_get_target_associations_returns_empty_dict_when_symbol_not_in_sto
     tool = _get_tool("get_target_associations")
 
     msg = await tool.ainvoke(
-        ToolCall(name="get_target_associations", args={"target_symbol": "UNKNOWN"}, id="tc3", type="tool_call")
+        ToolCall(
+            name="get_target_associations",
+            args={"target_symbol": "UNKNOWN"},
+            id="tc3",
+            type="tool_call",
+        )
     )
 
     assert msg.artifact == {}

@@ -38,13 +38,23 @@ _EXPECTED_NCT_IDS = {
 _EXPECTED_COMPETITORS = [
     ("ChaodongWang", "L-Carnitine Injection，1000mg once daily", "Phase 4", 4),
     ("Peking University Third Hospital", "FB1006", "Phase 4", 64),
-    ("Macquarie University, Australia", "Abacavir 600mg, Lamivudine 300mg and Dolutegravir 50mg (Triumeq)", "Phase 3", 12),
+    (
+        "Macquarie University, Australia",
+        "Abacavir 600mg, Lamivudine 300mg and Dolutegravir 50mg (Triumeq)",
+        "Phase 3",
+        12,
+    ),
     ("Alector Inc.", "Latozinemab", "Phase 3", 17),
     ("Ferrer Internacional S.A.", "FAB122", "Phase 3", 201),
     ("Beijing Tiantan Hospital", "Nerve Growth Factor", "Phase 2/Phase 3", 60),
     ("Merit E. Cudkowicz, MD", "DNL343", "Phase 2/Phase 3", 249),
     ("Merit E. Cudkowicz, MD", "ABBV-CLS-7262 Dose 1", "Phase 2/Phase 3", 310),
-    ("Oliver Blanchard", "Darifenacin 7.5 MG Extended Release Oral Tablet", "Phase 2", 30),
+    (
+        "Oliver Blanchard",
+        "Darifenacin 7.5 MG Extended Release Oral Tablet",
+        "Phase 2",
+        30,
+    ),
     ("Axoltis Pharma", "NX210c", "Phase 2", 80),
 ]
 

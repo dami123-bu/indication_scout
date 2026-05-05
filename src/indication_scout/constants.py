@@ -116,7 +116,6 @@ STOP_KEYWORDS: dict[str, str] = {
     "recruitment futility": "enrollment",
     # otherwise "futility" is an efficacy stop
     "futility": "efficacy",
-
     # -- Efficacy: explicit-phrase forms ------------------------------------
     "lack of efficacy": "efficacy",
     "no benefit": "efficacy",
@@ -134,7 +133,6 @@ STOP_KEYWORDS: dict[str, str] = {
     "insufficient scientific evidence": "efficacy",
     "meaningful benefit": "efficacy",
     "insufficient target engagement": "efficacy",
-
     # -- Safety: explicit-phrase forms (hepatic is the dominant real-world form)
     "liver safety": "safety",
     "hepatic safety": "safety",
@@ -151,7 +149,6 @@ STOP_KEYWORDS: dict[str, str] = {
     "safety concern": "safety",
     "safety signal": "safety",
     "clinical hold": "safety",
-
     # -- Broader terms (these fire if nothing above matched) -----------------
     "efficacy": "efficacy",
     "enrollment": "enrollment",
@@ -180,25 +177,31 @@ VACCINE_NAME_KEYWORDS: frozenset[str] = frozenset(
     }
 )
 
-MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset({"genetic_association", "literature", "affected_pathway"})
+MECHANISM_SIGNAL_KEYS: frozenset[str] = frozenset(
+    {"genetic_association", "literature", "affected_pathway"}
+)
 
 # Drug action types that produce loss-of-function on the target.
-LOF_ACTION_TYPES: frozenset[str] = frozenset({
-    "INHIBITOR",
-    "ANTAGONIST",
-    "NEGATIVE ALLOSTERIC MODULATOR",
-    "NEGATIVE MODULATOR",
-    "BLOCKER",
-})
+LOF_ACTION_TYPES: frozenset[str] = frozenset(
+    {
+        "INHIBITOR",
+        "ANTAGONIST",
+        "NEGATIVE ALLOSTERIC MODULATOR",
+        "NEGATIVE MODULATOR",
+        "BLOCKER",
+    }
+)
 
 # Drug action types that produce gain-of-function on the target.
-GOF_ACTION_TYPES: frozenset[str] = frozenset({
-    "AGONIST",
-    "ACTIVATOR",
-    "POSITIVE ALLOSTERIC MODULATOR",
-    "POSITIVE MODULATOR",
-    "PARTIAL AGONIST",
-})
+GOF_ACTION_TYPES: frozenset[str] = frozenset(
+    {
+        "AGONIST",
+        "ACTIVATOR",
+        "POSITIVE ALLOSTERIC MODULATOR",
+        "POSITIVE MODULATOR",
+        "PARTIAL AGONIST",
+    }
+)
 
 # Number of top POSITIVE repurposing candidates the mechanism agent surfaces.
 MECHANISM_TOP_CANDIDATES: int = 5

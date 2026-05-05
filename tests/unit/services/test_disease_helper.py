@@ -492,9 +492,7 @@ async def test_resolve_mesh_id_writes_cache_on_success():
     assert kwargs["ttl"] == MESH_RESOLVER_TTL_SECONDS
 
 
-async def test_resolve_mesh_id_round_trip_through_real_cache(
-    tmp_path, monkeypatch
-):
+async def test_resolve_mesh_id_round_trip_through_real_cache(tmp_path, monkeypatch):
     """End-to-end: a successful resolution lands on disk, and a second call
     reads it back without touching the network.
 
@@ -563,9 +561,9 @@ async def test_resolve_mesh_id_round_trip_through_real_cache(
 
     # Confirm the file actually landed on disk in the expected namespace
     cache_files = list((tmp_path / "mesh_resolver").glob("*.json"))
-    assert len(cache_files) == 1, (
-        f"Expected exactly one cache file under mesh_resolver/, found {len(cache_files)}"
-    )
+    assert (
+        len(cache_files) == 1
+    ), f"Expected exactly one cache file under mesh_resolver/, found {len(cache_files)}"
 
     # Confirm the on-disk payload deserialises back to the expected tuple
     raw = json.loads(cache_files[0].read_text())

@@ -5,8 +5,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.data_sources.chembl import ChEMBLClient, get_all_drug_names, resolve_drug_name
-from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
+from indication_scout.data_sources.chembl import (
+    ChEMBLClient,
+    get_all_drug_names,
+    resolve_drug_name,
+)
+from indication_scout.models.model_chembl import (
+    ATCDescription,
+    MoleculeData,
+    MoleculeSynonym,
+)
 
 CHEMBL894_FIXTURE = {
     "molecule_chembl_id": "CHEMBL894",
@@ -34,8 +42,16 @@ CHEMBL2108724_FIXTURE = {
     "first_approval": 2017,
     "oral": True,
     "molecule_synonyms": [
-        {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
-        {"molecule_synonym": "Semaglutide", "syn_type": "INN", "synonyms": "SEMAGLUTIDE"},
+        {
+            "molecule_synonym": "Ozempic",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "OZEMPIC",
+        },
+        {
+            "molecule_synonym": "Semaglutide",
+            "syn_type": "INN",
+            "synonyms": "SEMAGLUTIDE",
+        },
     ],
 }
 
@@ -293,7 +309,11 @@ PARENT_FIXTURE = {
     "oral": True,
     "molecule_synonyms": [
         {"molecule_synonym": "Bupropion", "syn_type": "INN", "synonyms": "BUPROPION"},
-        {"molecule_synonym": "BW-323", "syn_type": "RESEARCH_CODE", "synonyms": "BW-323"},
+        {
+            "molecule_synonym": "BW-323",
+            "syn_type": "RESEARCH_CODE",
+            "synonyms": "BW-323",
+        },
     ],
 }
 
@@ -301,23 +321,42 @@ PARENT_FIXTURE = {
 SALT_HCL_MOLECULE = {
     "molecule_chembl_id": "CHEMBL1698",
     "molecule_synonyms": [
-        {"molecule_synonym": "Wellbutrin", "syn_type": "TRADE_NAME", "synonyms": "WELLBUTRIN"},
+        {
+            "molecule_synonym": "Wellbutrin",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "WELLBUTRIN",
+        },
         {"molecule_synonym": "Zyban", "syn_type": "TRADE_NAME", "synonyms": "ZYBAN"},
-        {"molecule_synonym": "Bupropion hydrochloride", "syn_type": "INN", "synonyms": "BUPROPION HYDROCHLORIDE"},
-        {"molecule_synonym": "Bupropion hydrochloride component of contrave", "syn_type": "TRADE_NAME", "synonyms": "BUPROPION HYDROCHLORIDE COMPONENT OF CONTRAVE"},
+        {
+            "molecule_synonym": "Bupropion hydrochloride",
+            "syn_type": "INN",
+            "synonyms": "BUPROPION HYDROCHLORIDE",
+        },
+        {
+            "molecule_synonym": "Bupropion hydrochloride component of contrave",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "BUPROPION HYDROCHLORIDE COMPONENT OF CONTRAVE",
+        },
     ],
 }
 
 SALT_HBR_MOLECULE = {
     "molecule_chembl_id": "CHEMBL1201735",
     "molecule_synonyms": [
-        {"molecule_synonym": "Aplenzin", "syn_type": "TRADE_NAME", "synonyms": "APLENZIN"},
+        {
+            "molecule_synonym": "Aplenzin",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "APLENZIN",
+        },
     ],
 }
 
 HIERARCHY_RESPONSE = {
     "molecules": [
-        {"molecule_chembl_id": "CHEMBL894", "molecule_synonyms": PARENT_FIXTURE["molecule_synonyms"]},
+        {
+            "molecule_chembl_id": "CHEMBL894",
+            "molecule_synonyms": PARENT_FIXTURE["molecule_synonyms"],
+        },
         SALT_HCL_MOLECULE,
         SALT_HBR_MOLECULE,
     ],
@@ -335,16 +374,31 @@ BIOLOGIC_PARENT_FIXTURE = {
     "first_approval": 2017,
     "oral": True,
     "molecule_synonyms": [
-        {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
-        {"molecule_synonym": "Rybelsus", "syn_type": "TRADE_NAME", "synonyms": "RYBELSUS"},
+        {
+            "molecule_synonym": "Ozempic",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "OZEMPIC",
+        },
+        {
+            "molecule_synonym": "Rybelsus",
+            "syn_type": "TRADE_NAME",
+            "synonyms": "RYBELSUS",
+        },
         {"molecule_synonym": "Wegovy", "syn_type": "TRADE_NAME", "synonyms": "WEGOVY"},
-        {"molecule_synonym": "Semaglutide", "syn_type": "INN", "synonyms": "SEMAGLUTIDE"},
+        {
+            "molecule_synonym": "Semaglutide",
+            "syn_type": "INN",
+            "synonyms": "SEMAGLUTIDE",
+        },
     ],
 }
 
 BIOLOGIC_HIERARCHY_RESPONSE = {
     "molecules": [
-        {"molecule_chembl_id": "CHEMBL2108724", "molecule_synonyms": BIOLOGIC_PARENT_FIXTURE["molecule_synonyms"]},
+        {
+            "molecule_chembl_id": "CHEMBL2108724",
+            "molecule_synonyms": BIOLOGIC_PARENT_FIXTURE["molecule_synonyms"],
+        },
     ],
 }
 
@@ -462,7 +516,9 @@ async def test_get_all_drug_names_no_synonyms_no_pref_name(tmp_path):
     assert result == ["CHEMBL999"]
 
 
-async def test_get_all_drug_names_hierarchy_failure_still_returns_parent_names(tmp_path):
+async def test_get_all_drug_names_hierarchy_failure_still_returns_parent_names(
+    tmp_path,
+):
     """If hierarchy lookup fails, still returns pref_name and parent synonyms."""
 
     async def mock_rest_get(url: str, params: dict):
@@ -483,7 +539,11 @@ async def test_get_all_drug_names_deduplicates(tmp_path):
     parent = {
         **BIOLOGIC_PARENT_FIXTURE,
         "molecule_synonyms": [
-            {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+            {
+                "molecule_synonym": "Ozempic",
+                "syn_type": "TRADE_NAME",
+                "synonyms": "OZEMPIC",
+            },
         ],
     }
     hierarchy = {
@@ -491,7 +551,11 @@ async def test_get_all_drug_names_deduplicates(tmp_path):
             {
                 "molecule_chembl_id": "CHEMBL_SALT",
                 "molecule_synonyms": [
-                    {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
+                    {
+                        "molecule_synonym": "Ozempic",
+                        "syn_type": "TRADE_NAME",
+                        "synonyms": "OZEMPIC",
+                    },
                 ],
             },
         ],
@@ -547,8 +611,16 @@ async def test_get_all_drug_names_pref_name_not_duplicated_with_trade_name(tmp_p
         **BIOLOGIC_PARENT_FIXTURE,
         "pref_name": "OZEMPIC",
         "molecule_synonyms": [
-            {"molecule_synonym": "Ozempic", "syn_type": "TRADE_NAME", "synonyms": "OZEMPIC"},
-            {"molecule_synonym": "Rybelsus", "syn_type": "TRADE_NAME", "synonyms": "RYBELSUS"},
+            {
+                "molecule_synonym": "Ozempic",
+                "syn_type": "TRADE_NAME",
+                "synonyms": "OZEMPIC",
+            },
+            {
+                "molecule_synonym": "Rybelsus",
+                "syn_type": "TRADE_NAME",
+                "synonyms": "RYBELSUS",
+            },
         ],
     }
 
@@ -577,9 +649,7 @@ OT_SEARCH_HIT_SALT = {
     "data": {"search": {"hits": [{"id": "CHEMBL1703", "entity": "drug"}]}}
 }
 
-OT_SEARCH_NO_HITS = {
-    "data": {"search": {"hits": []}}
-}
+OT_SEARCH_NO_HITS = {"data": {"search": {"hits": []}}}
 
 # ChEMBL molecule responses for parent normalization
 METFORMIN_PARENT_MOLECULE = {
@@ -620,12 +690,15 @@ async def test_resolve_drug_name_parent_input(tmp_path):
             return METFORMIN_PARENT_MOLECULE
         raise AssertionError(f"Unexpected URL: {url}")
 
-    with patch(
-        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
-        new=AsyncMock(side_effect=mock_ot_graphql),
-    ), patch(
-        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
-        new=AsyncMock(side_effect=mock_chembl_rest_get),
+    with (
+        patch(
+            "indication_scout.data_sources.chembl._OTSearchClient._graphql",
+            new=AsyncMock(side_effect=mock_ot_graphql),
+        ),
+        patch(
+            "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+            new=AsyncMock(side_effect=mock_chembl_rest_get),
+        ),
     ):
         result = await resolve_drug_name("metformin", cache_dir=tmp_path)
 
@@ -643,12 +716,15 @@ async def test_resolve_drug_name_salt_follows_to_parent(tmp_path):
             return METFORMIN_HCL_SALT_MOLECULE
         raise AssertionError(f"Unexpected URL: {url}")
 
-    with patch(
-        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
-        new=AsyncMock(side_effect=mock_ot_graphql),
-    ), patch(
-        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
-        new=AsyncMock(side_effect=mock_chembl_rest_get),
+    with (
+        patch(
+            "indication_scout.data_sources.chembl._OTSearchClient._graphql",
+            new=AsyncMock(side_effect=mock_ot_graphql),
+        ),
+        patch(
+            "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+            new=AsyncMock(side_effect=mock_chembl_rest_get),
+        ),
     ):
         result = await resolve_drug_name("metformin hydrochloride", cache_dir=tmp_path)
 
@@ -683,12 +759,15 @@ async def test_resolve_drug_name_caches_result(tmp_path):
     ot_mock = AsyncMock(side_effect=mock_ot_graphql)
     chembl_mock = AsyncMock(side_effect=mock_chembl_rest_get)
 
-    with patch(
-        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
-        new=ot_mock,
-    ), patch(
-        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
-        new=chembl_mock,
+    with (
+        patch(
+            "indication_scout.data_sources.chembl._OTSearchClient._graphql",
+            new=ot_mock,
+        ),
+        patch(
+            "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+            new=chembl_mock,
+        ),
     ):
         first = await resolve_drug_name("metformin", cache_dir=tmp_path)
         second = await resolve_drug_name("metformin", cache_dir=tmp_path)
@@ -718,9 +797,9 @@ async def test_get_all_drug_names_writes_reverse_index(tmp_path):
     # Every returned name should resolve back to CHEMBL2108724 via the reverse index
     for name in result:
         cached_id = _lookup_chembl_id_by_name(name, tmp_path)
-        assert cached_id == "CHEMBL2108724", (
-            f"Reverse index missing or wrong for {name!r}: got {cached_id!r}"
-        )
+        assert (
+            cached_id == "CHEMBL2108724"
+        ), f"Reverse index missing or wrong for {name!r}: got {cached_id!r}"
 
 
 async def test_resolve_drug_name_uses_reverse_index(tmp_path):
@@ -735,12 +814,15 @@ async def test_resolve_drug_name_uses_reverse_index(tmp_path):
     ot_mock = AsyncMock()
     chembl_mock = AsyncMock()
 
-    with patch(
-        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
-        new=ot_mock,
-    ), patch(
-        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
-        new=chembl_mock,
+    with (
+        patch(
+            "indication_scout.data_sources.chembl._OTSearchClient._graphql",
+            new=ot_mock,
+        ),
+        patch(
+            "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+            new=chembl_mock,
+        ),
     ):
         result = await resolve_drug_name("Ozempic", cache_dir=tmp_path)
 
@@ -757,12 +839,15 @@ async def test_resolve_drug_name_reverse_index_populates_primary_cache(tmp_path)
 
     _save_chembl_names("CHEMBL1431", ["metformin", "glucophage"], tmp_path)
 
-    with patch(
-        "indication_scout.data_sources.chembl._OTSearchClient._graphql",
-        new=AsyncMock(),
-    ), patch(
-        "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
-        new=AsyncMock(),
+    with (
+        patch(
+            "indication_scout.data_sources.chembl._OTSearchClient._graphql",
+            new=AsyncMock(),
+        ),
+        patch(
+            "indication_scout.data_sources.chembl.ChEMBLClient._rest_get",
+            new=AsyncMock(),
+        ),
     ):
         await resolve_drug_name("Glucophage", cache_dir=tmp_path)
 

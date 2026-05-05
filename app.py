@@ -9,6 +9,7 @@ Run with:
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -17,8 +18,13 @@ from dotenv import load_dotenv
 
 # load_dotenv MUST run before any indication_scout imports, because
 # module-level code in base_client.py calls get_settings() at import time.
+# Manually edit the constants filename below to switch tunable-limit profiles.
+CONSTANTS_FILE = ".env.constants.test"
 load_dotenv(Path(__file__).parent / ".env")
-load_dotenv(Path(__file__).parent / ".env.constants")
+constants_path = Path(__file__).parent / CONSTANTS_FILE
+load_dotenv(constants_path)
+# Also export so config.py's pydantic Settings reads the same file.
+os.environ["CONSTANTS_FILE"] = str(constants_path)
 
 from langchain_anthropic import ChatAnthropic
 from sqlalchemy import create_engine
@@ -33,7 +39,10 @@ from indication_scout.agents.supervisor.supervisor_agent import (
 )
 from indication_scout.config import get_settings
 from indication_scout.constants import DEFAULT_CACHE_DIR
-from indication_scout.report.format_report import format_report
+from indication_scout.report.format_report import (
+    _splice_blurbs_into_summary,
+    format_report,
+)
 from indication_scout.services.retrieval import RetrievalService
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +55,13 @@ def _make_db_session():
     engine = create_engine(settings.database_url)
     Session = sessionmaker(bind=engine)
     return Session()
+
+
+def _title_case(name: str) -> str:
+    """Capitalize the first letter of each whitespace-separated word, leaving the
+    rest of each word untouched so acronyms (e.g. NSCLC) and possessives (e.g.
+    Alzheimer's) are preserved."""
+    return " ".join(w[:1].upper() + w[1:] if w else w for w in name.split(" "))
 
 
 def _build_agent(db):
@@ -127,6 +143,7 @@ with st.sidebar:
                 options=investigated,
                 key="selected_disease",
                 label_visibility="collapsed",
+                format_func=_title_case,
             )
 
         st.markdown("---")
@@ -187,7 +204,12 @@ selected_disease = st.session_state.get("selected_disease")
 # ----- Overview tab -----
 with tab_overview:
     st.markdown("### Summary")
-    st.write(output.summary or "_No summary produced._")
+    summary_text = (
+        _splice_blurbs_into_summary(output.summary, output.findings)
+        if output.summary
+        else "_No summary produced._"
+    )
+    st.markdown(summary_text)
 
     st.markdown("### Candidate diseases")
     if output.candidates:

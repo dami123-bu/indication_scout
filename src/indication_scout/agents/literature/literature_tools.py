@@ -71,9 +71,7 @@ def build_literature_tools(
         queries = store.get("queries", [])
         if not queries:
             return "No queries — call expand_search_terms first.", []
-        pmids = await svc.fetch_and_cache(
-            queries, db, date_before=date_before
-        )
+        pmids = await svc.fetch_and_cache(queries, db, date_before=date_before)
         store["pmids"] = pmids
         return f"Fetched {len(pmids)} PMIDs", pmids
 
@@ -86,9 +84,7 @@ def build_literature_tools(
         if not pmids:
             return "No PMIDs — call fetch_and_cache first.", []
         chembl_id = await _get_chembl(drug_name)
-        results = await svc.semantic_search(
-            disease_name, chembl_id, pmids, db
-        )
+        results = await svc.semantic_search(disease_name, chembl_id, pmids, db)
         store["abstracts"] = results
         top = results[0].similarity if results else 0.0
         return f"Found {len(results)} abstracts (top sim: {top:.2f})", results
@@ -101,7 +97,9 @@ def build_literature_tools(
         abstracts = store.get("abstracts", [])
         chembl_id = await _get_chembl(drug_name)
         evidence = await svc.synthesize(
-            chembl_id, disease_name, abstracts,
+            chembl_id,
+            disease_name,
+            abstracts,
             holdout_mode=date_before is not None,
         )
         return f"Evidence strength: {evidence.strength}", evidence

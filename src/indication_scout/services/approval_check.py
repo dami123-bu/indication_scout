@@ -123,6 +123,7 @@ def _save_drug_approvals(
     }
     path.write_text(json.dumps(payload, default=str, indent=2))
 
+
 # --------------------------------------------------------------------------
 # Hardcoded FDA approval lookup (used during temporal holdouts)
 #
@@ -200,7 +201,9 @@ def get_approved_indications(
         except ValueError:
             logger.warning(
                 "get_approved_indications: bad date %r for %s/%s; skipping",
-                approved_str, drug_name, disease,
+                approved_str,
+                drug_name,
+                disease,
             )
             continue
         if approved_dt < as_of:
@@ -398,6 +401,7 @@ async def extract_approved_from_labels(
     )
     return validated
 
+
 # TODO delete
 async def get_all_fda_approved_diseases(
     drug_names: list[str],
@@ -409,6 +413,7 @@ async def get_all_fda_approved_diseases(
     if not label_texts:
         return set()
     return label_texts
+
 
 async def get_fda_approved_disease_mapping(
     drug_name: str,
@@ -493,13 +498,16 @@ async def get_fda_approved_disease_mapping(
             drug_aliases = [drug_name, *drug_aliases]
         logger.info(
             "get_fda_approved_disease_mapping: %r → chembl_id=%s, %d aliases",
-            drug_name, chembl_id, len(drug_aliases),
+            drug_name,
+            chembl_id,
+            len(drug_aliases),
         )
     except Exception as e:
         logger.warning(
             "get_fda_approved_disease_mapping: chembl alias lookup failed for %r: %s; "
             "falling back to bare drug_name",
-            drug_name, e,
+            drug_name,
+            e,
         )
         drug_aliases = [drug_name]
 
@@ -508,14 +516,18 @@ async def get_fda_approved_disease_mapping(
 
     logger.info(
         "get_fda_approved_disease_mapping: %r → fetched %d label texts from %d aliases",
-        drug_name, len(label_texts), len(drug_aliases),
+        drug_name,
+        len(label_texts),
+        len(drug_aliases),
     )
 
     if not label_texts:
         logger.warning(
             "get_fda_approved_disease_mapping: %r → no label texts found across %d aliases; "
             "returning False for %d candidate(s)",
-            drug_name, len(drug_aliases), len(still_missing),
+            drug_name,
+            len(drug_aliases),
+            len(still_missing),
         )
         return result
 
@@ -553,7 +565,8 @@ async def get_fda_approved_disease_mapping(
         if not isinstance(value, bool):
             logger.error(
                 "get_fda_approved_disease_mapping: value for %r is not a bool: %s",
-                key, type(value),
+                key,
+                type(value),
             )
             continue
         result[original] = value
@@ -565,5 +578,3 @@ async def get_fda_approved_disease_mapping(
     _save_drug_approvals(drug_name, llm_verdicts, cache_dir, ttl=CACHE_TTL)
 
     return result
-
-

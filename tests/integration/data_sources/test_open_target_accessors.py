@@ -277,8 +277,7 @@ async def test_target_and_association_text_fields(open_targets_client):
 
     # Disease description on the T2D association
     t2d = next(
-        a for a in target.associations
-        if a.disease_name == "type 2 diabetes mellitus"
+        a for a in target.associations if a.disease_name == "type 2 diabetes mellitus"
     )
     assert t2d.disease_description
     assert "diabetes" in t2d.disease_description.lower()
@@ -316,7 +315,6 @@ async def test_get_target_evidences_variant_functional_consequence(open_targets_
     vfc_labels = {
         e.variant_functional_consequence.label
         for e in records
-        if e.variant_functional_consequence
-        and e.variant_functional_consequence.label
+        if e.variant_functional_consequence and e.variant_functional_consequence.label
     }
     assert "missense_variant" in vfc_labels

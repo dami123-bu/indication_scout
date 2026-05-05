@@ -13,7 +13,6 @@ from indication_scout.agents.mechanism.mechanism_agent import (
 )
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
-
 # Targets that must appear in drug_targets (imatinib's known kinase targets)
 _EXPECTED_TARGET_SYMBOLS = {"ABL1", "BCR", "KIT", "PDGFRB"}
 
@@ -36,4 +35,6 @@ async def test_metformin_mechanism_agent():
     assert len(output.drug_targets) >= 4
     assert _EXPECTED_TARGET_SYMBOLS.issubset(set(output.drug_targets.keys()))
     for symbol, ensembl_id in output.drug_targets.items():
-        assert ensembl_id.startswith("ENSG"), f"Expected Ensembl ID for {symbol}, got {ensembl_id!r}"
+        assert ensembl_id.startswith(
+            "ENSG"
+        ), f"Expected Ensembl ID for {symbol}, got {ensembl_id!r}"

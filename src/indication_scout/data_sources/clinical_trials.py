@@ -37,6 +37,8 @@ _settings = get_settings()
 def _mesh_cond(mesh_term: str) -> str:
     """Format a MeSH preferred term as a CT.gov server-side condition filter."""
     return f'AREA[ConditionMeshTerm]"{mesh_term}"'
+
+
 from indication_scout.models.model_clinical_trials import (
     CompetitorEntry,
     CompletedTrialsResult,
@@ -118,15 +120,21 @@ class ClinicalTrialsClient(BaseClient):
             drug=drug, indication=cond, date_before=date_before
         )
         recruiting_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="RECRUITING",
         )
         active_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="ACTIVE_NOT_RECRUITING",
         )
         withdrawn_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="WITHDRAWN",
         )
         # UNKNOWN: CT.gov auto-assigns when a record hasn't been updated in
@@ -134,7 +142,9 @@ class ClinicalTrialsClient(BaseClient):
         # Critical for repurposing analysis — these must NOT be confused with
         # "trial never happened."
         unknown_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="UNKNOWN",
         )
         fetch_task = self._paginated_search(
@@ -145,9 +155,15 @@ class ClinicalTrialsClient(BaseClient):
             sort="EnrollmentCount:desc",
         )
 
-        total, recruiting, active, withdrawn, unknown, (trials, _) = await asyncio.gather(
-            total_task, recruiting_task, active_task, withdrawn_task,
-            unknown_task, fetch_task,
+        total, recruiting, active, withdrawn, unknown, (trials, _) = (
+            await asyncio.gather(
+                total_task,
+                recruiting_task,
+                active_task,
+                withdrawn_task,
+                unknown_task,
+                fetch_task,
+            )
         )
 
         return SearchTrialsResult(
@@ -194,7 +210,8 @@ class ClinicalTrialsClient(BaseClient):
             sort="StartDate:desc",
         )
         count_task = self._count_trials_total(
-            indication=cond, date_before=date_before,
+            indication=cond,
+            date_before=date_before,
         )
 
         (trials, _), total_count = await asyncio.gather(fetch_task, count_task)
@@ -230,7 +247,9 @@ class ClinicalTrialsClient(BaseClient):
 
         cond = _mesh_cond(mesh_term)
         total_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="TERMINATED",
         )
         fetch_task = self._paginated_search(
@@ -282,7 +301,9 @@ class ClinicalTrialsClient(BaseClient):
 
         cond = _mesh_cond(mesh_term)
         total_task = self._count_trials_total(
-            drug=drug, indication=cond, date_before=date_before,
+            drug=drug,
+            indication=cond,
+            date_before=date_before,
             status_filter="COMPLETED",
         )
         fetch_task = self._paginated_search(

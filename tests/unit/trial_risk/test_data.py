@@ -8,11 +8,15 @@ from indication_scout.trial_risk.data import load_labeled_trials
 def _write_cache_entry(cache_dir, namespace, drug, mesh_term, trials):
     ns = cache_dir / namespace
     ns.mkdir(parents=True, exist_ok=True)
-    (ns / f"{namespace}_{drug}_{mesh_term}.json").write_text(json.dumps({
-        "ns": namespace,
-        "params": {"drug": drug, "mesh_term": mesh_term, "date_before": None},
-        "data": {"total_count": len(trials), "trials": trials},
-    }))
+    (ns / f"{namespace}_{drug}_{mesh_term}.json").write_text(
+        json.dumps(
+            {
+                "ns": namespace,
+                "params": {"drug": drug, "mesh_term": mesh_term, "date_before": None},
+                "data": {"total_count": len(trials), "trials": trials},
+            }
+        )
+    )
 
 
 def test_load_labeled_trials_dedups_and_labels(tmp_path):
@@ -40,7 +44,9 @@ def test_load_labeled_trials_dedups_and_labels(tmp_path):
 
     _write_cache_entry(tmp_path, "ct_completed", "drugA", "Diabetes", [completed_trial])
     # Same trial appears under another mesh — should dedup.
-    _write_cache_entry(tmp_path, "ct_completed", "drugA", "OtherCondition", [completed_trial])
+    _write_cache_entry(
+        tmp_path, "ct_completed", "drugA", "OtherCondition", [completed_trial]
+    )
     _write_cache_entry(tmp_path, "ct_terminated", "drugB", "Cancer", [terminated_trial])
 
     labeled = load_labeled_trials(tmp_path)

@@ -499,5 +499,3 @@ async def test_empagliflozin_candidates(open_targets_client):
     # Should be subtracted (APPROVAL stage)
     assert "heart failure" not in diseases
     assert "type 2 diabetes mellitus" not in diseases
-
-

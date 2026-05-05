@@ -28,10 +28,7 @@ logger = logging.getLogger(__name__)
 _CUTOFF = date(2025, 1, 1)
 
 # PMIDs that must appear in fetch_and_cache output (stable, pre-cutoff papers)
-_EXPECTED_PMIDS = {
-    "39735270",
-    "39412509"
-}
+_EXPECTED_PMIDS = {"39735270", "39412509"}
 
 # PMIDs post-cutoff that must not appear
 _EXCLUDED_PMIDS = {
@@ -48,7 +45,13 @@ _EXPECTED_TOP5 = [
 ]
 
 # Evidence summary fields verified by live run on 2026-04-12
-_EXPECTED_SUPPORTING_PMIDS = {"36051145", "38464718", "37950798", "38155202", "37994050"}
+_EXPECTED_SUPPORTING_PMIDS = {
+    "36051145",
+    "38464718",
+    "37950798",
+    "38155202",
+    "37994050",
+}
 
 
 async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cache_dir):

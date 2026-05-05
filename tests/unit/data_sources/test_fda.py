@@ -29,16 +29,8 @@ OZEMPIC_LABEL_FIXTURE = {
 
 MULTI_INDICATION_FIXTURE = {
     "results": [
-        {
-            "indications_and_usage": [
-                "Indicated for condition A."
-            ]
-        },
-        {
-            "indications_and_usage": [
-                "Indicated for condition B."
-            ]
-        },
+        {"indications_and_usage": ["Indicated for condition A."]},
+        {"indications_and_usage": ["Indicated for condition B."]},
     ]
 }
 
@@ -48,7 +40,9 @@ MULTI_INDICATION_FIXTURE = {
 
 async def test_get_label_indications_returns_indications_text(tmp_path):
     client = FDAClient(cache_dir=tmp_path)
-    with patch.object(client, "_rest_get", new=AsyncMock(return_value=WEGOVY_LABEL_FIXTURE)):
+    with patch.object(
+        client, "_rest_get", new=AsyncMock(return_value=WEGOVY_LABEL_FIXTURE)
+    ):
         result = await client.get_label_indications("Wegovy")
 
     assert len(result) == 1
@@ -97,7 +91,9 @@ async def test_get_label_indications_no_indications_field(tmp_path):
 
 async def test_get_label_indications_multiple_results(tmp_path):
     client = FDAClient(cache_dir=tmp_path)
-    with patch.object(client, "_rest_get", new=AsyncMock(return_value=MULTI_INDICATION_FIXTURE)):
+    with patch.object(
+        client, "_rest_get", new=AsyncMock(return_value=MULTI_INDICATION_FIXTURE)
+    ):
         result = await client.get_label_indications("SomeDrug")
 
     assert len(result) == 2
@@ -118,9 +114,7 @@ async def test_get_label_indications_caches_result(tmp_path):
 
 async def test_get_label_indications_does_not_cache_404(tmp_path):
     client = FDAClient(cache_dir=tmp_path)
-    mock_rest_get = AsyncMock(
-        side_effect=DataSourceError("openfda", "HTTP 404", 404)
-    )
+    mock_rest_get = AsyncMock(side_effect=DataSourceError("openfda", "HTTP 404", 404))
     with patch.object(client, "_rest_get", new=mock_rest_get):
         first = await client.get_label_indications("Ghost")
         second = await client.get_label_indications("Ghost")

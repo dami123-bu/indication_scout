@@ -2,10 +2,14 @@
 
 import pytest
 
-from indication_scout.agents.clinical_trials.clinical_trials_tools import _classify_stop_reason
+from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+    _classify_stop_reason,
+)
 from indication_scout.data_sources.base_client import DataSourceError
-from indication_scout.models.model_clinical_trials import MeshTerm, TerminatedTrialsResult
-
+from indication_scout.models.model_clinical_trials import (
+    MeshTerm,
+    TerminatedTrialsResult,
+)
 
 # --- Main functionality ---
 
@@ -251,12 +255,11 @@ async def test_classify_stop_reason_negation_on_live_data(
     safety phrase and asserts the category is not 'safety'.
     """
 
-
     trial = await clinical_trials_client.get_trial(nct_id)
 
     assert trial.why_stopped is not None
     assert why_stopped_fragment in trial.why_stopped.lower()
-    assert  expected_category in _classify_stop_reason(trial.why_stopped)
+    assert expected_category in _classify_stop_reason(trial.why_stopped)
     assert _classify_stop_reason(trial.why_stopped) != "safety"
 
 
@@ -272,6 +275,7 @@ async def test_get_landscape_total_count_exceeds_fetch_cap(clinical_trials_clien
         "Diabetes Mellitus, Type 2", top_n=5
     )
 
-    assert landscape.total_trial_count > get_settings().clinical_trials_landscape_max_trials
-
-
+    assert (
+        landscape.total_trial_count
+        > get_settings().clinical_trials_landscape_max_trials
+    )

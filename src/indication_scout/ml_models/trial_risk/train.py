@@ -54,26 +54,44 @@ def _build_estimator(model_name: str):
     """Construct one of the experimental classifiers."""
     if model_name == "lr":
         # Aggressive shrinkage for high-dim fingerprint case (n=303, p~792).
-        return Pipeline([
-            ("scaler", StandardScaler()),
-            ("lr", LogisticRegression(
-                penalty="l2", C=0.01, class_weight="balanced", max_iter=2000,
-            )),
-        ])
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "lr",
+                    LogisticRegression(
+                        penalty="l2",
+                        C=0.01,
+                        class_weight="balanced",
+                        max_iter=2000,
+                    ),
+                ),
+            ]
+        )
     if model_name == "lr-pca":
         # PCA to 32 components, then LR.
-        return Pipeline([
-            ("scaler", StandardScaler()),
-            ("pca", PCA(n_components=32, random_state=0)),
-            ("lr", LogisticRegression(
-                penalty="l2", C=1.0, class_weight="balanced", max_iter=2000,
-            )),
-        ])
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("pca", PCA(n_components=32, random_state=0)),
+                (
+                    "lr",
+                    LogisticRegression(
+                        penalty="l2",
+                        C=1.0,
+                        class_weight="balanced",
+                        max_iter=2000,
+                    ),
+                ),
+            ]
+        )
     if model_name == "knn":
-        return Pipeline([
-            ("scaler", StandardScaler()),
-            ("knn", KNeighborsClassifier(n_neighbors=5, metric="cosine")),
-        ])
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("knn", KNeighborsClassifier(n_neighbors=5, metric="cosine")),
+            ]
+        )
     raise ValueError(f"unknown model: {model_name}")
 
 
@@ -100,7 +118,9 @@ async def _process_one(
             except Exception as exc:
                 logger.warning(
                     "Lit signal failed for %s (%s): %s — using empty signals",
-                    lt.trial.nct_id, lt.drug, exc,
+                    lt.trial.nct_id,
+                    lt.drug,
+                    exc,
                 )
                 lit = LiteratureSignals()
         finally:
@@ -122,7 +142,9 @@ async def _build_feature_rows(
 
     async def _wrapped(idx: int, lt: LabeledTrial) -> None:
         nonlocal completed
-        rows[idx] = await _process_one(lt, cache_dir, lookback_months, sem, include_fingerprint)
+        rows[idx] = await _process_one(
+            lt, cache_dir, lookback_months, sem, include_fingerprint
+        )
         completed += 1
         if completed % 25 == 0:
             logger.info("Built features for %d / %d trials", completed, total)
@@ -162,20 +184,30 @@ def _grouped_cv_scores(
         all_p.extend(p_test.tolist())
 
         held_out_drug = str(groups[test_idx][0])
-        folds.append({
-            "fold": fold_idx,
-            "held_out_drug": held_out_drug,
-            "n_test": int(len(y_test)),
-            "n_test_terminated": int(y_test.sum()),
-        })
+        folds.append(
+            {
+                "fold": fold_idx,
+                "held_out_drug": held_out_drug,
+                "n_test": int(len(y_test)),
+                "n_test_terminated": int(y_test.sum()),
+            }
+        )
 
     y_arr = np.array(all_y)
     p_arr = np.array(all_p)
     metrics: dict[str, float | list[dict]] = {
         "n_trials_scored": int(len(y_arr)),
         "class_balance": float(y_arr.mean()) if len(y_arr) else 0.0,
-        "roc_auc": float(roc_auc_score(y_arr, p_arr)) if len(np.unique(y_arr)) > 1 else float("nan"),
-        "pr_auc": float(average_precision_score(y_arr, p_arr)) if len(np.unique(y_arr)) > 1 else float("nan"),
+        "roc_auc": (
+            float(roc_auc_score(y_arr, p_arr))
+            if len(np.unique(y_arr)) > 1
+            else float("nan")
+        ),
+        "pr_auc": (
+            float(average_precision_score(y_arr, p_arr))
+            if len(np.unique(y_arr)) > 1
+            else float("nan")
+        ),
         "brier": float(brier_score_loss(y_arr, p_arr)),
         "folds": folds,
     }
@@ -203,26 +235,38 @@ async def main_async(
     use_fingerprint: bool,
     model_name: str,
 ) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
 
     labeled = load_labeled_trials(cache_dir)
     if drugs_filter:
         labeled = [lt for lt in labeled if lt.drug in drugs_filter]
-        logger.info("Filtered to drugs %s: %d trials remain", sorted(drugs_filter), len(labeled))
+        logger.info(
+            "Filtered to drugs %s: %d trials remain", sorted(drugs_filter), len(labeled)
+        )
     if exclude_phases:
         before = len(labeled)
         labeled = [lt for lt in labeled if lt.trial.phase not in exclude_phases]
         logger.info(
             "Excluded phases %s: %d -> %d trials",
-            sorted(exclude_phases), before, len(labeled),
+            sorted(exclude_phases),
+            before,
+            len(labeled),
         )
     if not labeled:
-        logger.error("No labeled trials found in %s (filter=%s)", cache_dir, drugs_filter)
+        logger.error(
+            "No labeled trials found in %s (filter=%s)", cache_dir, drugs_filter
+        )
         return
 
-    rows = await _build_feature_rows(labeled, cache_dir, lookback_months, use_fingerprint)
+    rows = await _build_feature_rows(
+        labeled, cache_dir, lookback_months, use_fingerprint
+    )
     if dry_run:
-        logger.info("Dry run: built features for %d trials, exiting before fit.", len(rows))
+        logger.info(
+            "Dry run: built features for %d trials, exiting before fit.", len(rows)
+        )
         return
     columns, matrix = vectorize(rows)
     X = np.array(matrix, dtype=float)
@@ -231,7 +275,10 @@ async def main_async(
 
     logger.info(
         "Feature matrix: %d rows x %d cols. Class balance: %.3f. Drugs: %d.",
-        X.shape[0], X.shape[1], y.mean(), len(set(groups.tolist())),
+        X.shape[0],
+        X.shape[1],
+        y.mean(),
+        len(set(groups.tolist())),
     )
 
     metrics = _grouped_cv_scores(X, y, groups, model_name)
@@ -240,13 +287,17 @@ async def main_async(
     logger.info(
         "CV metrics [model=%s]: ROC-AUC=%.3f PR-AUC=%.3f Brier=%.3f baseline=%.3f",
         model_name,
-        metrics["roc_auc"], metrics["pr_auc"], metrics["brier"], metrics["class_balance"],
+        metrics["roc_auc"],
+        metrics["pr_auc"],
+        metrics["brier"],
+        metrics["class_balance"],
     )
 
     if metrics["pr_auc"] <= metrics["class_balance"]:
         logger.error(
             "PR-AUC %.3f does not beat class-balance baseline %.3f. Refusing to ship artifact.",
-            metrics["pr_auc"], metrics["class_balance"],
+            metrics["pr_auc"],
+            metrics["class_balance"],
         )
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         METRICS_PATH.write_text(json.dumps(metrics, indent=2))
@@ -256,12 +307,20 @@ async def main_async(
 
     # Coefficient inspection only meaningful for linear models without PCA.
     if model_name == "lr":
-        inspect_pipe = Pipeline([
-            ("scaler", StandardScaler()),
-            ("lr", LogisticRegression(
-                penalty="l2", C=0.01, class_weight="balanced", max_iter=2000,
-            )),
-        ])
+        inspect_pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "lr",
+                    LogisticRegression(
+                        penalty="l2",
+                        C=0.01,
+                        class_weight="balanced",
+                        max_iter=2000,
+                    ),
+                ),
+            ]
+        )
         inspect_pipe.fit(X, y)
         inspect_lr = inspect_pipe.named_steps["lr"]
         coefs = sorted(
@@ -277,7 +336,9 @@ async def main_async(
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     with ARTIFACT_PATH.open("wb") as f:
-        pickle.dump({"model": model, "columns": columns, "lookback_months": lookback_months}, f)
+        pickle.dump(
+            {"model": model, "columns": columns, "lookback_months": lookback_months}, f
+        )
     METRICS_PATH.write_text(json.dumps(metrics, indent=2))
     logger.info("Wrote artifact %s and metrics %s", ARTIFACT_PATH, METRICS_PATH)
 
@@ -285,31 +346,44 @@ async def main_async(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train trial-risk classifier.")
     parser.add_argument(
-        "--cache-dir", type=Path, default=DEFAULT_CACHE_DIR,
+        "--cache-dir",
+        type=Path,
+        default=DEFAULT_CACHE_DIR,
         help="Path to the IndicationScout cache directory (default: project _cache/).",
     )
     parser.add_argument(
-        "--lookback-months", type=int, default=DEFAULT_LOOKBACK_MONTHS,
+        "--lookback-months",
+        type=int,
+        default=DEFAULT_LOOKBACK_MONTHS,
         help=f"Months before completion_date to cap literature lookups (default: {DEFAULT_LOOKBACK_MONTHS}).",
     )
     parser.add_argument(
-        "--drugs", type=str, default=None,
+        "--drugs",
+        type=str,
+        default=None,
         help="Comma-separated drug names to restrict training to (matches the cache `drug` param).",
     )
     parser.add_argument(
-        "--exclude-phases", type=str, default=None,
+        "--exclude-phases",
+        type=str,
+        default=None,
         help="Comma-separated trial phases to exclude (e.g. 'Phase 1,Early Phase 1').",
     )
     parser.add_argument(
-        "--use-fingerprint", action="store_true",
+        "--use-fingerprint",
+        action="store_true",
         help="Add 768-dim mean-pooled BioLORD fingerprint as features.",
     )
     parser.add_argument(
-        "--model", type=str, default="lr", choices=["lr", "lr-pca", "knn"],
+        "--model",
+        type=str,
+        default="lr",
+        choices=["lr", "lr-pca", "knn"],
         help="Classifier: lr (L2 C=0.01), lr-pca (PCA-32 then LR), knn (cosine k=5).",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Build features (warming the cache) but skip model fitting.",
     )
     args = parser.parse_args()
@@ -318,12 +392,20 @@ def main() -> None:
     )
     exclude_phases = (
         {p.strip() for p in args.exclude_phases.split(",") if p.strip()}
-        if args.exclude_phases else None
+        if args.exclude_phases
+        else None
     )
-    asyncio.run(main_async(
-        args.cache_dir, args.lookback_months, drugs_filter, exclude_phases,
-        args.dry_run, args.use_fingerprint, args.model,
-    ))
+    asyncio.run(
+        main_async(
+            args.cache_dir,
+            args.lookback_months,
+            drugs_filter,
+            exclude_phases,
+            args.dry_run,
+            args.use_fingerprint,
+            args.model,
+        )
+    )
 
 
 if __name__ == "__main__":

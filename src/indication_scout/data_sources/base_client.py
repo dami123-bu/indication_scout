@@ -43,9 +43,7 @@ def log_data_source_failure(
                 f"{datetime.now().isoformat()}\t{source}\t{url}\t{context}\t{error}\n"
             )
     except OSError as log_err:
-        logger.warning(
-            "Could not write to data_source_failures.log: %s", log_err
-        )
+        logger.warning("Could not write to data_source_failures.log: %s", log_err)
 
 
 # Keys searched, in order, when building a request-context summary string.
@@ -53,7 +51,13 @@ def log_data_source_failure(
 # data sources: NCBI eutils (term, id), GraphQL (variables), generic
 # search/query params.
 _CONTEXT_PRIORITY_KEYS: tuple[str, ...] = (
-    "term", "query", "q", "search", "id", "ids", "expr",
+    "term",
+    "query",
+    "q",
+    "search",
+    "id",
+    "ids",
+    "expr",
 )
 _CONTEXT_MAX_LEN: int = 200
 
@@ -195,8 +199,13 @@ class BaseClient(ABC):
                         ctx_suffix = f" ({context})" if context else ""
                         logger.warning(
                             "%s: HTTP %d on %s%s; sleeping %ds and retrying (attempt %d/%d)",
-                            self._source_name, resp.status, url, ctx_suffix, delay,
-                            attempt + 1, self.max_retries,
+                            self._source_name,
+                            resp.status,
+                            url,
+                            ctx_suffix,
+                            delay,
+                            attempt + 1,
+                            self.max_retries,
                         )
                         await asyncio.sleep(delay)
                         continue
@@ -239,14 +248,17 @@ class BaseClient(ABC):
                 ctx_suffix = f" ({context})" if context else ""
                 logger.warning(
                     "%s: %s on %s%s; sleeping %ds and retrying (attempt %d/%d)",
-                    self._source_name, last_error, url, ctx_suffix, delay,
-                    attempt + 1, self.max_retries,
+                    self._source_name,
+                    last_error,
+                    url,
+                    ctx_suffix,
+                    delay,
+                    attempt + 1,
+                    self.max_retries,
                 )
                 await asyncio.sleep(delay)
 
-        final_error = last_error or DataSourceError(
-            self._source_name, "Unknown error"
-        )
+        final_error = last_error or DataSourceError(self._source_name, "Unknown error")
         if self.exit_on_retry_exhausted:
             log_data_source_failure(
                 source=self._source_name,

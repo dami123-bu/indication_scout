@@ -32,7 +32,12 @@ from indication_scout.models.model_pubmed_abstract import PubmedAbstract
 from indication_scout.sqlalchemy.pubmed_abstracts import PubmedAbstracts
 from indication_scout.services.embeddings import embed_async
 from indication_scout.models.model_evidence_summary import EvidenceSummary
-from indication_scout.services.llm import parse_llm_response, query_llm, query_small_llm, strip_markdown_fences
+from indication_scout.services.llm import (
+    parse_llm_response,
+    query_llm,
+    query_small_llm,
+    strip_markdown_fences,
+)
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -120,15 +125,19 @@ class RetrievalService:
             # logger.warning("[COMP] raw from OT: %d diseases: %s",
             #                len(raw["diseases"]), list(raw["diseases"].keys()))
 
-        top_40=raw["diseases"]
-        logger.warning("[COMP] after normalize: %d diseases: %s",
-                       len(top_40), list(top_40.keys()))
+        top_40 = raw["diseases"]
+        logger.warning(
+            "[COMP] after normalize: %d diseases: %s", len(top_40), list(top_40.keys())
+        )
 
         drug_indications = raw["drug_indications"]
         disease_names = list(top_40.keys())
         merge_result = await merge_duplicate_diseases(disease_names, drug_indications)
-        logger.warning("[COMP] merge_result: merge=%s remove=%s",
-                       merge_result["merge"], merge_result["remove"])
+        logger.warning(
+            "[COMP] merge_result: merge=%s remove=%s",
+            merge_result["merge"],
+            merge_result["remove"],
+        )
 
         for disease in merge_result["remove"]:
             if disease.lower() in top_40:
@@ -160,7 +169,7 @@ class RetrievalService:
         sorted_data = dict(
             sorted(top_40.items(), key=lambda item: len(item[1]), reverse=True)
         )
-        top_15 = dict(list(sorted_data.items())[:_settings.literature_top_k])
+        top_15 = dict(list(sorted_data.items())[: _settings.literature_top_k])
         logger.warning("[COMP] final top_15: %s", list(top_15.keys()))
 
         cache_set(
@@ -343,8 +352,18 @@ class RetrievalService:
             return None
 
         month_map = {
-            "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-            "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+            "jan": 1,
+            "feb": 2,
+            "mar": 3,
+            "apr": 4,
+            "may": 5,
+            "jun": 6,
+            "jul": 7,
+            "aug": 8,
+            "sep": 9,
+            "oct": 10,
+            "nov": 11,
+            "dec": 12,
         }
 
         if len(parts) == 1:
@@ -384,7 +403,9 @@ class RetrievalService:
         if not pmids:
             return {}
         rows = db.execute(
-            text("SELECT pmid, pub_date FROM pubmed_abstracts WHERE pmid = ANY(:pmids)"),
+            text(
+                "SELECT pmid, pub_date FROM pubmed_abstracts WHERE pmid = ANY(:pmids)"
+            ),
             {"pmids": pmids},
         ).fetchall()
         return {row[0]: row[1] for row in rows}
@@ -426,7 +447,10 @@ class RetrievalService:
         logger.info(
             "_filter_pmids_by_date: %d total, %d known in DB, %d unknown → "
             "esummary; %d kept from DB",
-            len(pmids), len(known), len(unknown), len(from_db_kept),
+            len(pmids),
+            len(known),
+            len(unknown),
+            len(from_db_kept),
         )
 
         if not unknown:

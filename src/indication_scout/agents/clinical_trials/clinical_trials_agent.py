@@ -81,6 +81,7 @@ plainly. Still call get_landscape and check_fda_approval.
 - Don't use outcome-laden words ("validated," "endpoint missed," "failed," "succeeded") unless
   a tool explicitly returned that evidence."""
 
+
 def build_clinical_trials_agent(llm, date_before=None):
     """Return a compiled ReAct agent. No graph wiring required."""
     tools = build_clinical_trials_tools(

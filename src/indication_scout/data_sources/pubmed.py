@@ -72,9 +72,7 @@ class PubMedClient(BaseClient):
             params["api_key"] = self._api_key
         return params
 
-    async def _rest_get_json_tolerant(
-        self, url: str, params: dict[str, Any]
-    ) -> Any:
+    async def _rest_get_json_tolerant(self, url: str, params: dict[str, Any]) -> Any:
         """GET JSON, tolerating raw control characters in the response body.
 
         NCBI eutils occasionally echoes user-supplied query terms back inside
@@ -86,7 +84,10 @@ class PubMedClient(BaseClient):
         return json.loads(text, strict=False)
 
     async def search(
-        self, query: str, max_results: int | None = None, date_before: date | None = None
+        self,
+        query: str,
+        max_results: int | None = None,
+        date_before: date | None = None,
     ) -> list[str]:
         """Search PubMed and return list of PMIDs."""
         if max_results is None:

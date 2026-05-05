@@ -37,15 +37,17 @@ async def _build_rows(
 
     rows = []
     for a in top:
-        rows.append({
-            "target_symbol": target.symbol,
-            "action_types": action_types,
-            "disease_name": a.disease_name,
-            "overall_score": a.overall_score,
-            "evidences": ev_map.get(a.disease_id, []),
-            "disease_description": a.disease_description,
-            "target_function": target_function,
-        })
+        rows.append(
+            {
+                "target_symbol": target.symbol,
+                "action_types": action_types,
+                "disease_name": a.disease_name,
+                "overall_score": a.overall_score,
+                "evidences": ev_map.get(a.disease_id, []),
+                "disease_description": a.disease_description,
+                "target_function": target_function,
+            }
+        )
     return rows
 
 
@@ -93,9 +95,9 @@ async def test_positive_candidates_surface_and_exclude_approved(
     names_lower = {c.disease_name.lower() for c in candidates}
     approved_lower = {a.lower() for a in approved}
     leaked_exact = names_lower & approved_lower
-    assert not leaked_exact, (
-        f"approved terms leaked into candidates via exact match: {leaked_exact}"
-    )
+    assert (
+        not leaked_exact
+    ), f"approved terms leaked into candidates via exact match: {leaked_exact}"
 
     for c in candidates:
         assert c.action_type == action
@@ -138,9 +140,9 @@ async def test_lof_syndromes_excluded_for_inhibitor_like_drugs(
         (r for r in rows if lof_disease_substring in r["disease_name"].lower()),
         None,
     )
-    assert lof_row is not None, (
-        f"expected {lof_disease_substring!r} in top rows for {target_id}"
-    )
+    assert (
+        lof_row is not None
+    ), f"expected {lof_disease_substring!r} in top rows for {target_id}"
     # Majority-voted direction on the LoF syndrome's evidence must be LoF/risk.
     dir_targets, dir_traits = aggregate_directions(lof_row["evidences"])
     assert dir_targets == {"LoF"} and dir_traits == {"risk"}, (
@@ -150,6 +152,6 @@ async def test_lof_syndromes_excluded_for_inhibitor_like_drugs(
 
     candidates = select_top_candidates(rows, approved_diseases=set(), limit=5)
     names_lower = {c.disease_name.lower() for c in candidates}
-    assert not any(lof_disease_substring in n for n in names_lower), (
-        f"contraindication {lof_disease_substring!r} leaked into candidates: {names_lower}"
-    )
+    assert not any(
+        lof_disease_substring in n for n in names_lower
+    ), f"contraindication {lof_disease_substring!r} leaked into candidates: {names_lower}"

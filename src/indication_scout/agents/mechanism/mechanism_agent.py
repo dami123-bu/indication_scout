@@ -3,6 +3,7 @@
 Uses LangGraph's prebuilt create_react_agent for the agent loop. After the run, walks the message
 history to pull typed artifacts off the ToolMessages and assembles them into a MechanismOutput.
 """
+
 import asyncio
 import logging
 
@@ -68,16 +69,18 @@ async def run_mechanism_agent(agent, drug_name: str) -> MechanismOutput:
     }
 
     all_mech_diseases = {
-        a.disease_name
-        for assoc_list in associations.values()
-        for a in assoc_list
+        a.disease_name for assoc_list in associations.values() for a in assoc_list
     }
-    logger.warning("[MECH] surfaced %d diseases: %s",
-                   len(all_mech_diseases), sorted(all_mech_diseases))
-
-    candidates = await _assemble_candidates(drug_name, drug_targets, mechanisms_of_action)
     logger.warning(
-        f"mechanism_agent SUMMARY: {summary}")
+        "[MECH] surfaced %d diseases: %s",
+        len(all_mech_diseases),
+        sorted(all_mech_diseases),
+    )
+
+    candidates = await _assemble_candidates(
+        drug_name, drug_targets, mechanisms_of_action
+    )
+    logger.warning(f"mechanism_agent SUMMARY: {summary}")
     return MechanismOutput(
         drug_targets=drug_targets,
         mechanisms_of_action=mechanisms_of_action,
@@ -125,7 +128,9 @@ async def _assemble_candidates(
     rows: list[dict] = []
     for symbol, result in zip(drug_targets.keys(), per_target_rows):
         if isinstance(result, Exception):
-            logger.warning("_assemble_candidates: row build failed for %s: %s", symbol, result)
+            logger.warning(
+                "_assemble_candidates: row build failed for %s: %s", symbol, result
+            )
             continue
         rows.extend(result)
 
@@ -142,12 +147,15 @@ async def _assemble_candidates(
                 drug_name=drug_name,
                 candidate_diseases=candidate_names,
             )
-            approved = {disease for disease, is_approved in mapping.items() if is_approved}
+            approved = {
+                disease for disease, is_approved in mapping.items() if is_approved
+            }
     except Exception as e:
         logger.warning(
             "_assemble_candidates: FDA approval check failed for %r: %s; "
             "proceeding without approval filter",
-            drug_name, e,
+            drug_name,
+            e,
         )
 
     return select_top_candidates(

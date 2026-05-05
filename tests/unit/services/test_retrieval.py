@@ -860,7 +860,8 @@ async def test_semantic_search_returns_ranked_dicts(svc):
             new=AsyncMock(return_value=["metformin", "glucophage"]),
         ),
         patch(
-            "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
         ),
     ):
         result = await svc.semantic_search(
@@ -947,7 +948,8 @@ async def test_semantic_search_passes_pmids_to_query(svc):
             new=AsyncMock(return_value=["metformin"]),
         ),
         patch(
-            "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
         ),
     ):
         await svc.semantic_search("diabetes", "CHEMBL1431", pmids, mock_db)
@@ -970,7 +972,8 @@ async def test_semantic_search_uses_top_k_from_settings(svc):
             new=AsyncMock(return_value=["metformin"]),
         ),
         patch(
-            "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
         ),
     ):
         await svc.semantic_search("diabetes", "CHEMBL1431", ["111"], mock_db)
@@ -994,7 +997,8 @@ async def test_semantic_search_similarity_is_float(svc):
             new=AsyncMock(return_value=["metformin"]),
         ),
         patch(
-            "indication_scout.services.retrieval.embed_async", return_value=[mock_vector]
+            "indication_scout.services.retrieval.embed_async",
+            return_value=[mock_vector],
         ),
     ):
         result = await svc.semantic_search("diabetes", "CHEMBL1431", ["111"], mock_db)

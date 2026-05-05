@@ -35,7 +35,9 @@ def test_cache_get_returns_none_on_expired(tmp_path: Path) -> None:
 def test_cache_get_returns_data_on_hit(tmp_path: Path) -> None:
     ttl = 86400
     key = cache_key("ns", {"k": "v"})
-    _write_entry(tmp_path / "ns" / f"{key}.json", {"foo": "bar"}, age_seconds=10, ttl=ttl)
+    _write_entry(
+        tmp_path / "ns" / f"{key}.json", {"foo": "bar"}, age_seconds=10, ttl=ttl
+    )
 
     result = cache_get("ns", {"k": "v"}, tmp_path)
 

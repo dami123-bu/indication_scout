@@ -28,27 +28,81 @@ def _ev(dir_target: str | None = None, dir_trait: str | None = None) -> Evidence
     "action_types,dir_targets,dir_traits,expected,reason",
     [
         # Aligned pairs — candidate
-        ({"AGONIST"}, {"GoF"}, {"protect"}, True, "agonist + GoF protects (LoF-driven disease)"),
-        ({"AGONIST"}, {"LoF"}, {"risk"}, True, "agonist + LoF risks (LoF-driven disease)"),
-        ({"INHIBITOR"}, {"GoF"}, {"risk"}, True, "inhibitor + GoF risks (GoF-driven disease)"),
-        ({"INHIBITOR"}, {"LoF"}, {"protect"}, True, "inhibitor + LoF protects (GoF-driven disease)"),
+        (
+            {"AGONIST"},
+            {"GoF"},
+            {"protect"},
+            True,
+            "agonist + GoF protects (LoF-driven disease)",
+        ),
+        (
+            {"AGONIST"},
+            {"LoF"},
+            {"risk"},
+            True,
+            "agonist + LoF risks (LoF-driven disease)",
+        ),
+        (
+            {"INHIBITOR"},
+            {"GoF"},
+            {"risk"},
+            True,
+            "inhibitor + GoF risks (GoF-driven disease)",
+        ),
+        (
+            {"INHIBITOR"},
+            {"LoF"},
+            {"protect"},
+            True,
+            "inhibitor + LoF protects (GoF-driven disease)",
+        ),
         ({"ANTAGONIST"}, {"GoF"}, {"risk"}, True, "antagonist is LoF-class"),
         ({"ACTIVATOR"}, {"LoF"}, {"risk"}, True, "activator is GoF-class"),
         # Opposed pairs — contraindication, NOT a candidate
-        ({"INHIBITOR"}, {"LoF"}, {"risk"}, False, "inhibitor would worsen LoF-driven disease"),
-        ({"AGONIST"}, {"GoF"}, {"risk"}, False, "agonist would worsen GoF-driven disease"),
+        (
+            {"INHIBITOR"},
+            {"LoF"},
+            {"risk"},
+            False,
+            "inhibitor would worsen LoF-driven disease",
+        ),
+        (
+            {"AGONIST"},
+            {"GoF"},
+            {"risk"},
+            False,
+            "agonist would worsen GoF-driven disease",
+        ),
         # Unknown drug action — not a candidate
         (set(), {"LoF"}, {"risk"}, False, "no action_types"),
         ({"BINDING AGENT"}, {"LoF"}, {"risk"}, False, "unrecognised action type"),
         # Mixed action — genuinely ambiguous, not a candidate
-        ({"INHIBITOR", "AGONIST"}, {"GoF"}, {"protect"}, False, "drug both inhibits and agonizes"),
+        (
+            {"INHIBITOR", "AGONIST"},
+            {"GoF"},
+            {"protect"},
+            False,
+            "drug both inhibits and agonizes",
+        ),
         # Unknown disease direction — not a candidate
         ({"INHIBITOR"}, set(), set(), False, "no direction evidence"),
         ({"INHIBITOR"}, {"GoF"}, set(), False, "directionOnTrait empty"),
         ({"INHIBITOR"}, set(), {"risk"}, False, "directionOnTarget empty"),
         # Inconclusive disease direction — not a candidate
-        ({"INHIBITOR"}, {"GoF", "LoF"}, {"risk"}, False, "contradictory directionOnTarget"),
-        ({"INHIBITOR"}, {"GoF"}, {"risk", "protect"}, False, "contradictory directionOnTrait"),
+        (
+            {"INHIBITOR"},
+            {"GoF", "LoF"},
+            {"risk"},
+            False,
+            "contradictory directionOnTarget",
+        ),
+        (
+            {"INHIBITOR"},
+            {"GoF"},
+            {"risk", "protect"},
+            False,
+            "contradictory directionOnTrait",
+        ),
     ],
 )
 def test_classify_positive(action_types, dir_targets, dir_traits, expected, reason):
@@ -110,9 +164,9 @@ def test_aggregate_directions_ignores_records_missing_either_field():
     records = [
         _ev("GoF", "protect"),
         _ev("GoF", "protect"),
-        _ev("GoF", None),     # ignored
-        _ev(None, "risk"),    # ignored
-        _ev(None, None),      # ignored
+        _ev("GoF", None),  # ignored
+        _ev(None, "risk"),  # ignored
+        _ev(None, None),  # ignored
     ]
     dt, dtr = aggregate_directions(records)
     assert dt == {"GoF"} and dtr == {"protect"}
@@ -162,11 +216,15 @@ def _row(
 
 def test_select_top_candidates_keeps_only_positive_rows():
     rows = [
-        _row(disease_name="pos-a", overall_score=0.9,
-             evidences=[_ev("GoF", "risk")] * 5),
+        _row(
+            disease_name="pos-a", overall_score=0.9, evidences=[_ev("GoF", "risk")] * 5
+        ),
         # Opposed: inhibitor + LoF-driven disease
-        _row(disease_name="contra-b", overall_score=0.8,
-             evidences=[_ev("LoF", "risk")] * 5),
+        _row(
+            disease_name="contra-b",
+            overall_score=0.8,
+            evidences=[_ev("LoF", "risk")] * 5,
+        ),
         # Unknown direction — no records with both fields
         _row(disease_name="unk-c", overall_score=0.85, evidences=[]),
     ]
@@ -193,14 +251,22 @@ def test_select_top_candidates_excludes_approved_diseases_exact_match():
     (case-insensitive). Synonym / substring resolution is the caller's
     problem (see services.approval_check.get_fda_approved_disease_mapping)."""
     rows = [
-        _row(disease_name="type 2 diabetes mellitus", overall_score=0.9,
-             evidences=[_ev("GoF", "risk")] * 5),
-        _row(disease_name="Parkinson disease", overall_score=0.7,
-             evidences=[_ev("GoF", "risk")] * 5),
+        _row(
+            disease_name="type 2 diabetes mellitus",
+            overall_score=0.9,
+            evidences=[_ev("GoF", "risk")] * 5,
+        ),
+        _row(
+            disease_name="Parkinson disease",
+            overall_score=0.7,
+            evidences=[_ev("GoF", "risk")] * 5,
+        ),
     ]
     # Casing differs → still matches (lowercase comparison).
     out = select_top_candidates(
-        rows, approved_diseases={"Type 2 Diabetes Mellitus"}, limit=5,
+        rows,
+        approved_diseases={"Type 2 Diabetes Mellitus"},
+        limit=5,
     )
     names = [c.disease_name for c in out]
     assert names == ["Parkinson disease"]
@@ -211,19 +277,23 @@ def test_select_top_candidates_does_not_match_approved_substring():
     specific 'type 2 diabetes mellitus' — exact match only. If the caller
     wants both filtered, both must be in the approved set."""
     rows = [
-        _row(disease_name="type 2 diabetes mellitus", overall_score=0.9,
-             evidences=[_ev("GoF", "risk")] * 5),
+        _row(
+            disease_name="type 2 diabetes mellitus",
+            overall_score=0.9,
+            evidences=[_ev("GoF", "risk")] * 5,
+        ),
     ]
     out = select_top_candidates(
-        rows, approved_diseases={"diabetes mellitus"}, limit=5,
+        rows,
+        approved_diseases={"diabetes mellitus"},
+        limit=5,
     )
     assert [c.disease_name for c in out] == ["type 2 diabetes mellitus"]
 
 
 def test_select_top_candidates_sorts_by_score_desc_and_applies_limit():
     rows = [
-        _row(disease_name=f"d{i}", overall_score=s,
-             evidences=[_ev("GoF", "risk")] * 5)
+        _row(disease_name=f"d{i}", overall_score=s, evidences=[_ev("GoF", "risk")] * 5)
         for i, s in enumerate([0.4, 0.9, 0.6, 0.8, 0.5, 0.7])
     ]
     out = select_top_candidates(rows, approved_diseases=set(), limit=3)

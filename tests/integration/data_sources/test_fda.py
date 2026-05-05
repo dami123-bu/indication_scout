@@ -12,7 +12,10 @@ async def test_get_label_indications_wegovy(fda_client):
     assert len(result) == 2
     assert all("WEGOVY" in text for text in result)
     assert any("cardiovascular" in text.lower() for text in result)
-    assert any("weight management" in text.lower() or "body weight" in text.lower() for text in result)
+    assert any(
+        "weight management" in text.lower() or "body weight" in text.lower()
+        for text in result
+    )
     assert any("steatohepatitis" in text.lower() for text in result)
 
 
@@ -41,7 +44,9 @@ async def test_get_label_indications_nonexistent_brand(fda_client):
 
 async def test_get_all_label_indications_semaglutide_brands(fda_client):
     """All three semaglutide brands together return 5 distinct indication texts."""
-    result = await fda_client.get_all_label_indications(["Ozempic", "Rybelsus", "Wegovy"])
+    result = await fda_client.get_all_label_indications(
+        ["Ozempic", "Rybelsus", "Wegovy"]
+    )
 
     assert len(result) >= 2
     combined = " ".join(result).lower()

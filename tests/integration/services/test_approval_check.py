@@ -22,6 +22,7 @@ async def test_semaglutide_NASH(test_cache_dir):
 
     assert result
 
+
 # TODO delete
 async def test_semaglutide(test_cache_dir):
 
@@ -107,10 +108,10 @@ async def test_get_fda_approved_disease_mapping_empty_inputs(
         (
             ["Ozempic", "Wegovy", "semaglutide"],
             [
-                ["diabetes"],                            # T2DM approval
-                ["weight", "obesity"],                   # chronic weight management / obesity
-                ["cardiovascular", "cv"],                # 2020 MACE risk reduction approval
-                ["kidney", "renal"],                     # 2025 FLOW / CKD approval
+                ["diabetes"],  # T2DM approval
+                ["weight", "obesity"],  # chronic weight management / obesity
+                ["cardiovascular", "cv"],  # 2020 MACE risk reduction approval
+                ["kidney", "renal"],  # 2025 FLOW / CKD approval
                 ["mash", "steatohepatitis", "fatty liver"],  # 2024 Wegovy MASH approval
             ],
         ),
@@ -147,9 +148,7 @@ async def test_list_approved_indications_from_labels_real_drug(
 
     lowered = [i.lower() for i in indications]
     for substring_group in must_contain_substrings:
-        assert any(
-            any(sub in ind for sub in substring_group) for ind in lowered
-        ), (
+        assert any(any(sub in ind for sub in substring_group) for ind in lowered), (
             f"none of {substring_group} found in extracted indications "
             f"{indications} for {drug_aliases}"
         )
@@ -240,12 +239,22 @@ async def test_extract_approved_from_labels_real_drug(
 
 async def test_extract_approved_from_labels_empty_input(test_cache_dir):
     """Empty inputs short-circuit without an LLM call and return an empty set."""
-    assert await extract_approved_from_labels(
-        label_texts=[], candidate_diseases=["obesity"], cache_dir=test_cache_dir,
-    ) == set()
-    assert await extract_approved_from_labels(
-        label_texts=["foo"], candidate_diseases=[], cache_dir=test_cache_dir,
-    ) == set()
+    assert (
+        await extract_approved_from_labels(
+            label_texts=[],
+            candidate_diseases=["obesity"],
+            cache_dir=test_cache_dir,
+        )
+        == set()
+    )
+    assert (
+        await extract_approved_from_labels(
+            label_texts=["foo"],
+            candidate_diseases=[],
+            cache_dir=test_cache_dir,
+        )
+        == set()
+    )
 
 
 async def test_get_fda_approved_disease_mapping_uses_cache(tmp_path, monkeypatch):
@@ -269,13 +278,17 @@ async def test_get_fda_approved_disease_mapping_uses_cache(tmp_path, monkeypatch
     expected = {"type 2 diabetes mellitus": True, "hypertension": False}
 
     first = await get_fda_approved_disease_mapping(
-        drug_name=drug_name, candidate_diseases=candidates, cache_dir=tmp_path,
+        drug_name=drug_name,
+        candidate_diseases=candidates,
+        cache_dir=tmp_path,
     )
     assert first == expected
     assert call_count["n"] == 1
 
     second = await get_fda_approved_disease_mapping(
-        drug_name=drug_name, candidate_diseases=candidates, cache_dir=tmp_path,
+        drug_name=drug_name,
+        candidate_diseases=candidates,
+        cache_dir=tmp_path,
     )
     assert second == expected
     assert call_count["n"] == 1, "second call must hit cache and skip the LLM"

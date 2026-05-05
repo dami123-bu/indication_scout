@@ -2,14 +2,38 @@
 
 import pytest
 
-from indication_scout.models.model_chembl import ATCDescription, MoleculeData, MoleculeSynonym
+from indication_scout.models.model_chembl import (
+    ATCDescription,
+    MoleculeData,
+    MoleculeSynonym,
+)
 
 
 @pytest.mark.parametrize(
     "chembl_id, expected_atc, expected_type, expected_max_phase, expected_black_box, expected_first_approval, expected_oral, expected_pref_name, expected_parent_chembl_id",
     [
-        ("CHEMBL894", ["N06AX12"], "Small molecule", "4.0", 1, 1985, True, "bupropion", "CHEMBL894"),
-        ("CHEMBL2108724", ["A10BJ06"], "Protein", "4.0", 1, 2017, True, "semaglutide", "CHEMBL2108724"),
+        (
+            "CHEMBL894",
+            ["N06AX12"],
+            "Small molecule",
+            "4.0",
+            1,
+            1985,
+            True,
+            "bupropion",
+            "CHEMBL894",
+        ),
+        (
+            "CHEMBL2108724",
+            ["A10BJ06"],
+            "Protein",
+            "4.0",
+            1,
+            2017,
+            True,
+            "semaglutide",
+            "CHEMBL2108724",
+        ),
     ],
 )
 async def test_get_molecule(
@@ -84,17 +108,18 @@ async def test_get_atc_description(
     assert result.level5 == level5
     assert result.who_name == who_name
 
-# TODO Delete
-async def test_single_drug(test_cache_dir
-):
-    from indication_scout.data_sources.chembl import get_all_drug_names
-    #chembl_id="CHEMBL894"  # bupropion
-    #chembl_id = "CHEMBL1431"  # metformin
-    chembl_id="CHEMBL1201583"  #trastuzumab
 
+# TODO Delete
+async def test_single_drug(test_cache_dir):
+    from indication_scout.data_sources.chembl import get_all_drug_names
+
+    # chembl_id="CHEMBL894"  # bupropion
+    # chembl_id = "CHEMBL1431"  # metformin
+    chembl_id = "CHEMBL1201583"  # trastuzumab
 
     result = await get_all_drug_names(chembl_id, cache_dir=test_cache_dir)
     assert result
+
 
 # --- get_all_drug_names ---
 
@@ -105,12 +130,19 @@ async def test_single_drug(test_cache_dir
         (
             "CHEMBL894",
             "bupropion",
-            ["wellbutrin", "zyban", "aplenzin", "forfivo xl", 'bupropion hcl','bw-323'],
+            [
+                "wellbutrin",
+                "zyban",
+                "aplenzin",
+                "forfivo xl",
+                "bupropion hcl",
+                "bw-323",
+            ],
         ),
         (
             "CHEMBL2108724",
             "semaglutide",
-            ["ozempic", "rybelsus", "wegovy","nn9535"],
+            ["ozempic", "rybelsus", "wegovy", "nn9535"],
         ),
     ],
 )
@@ -126,7 +158,9 @@ async def test_get_all_drug_names(
 
     # all expected trade names present
     for name in expected_names:
-        assert name in result, f"Expected '{name}' in drug names for {chembl_id}, got {result}"
+        assert (
+            name in result
+        ), f"Expected '{name}' in drug names for {chembl_id}, got {result}"
 
     # all names are lowercase
     for name in result:

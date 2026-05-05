@@ -126,7 +126,9 @@ async def run_literature_agent(
     agent, drug_name: str, disease_name: str
 ) -> LiteratureOutput:
     """Invoke the agent and assemble a LiteratureOutput from the run."""
-    logger.warning("Starting literature agent run for drug=%s disease=%s", drug_name, disease_name)
+    logger.warning(
+        "Starting literature agent run for drug=%s disease=%s", drug_name, disease_name
+    )
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=f"Analyze {drug_name} in {disease_name}")]}
     )
@@ -155,16 +157,27 @@ async def run_literature_agent(
     summary = artifacts.get("summary") or ""
 
     if not artifacts["queries"]:
-        logger.warning("Literature agent produced no expanded search queries for %s/%s",
-                       drug_name, disease_name)
+        logger.warning(
+            "Literature agent produced no expanded search queries for %s/%s",
+            drug_name,
+            disease_name,
+        )
     if not artifacts["pmids"]:
-        logger.warning("Literature agent fetched no PMIDs for %s/%s", drug_name, disease_name)
+        logger.warning(
+            "Literature agent fetched no PMIDs for %s/%s", drug_name, disease_name
+        )
     if artifacts["evidence"] is None:
-        logger.warning("Literature agent produced no EvidenceSummary for %s/%s",
-                       drug_name, disease_name)
+        logger.warning(
+            "Literature agent produced no EvidenceSummary for %s/%s",
+            drug_name,
+            disease_name,
+        )
     if not summary:
-        logger.warning("Literature agent finished without a finalize_analysis summary for %s/%s",
-                       drug_name, disease_name)
+        logger.warning(
+            "Literature agent finished without a finalize_analysis summary for %s/%s",
+            drug_name,
+            disease_name,
+        )
 
     # logger.warning(
     #     "Literature agent run complete for %s/%s: queries=%d pmids=%d abstracts=%d",

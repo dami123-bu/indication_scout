@@ -1743,9 +1743,7 @@ async def test_get_terminated_drops_post_cutoff_trials_under_date_before():
         why_stopped="lack of efficacy",
         completion_date="2024-06-15",
     )
-    mock_result = TerminatedTrialsResult(
-        total_count=2, trials=[pre_trial, post_trial]
-    )
+    mock_result = TerminatedTrialsResult(total_count=2, trials=[pre_trial, post_trial])
 
     mock_client = _mock_client(get_terminated_trials=mock_result)
     tools = build_clinical_trials_tools(date_before=date(2020, 1, 1))

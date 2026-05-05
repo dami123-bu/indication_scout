@@ -31,6 +31,7 @@ from indication_scout.services.approval_check import (
     get_approved_indications,
 )
 from indication_scout.services.disease_helper import resolve_mesh_id
+
 _settings = get_settings()
 
 logger = logging.getLogger(__name__)
@@ -117,9 +118,7 @@ def _classify_stop_reason(why_stopped: str | None) -> str:
     return why_stopped
 
 
-def _scrub_post_cutoff_outcome(
-    trial: Trial, cutoff: date
-) -> tuple[Trial, bool]:
+def _scrub_post_cutoff_outcome(trial: Trial, cutoff: date) -> tuple[Trial, bool]:
     """Strip outcome fields a 2020 holdout couldn't have known in 2020.
 
     Returns (trial_or_scrubbed_copy, was_scrubbed).

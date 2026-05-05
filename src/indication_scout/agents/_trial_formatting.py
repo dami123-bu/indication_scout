@@ -119,7 +119,10 @@ def _format_trial_row(
             # ("other" / "unknown"), fall through to the raw why_stopped text
             # — the LLM is the better classifier of last resort. If there's
             # no text at all, render "(none)" parallel to the mesh column.
-            if classified_stop_reason and classified_stop_reason not in {"unknown", "other"}:
+            if classified_stop_reason and classified_stop_reason not in {
+                "unknown",
+                "other",
+            }:
                 parts.append(f"stop: {classified_stop_reason}")
             else:
                 raw = (trial.why_stopped or "").strip()
@@ -146,9 +149,7 @@ def _truncate_why_stopped(why_stopped: str | None) -> str:
     return text[:_WHY_STOPPED_CAP].rstrip() + "…"
 
 
-def _borda_rank_by_enrollment_and_recency(
-    trials: list[Trial], k: int
-) -> list[Trial]:
+def _borda_rank_by_enrollment_and_recency(trials: list[Trial], k: int) -> list[Trial]:
     """Return the top k trials ranked by enrollment desc and recency desc combined.
 
     Borda count: rank trials by enrollment descending and by completion_date
@@ -217,9 +218,7 @@ def _format_trial_table(
         return "  (none)"
     rows: list[str] = []
     for trial in trials[:cap]:
-        classified = (
-            stop_classifier(trial.why_stopped) if stop_classifier else None
-        )
+        classified = stop_classifier(trial.why_stopped) if stop_classifier else None
         row = _format_trial_row(trial, columns, classified_stop_reason=classified)
         rows.append(f"  {row}")
         if include_why_stopped:

@@ -307,7 +307,9 @@ async def _ncbi_get_json(
             async with session.get(url, params=params) as resp:
                 logger.debug(
                     "_ncbi_get_json attempt=%d status=%s indication=%r",
-                    attempt + 1, resp.status, indication,
+                    attempt + 1,
+                    resp.status,
+                    indication,
                 )
                 resp.raise_for_status()
                 return await resp.json()
@@ -317,14 +319,20 @@ async def _ncbi_get_json(
                 logger.warning(
                     "MeSH resolver: NCBI request failed for '%s': %s; sleeping 90s "
                     "and retrying (attempt %d/%d)",
-                    indication, e, attempt + 1, max_retries,
+                    indication,
+                    e,
+                    attempt + 1,
+                    max_retries,
                 )
                 await asyncio.sleep(90)
             else:
                 logger.error(
                     "MeSH resolver: NCBI request failed for '%s' after %d retries "
                     "(%d total attempts): %s. Exiting — NCBI is a hard dependency.",
-                    indication, max_retries, max_retries + 1, e,
+                    indication,
+                    max_retries,
+                    max_retries + 1,
+                    e,
                 )
     # All attempts exhausted. NCBI is unreachable / sustainedly throttling us;
     # downstream MeSH-dependent analysis cannot proceed correctly without it.
@@ -434,7 +442,10 @@ async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
         logger.warning(
             "MeSH resolver: esummary missing ds_meshui or ds_meshterms for "
             "'%s' (uid=%s, mesh_id=%r, preferred_term=%r)",
-            indication, uid, mesh_id, preferred_term,
+            indication,
+            uid,
+            mesh_id,
+            preferred_term,
         )
         return None
 

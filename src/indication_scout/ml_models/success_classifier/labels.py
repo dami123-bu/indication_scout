@@ -68,16 +68,20 @@ def load_labeled_pairs(cache_dir: Path) -> list[LabeledPair]:
             non_clinical = [
                 r for r in records if r.get("datatype_id") != CLINICAL_DATATYPE
             ]
-            pairs.append(LabeledPair(
-                target_id=target_id,
-                disease_id=disease_id,
-                label=label,
-                max_clinical_score=max_score,
-                n_clinical_records=n_clinical,
-                non_clinical_records=non_clinical,
-            ))
+            pairs.append(
+                LabeledPair(
+                    target_id=target_id,
+                    disease_id=disease_id,
+                    label=label,
+                    max_clinical_score=max_score,
+                    n_clinical_records=n_clinical,
+                    non_clinical_records=non_clinical,
+                )
+            )
     logger.info(
         "Loaded %d (target, disease) pairs from %s; %d positive (label=1).",
-        len(pairs), target_dir, sum(p.label for p in pairs),
+        len(pairs),
+        target_dir,
+        sum(p.label for p in pairs),
     )
     return pairs

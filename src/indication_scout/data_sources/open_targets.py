@@ -228,7 +228,9 @@ class OpenTargetsClient(BaseClient):
         return drug_data
 
     async def get_drug_competitors(
-        self, chembl_id: str, min_stage: str = "PHASE_3",
+        self,
+        chembl_id: str,
+        min_stage: str = "PHASE_3",
         date_before: date | None = None,
     ) -> CompetitorRawData:
         """Fetch competitor drugs for a given drug, grouped by disease.
@@ -322,7 +324,11 @@ class OpenTargetsClient(BaseClient):
         )
 
         drug_indications = list(approved_indications)
-        top_40 = dict(list(sorted_siblings.items())[:_settings.open_targets_competitor_prefetch_max])
+        top_40 = dict(
+            list(sorted_siblings.items())[
+                : _settings.open_targets_competitor_prefetch_max
+            ]
+        )
 
         # Inverse of id_to_canonical, scoped to the diseases that survived ranking and trimming.
         disease_efo_ids = {
@@ -392,11 +398,13 @@ class OpenTargetsClient(BaseClient):
     # Public accessors — convenience methods using get_drug/get_target
     # ------------------------------------------------------------------
 
-    async def get_target_data_associations(
-        self, target_id: str
-    ) -> list[Association]:
+    async def get_target_data_associations(self, target_id: str) -> list[Association]:
         target = await self.get_target_data(target_id)
-        return [a for a in target.associations if a.overall_score >= _settings.open_targets_association_min_score]
+        return [
+            a
+            for a in target.associations
+            if a.overall_score >= _settings.open_targets_association_min_score
+        ]
 
     async def get_target_data_pathways(self, target_id: str) -> list[Pathway]:
         target = await self.get_target_data(target_id)
@@ -842,11 +850,13 @@ class OpenTargetsClient(BaseClient):
         for d in raw.get("diseases", []):
             d_node = d.get("disease") or {}
             d_name = d_node.get("name")
-            diseases.append(ClinicalDisease(
-                disease_from_source=d.get("diseaseFromSource", ""),
-                disease_id=d_node.get("id"),
-                disease_name=d_name.lower() if d_name else None,
-            ))
+            diseases.append(
+                ClinicalDisease(
+                    disease_from_source=d.get("diseaseFromSource", ""),
+                    disease_id=d_node.get("id"),
+                    disease_name=d_name.lower() if d_name else None,
+                )
+            )
         return DrugSummary(
             id=raw.get("id", ""),
             drug_id=drug.get("id", ""),
