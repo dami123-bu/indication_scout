@@ -140,10 +140,12 @@ What it does:
   scrubbed and the trial appears with status `UNKNOWN`. The competitive
   landscape tool short-circuits empty under a cutoff.
 - **FDA approvals**: looked up against a hardcoded
-  [`data/drug_approvals.json`](data/drug_approvals.json) table gated on the
+  [`drug_approvals.json`](drug_approvals.json) table gated on the
   cutoff. Without `--date-before`, the pipeline falls back to today's
   openFDA labels as usual. Drugs not in the table get no approval reasoning
   during a holdout (a warning is logged).
+
+> **Note:** To run a prospective holdout study, [`drug_approvals.json`](drug_approvals.json) must be updated with the drug's known approvals (and their approval dates) before running with `--date-before`. Drugs missing from this table will not get approval reasoning during the holdout.
 
 Holdout reports are written to `snapshots/holdouts/{drug}_holdout_{cutoff}_{timestamp}.{md,json}`
 to keep them visually distinct from current-state runs.
@@ -221,6 +223,10 @@ src/indication_scout/
 ### Citations
 Open Targets: Ochoa, D. et al. (2023). The next-generation Open Targets Platform: reimagined, redesigned, rebuilt. 
 Nucleic Acids Research, 51(D1), D1353–D1359. DOI: 10.1093/nar/gkac1037. 
+
+## Acknowledgments
+
+This codebase was created with the help of [Claude Code](https://claude.com/claude-code).
 
 ## License
 

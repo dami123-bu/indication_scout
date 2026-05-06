@@ -22,7 +22,7 @@ DEFAULT_OUT_DIR = PROJECT_ROOT / "snapshots"
 
 # Manually set this to point at a different constants file (e.g. ".env.constants.experiment").
 # Path is resolved relative to PROJECT_ROOT.
-CONSTANTS_FILE = ".env.constants.custom"
+CONSTANTS_FILE = ".env.constants"
 
 
 def _load_env() -> None:

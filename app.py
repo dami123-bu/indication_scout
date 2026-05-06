@@ -109,7 +109,7 @@ with st.sidebar:
         "Analyse",
         type="primary",
         disabled=not drug_name.strip(),
-        use_container_width=True,
+        width="stretch",
     )
 
     if run_clicked:
@@ -152,7 +152,7 @@ with st.sidebar:
             data=st.session_state["report_md"],
             file_name=st.session_state["report_filename"],
             mime="text/markdown",
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -259,7 +259,7 @@ with tab_mech:
                     }
                     for moa in mech.mechanisms_of_action
                 ]
-                st.dataframe(moa_rows, hide_index=True, use_container_width=True)
+                st.dataframe(moa_rows, hide_index=True, width="stretch")
             else:
                 st.markdown("_No mechanisms of action recorded._")
 
@@ -334,7 +334,7 @@ with tab_trials:
                 st.dataframe(
                     completed_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         "NCT": st.column_config.LinkColumn("NCT", display_text=r"NCT\d+"),
                     },
@@ -367,7 +367,7 @@ with tab_trials:
                     }
                     for c in ct.landscape.competitors[:25]
                 ]
-                st.dataframe(comp_rows, hide_index=True, use_container_width=True)
+                st.dataframe(comp_rows, hide_index=True, width="stretch")
 
 
 # ----- Literature tab -----
