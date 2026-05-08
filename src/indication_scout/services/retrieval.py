@@ -444,7 +444,7 @@ class RetrievalService:
             if parsed < date_before:
                 from_db_kept.append(pmid)
 
-        logger.info(
+        logger.debug(
             "_filter_pmids_by_date: %d total, %d known in DB, %d unknown → "
             "esummary; %d kept from DB",
             len(pmids),

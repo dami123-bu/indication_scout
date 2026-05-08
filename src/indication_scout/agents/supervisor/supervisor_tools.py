@@ -31,6 +31,27 @@ from indication_scout.services.approval_check import (
 
 logger = logging.getLogger(__name__)
 
+
+def _log_disease_banner(title: str, diseases: list[str]) -> None:
+    """Emit a boxed WARNING-level banner listing diseases, one per line.
+
+    Used to make pivotal candidate-list transitions easy to spot in run logs:
+    FDA-dropped, final candidate allowlist, mechanism-promoted, and top-N
+    investigation set.
+    """
+    header = f" {title} (n={len(diseases)}) "
+    width = max(len(header) + 4, 60)
+    bar = "=" * width
+    lines = [bar, header.center(width, "="), bar]
+    if diseases:
+        for d in diseases:
+            lines.append(f"  - {d}")
+    else:
+        lines.append("  (none)")
+    lines.append(bar)
+    logger.warning("\n%s", "\n".join(lines))
+
+
 from indication_scout.agents._trial_formatting import (
     _borda_rank_by_enrollment_and_recency,
     _format_trial_table,
@@ -260,12 +281,10 @@ def build_supervisor_tools(
                     disease for disease, is_approved in mapping.items() if is_approved
                 }
             if fda_approved:
-                logger.warning(
-                    "[TOOL] find_candidates FDA approval check removing %d competitor diseases "
-                    "(source: %s): %s",
-                    len(fda_approved),
-                    "hardcoded table" if date_before is not None else "live FDA",
-                    fda_approved,
+                _log_disease_banner(
+                    f"FDA-DROPPED (already approved for {drug_name}, source: "
+                    f"{'hardcoded table' if date_before is not None else 'live FDA'})",
+                    sorted(fda_approved),
                 )
                 # Record the approved indications in the shared store. These were
                 # discovered as side effect of candidate filtering — even though
@@ -311,7 +330,10 @@ def build_supervisor_tools(
             if efo_id:
                 allowed_efo_ids[efo_id] = disease_lower
 
-        # logger.warning("[TOOL] find_candidates(%r [%s]) -> %s", drug_name, chembl_id, diseases)
+        _log_disease_banner(
+            f"CANDIDATE ALLOWLIST for {drug_name} ({chembl_id}) — competitor source",
+            diseases,
+        )
         return (
             f"Found {len(diseases)} candidate diseases for {drug_name} ({chembl_id})",
             diseases,
@@ -570,9 +592,8 @@ def build_supervisor_tools(
                     promoted.append(candidate.disease_name)
 
         if promoted:
-            logger.warning(
-                "[TOOL] analyze_mechanism promoted %d mechanism-only candidates to allowlist: %s",
-                len(promoted),
+            _log_disease_banner(
+                f"MECHANISM-PROMOTED candidates added to allowlist for {drug_name}",
                 promoted,
             )
 
@@ -668,10 +689,10 @@ def build_supervisor_tools(
             return "No candidates in allowlist; nothing to investigate.", []
 
         canonical_diseases = [canonical for _, (canonical, _) in top_n]
-        # logger.warning(
-        #     "[TOOL] investigate_top_candidates auto-investigating %d candidates: %s",
-        #     len(canonical_diseases), canonical_diseases,
-        # )
+        _log_disease_banner(
+            f"INVESTIGATING top candidates for {drug_name} (lit + trials in parallel)",
+            canonical_diseases,
+        )
 
         # Fan out: analyze_literature + analyze_clinical_trials in parallel.
         # Pass a ToolCall-shaped dict (not a plain args dict) so .ainvoke()

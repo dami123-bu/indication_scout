@@ -26,7 +26,7 @@ CACHE_TTL: int = 5 * 86400  # 5 days in seconds
 # When the pipeline is run with --date-before, the live FDA-label lookup is
 # replaced with a hardcoded {drug: [{disease, approved}]} table loaded from
 # this JSON file. See PLAN_date_before.md for context.
-DRUG_APPROVALS_PATH: Path = _PROJECT_ROOT / "data" / "drug_approvals.json"
+DRUG_APPROVALS_PATH: Path = _PROJECT_ROOT / "drug_approvals.json"
 
 # -- Open Targets -----------------------------------------------------------
 OPEN_TARGETS_BASE_URL: str = "https://api.platform.opentargets.org/api/v4/graphql"

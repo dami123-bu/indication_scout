@@ -197,7 +197,7 @@ class BaseClient(ABC):
                         if resp.status == 429:
                             delay = max(delay, 90)
                         ctx_suffix = f" ({context})" if context else ""
-                        logger.warning(
+                        logger.debug(
                             "%s: HTTP %d on %s%s; sleeping %ds and retrying (attempt %d/%d)",
                             self._source_name,
                             resp.status,
@@ -246,7 +246,7 @@ class BaseClient(ABC):
             if attempt < self.max_retries:
                 delay = min(2**attempt, 90)
                 ctx_suffix = f" ({context})" if context else ""
-                logger.warning(
+                logger.debug(
                     "%s: %s on %s%s; sleeping %ds and retrying (attempt %d/%d)",
                     self._source_name,
                     last_error,

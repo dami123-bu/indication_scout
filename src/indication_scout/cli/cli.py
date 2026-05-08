@@ -103,6 +103,10 @@ def cli(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    # Quiet third-party per-request chatter that drowns out our own banners.
+    # Keep WARNING+ so genuine failures still surface.
+    for noisy in ("httpx", "httpcore", "urllib3", "openai", "anthropic"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 @cli.command()
