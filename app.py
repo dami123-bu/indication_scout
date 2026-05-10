@@ -133,7 +133,7 @@ with st.sidebar:
     # Disease focus selector — only shown once a run has produced findings
     if "supervisor_output" in st.session_state:
         output = st.session_state["supervisor_output"]
-        investigated = [f.disease for f in output.findings]
+        investigated = [f.disease for f in output.disease_findings]
         if investigated:
             st.markdown("---")
             st.markdown("### Disease focus")
@@ -175,18 +175,18 @@ st.caption(f"_Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_")
 # Top-band KPIs
 total_trials = sum(
     f.clinical_trials.search.total_count
-    for f in output.findings
+    for f in output.disease_findings
     if f.clinical_trials and f.clinical_trials.search
 )
 total_studies = sum(
     f.literature.evidence_summary.study_count
-    for f in output.findings
+    for f in output.disease_findings
     if f.literature and f.literature.evidence_summary
 )
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Candidate diseases", len(output.candidates))
-m2.metric("Investigated", len(output.findings))
+m1.metric("Candidate diseases", len(output.candidate_diseases))
+m2.metric("Investigated", len(output.disease_findings))
 m3.metric("Total trials", total_trials)
 m4.metric("Total studies", total_studies)
 
@@ -196,8 +196,8 @@ tab_overview, tab_mech, tab_trials, tab_lit = st.tabs(
     ["Overview", "Mechanism", "Clinical Trials", "Literature"]
 )
 
-investigated_set = {f.disease.lower().strip() for f in output.findings}
-findings_by_disease = {f.disease: f for f in output.findings}
+investigated_set = {f.disease.lower().strip() for f in output.disease_findings}
+findings_by_disease = {f.disease: f for f in output.disease_findings}
 selected_disease = st.session_state.get("selected_disease")
 
 
@@ -205,15 +205,15 @@ selected_disease = st.session_state.get("selected_disease")
 with tab_overview:
     st.markdown("### Summary")
     summary_text = (
-        _splice_blurbs_into_summary(output.summary, output.findings)
+        _splice_blurbs_into_summary(output.summary, output.disease_findings)
         if output.summary
         else "_No summary produced._"
     )
     st.markdown(summary_text)
 
     st.markdown("### Candidate diseases")
-    if output.candidates:
-        for c in output.candidates:
+    if output.candidate_diseases:
+        for c in output.candidate_diseases:
             marker = "✓ investigated" if c.lower().strip() in investigated_set else "_not investigated_"
             st.markdown(f"- **{c}** — {marker}")
     else:

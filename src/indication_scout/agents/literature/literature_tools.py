@@ -65,6 +65,7 @@ def build_literature_tools(
         store["queries"] = queries
         return f"Generated {len(queries)} queries", queries
 
+
     @tool(response_format="content_and_artifact")
     async def fetch_and_cache(drug_name: str) -> tuple[str, list[str]]:
         """Run PubMed queries, fetch abstracts, embed, cache in pgvector."""

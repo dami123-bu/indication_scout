@@ -13,6 +13,7 @@ from indication_scout.agents.mechanism.mechanism_output import (
     MechanismOutput,
 )
 from indication_scout.agents.supervisor.supervisor_output import (
+    CandidateBlurb,
     CandidateFindings,
     SupervisorOutput,
 )
@@ -213,11 +214,12 @@ def test_fmt_clinical_trials_landscape_renders_competitors():
 
 def test_format_report_full_assembly():
     """End-to-end: confirms all sections render, ordering is correct, and the
-    mechanism-only-uninvestigated tail surfaces a candidate not in findings."""
+    Summary's ranked entries pull blurbs from disease_findings."""
     output = SupervisorOutput(
         drug_name="semaglutide",
-        candidates=["NASH", "Alzheimer's disease"],
+        candidate_diseases=["NASH", "Alzheimer's disease"],
         summary="Semaglutide shows promise for NASH; Alzheimer's evidence is weaker.",
+        top_diseases=["NASH"],
         mechanism=MechanismOutput(
             summary="GLP-1 receptor agonist with metabolic and CNS effects.",
             drug_targets={"GLP1R": "ENSG00000112164"},
@@ -238,7 +240,7 @@ def test_format_report_full_assembly():
                 ),
             ],
         ),
-        findings=[
+        disease_findings=[
             CandidateFindings(
                 disease="NASH",
                 source="both",
@@ -259,18 +261,28 @@ def test_format_report_full_assembly():
                         trials=[],
                     ),
                 ),
+                blurb=CandidateBlurb(
+                    stage="Phase 3",
+                    literature="Moderate, 4 trials",
+                    verdict="Live and progressing",
+                    prose="NASH is the lead repurposing target. Phase 3 readout near.",
+                ),
             ),
         ],
     )
 
     rendered = format_report(output)
 
-    assert "# IndicationScout Report: semaglutide" in rendered
+    assert "# IndicationScout Report: Semaglutide" in rendered
     assert "## Summary" in rendered
     assert "Semaglutide shows promise for NASH" in rendered
+    assert "1. NASH" in rendered
+    assert "**Stage**" in rendered
+    assert "Phase 3" in rendered
+    assert "NASH is the lead repurposing target." in rendered
     assert "## Candidate Diseases" in rendered
     assert "- NASH" in rendered
-    assert "- Alzheimer's disease" in rendered
+    assert "- Alzheimer's Disease" in rendered
     assert "## Mechanistic Analysis" in rendered
     assert "**Molecular targets:** GLP1R" in rendered
     assert "GLP1R (AGONIST) → NASH" in rendered
@@ -281,14 +293,70 @@ def test_format_report_full_assembly():
     assert "[12345678](https://pubmed.ncbi.nlm.nih.gov/12345678/)" in rendered
     assert "### Clinical Trials" in rendered
     assert "**Trial activity:** 5 total trial(s) for this pair" in rendered
-    assert "### Other mechanism candidates (promoted, not investigated)" in rendered
-    assert "- Parkinson's disease" in rendered
+    # The "Other mechanism candidates" tail section was removed.
+    assert "Other mechanism candidates" not in rendered
+
+
+def test_format_report_summary_ranks_top_diseases_in_order():
+    """Summary numbers entries 1.., 2.., ... in top_diseases order."""
+    output = SupervisorOutput(
+        drug_name="testdrug",
+        candidate_diseases=["Disease A", "Disease B", "Disease C"],
+        top_diseases=["Disease B", "Disease A"],
+        disease_findings=[
+            CandidateFindings(
+                disease="Disease B",
+                source="competitor",
+                blurb=CandidateBlurb(verdict="Promising", prose="B prose."),
+            ),
+            CandidateFindings(
+                disease="Disease A",
+                source="mechanism",
+                blurb=CandidateBlurb(verdict="Speculative", prose="A prose."),
+            ),
+        ],
+    )
+
+    rendered = format_report(output)
+
+    assert "1. Disease B" in rendered
+    assert "2. Disease A" in rendered
+    assert rendered.index("1. Disease B") < rendered.index("2. Disease A")
+    assert "B prose." in rendered
+    assert "A prose." in rendered
+
+
+def test_format_report_findings_extras_render_after_top():
+    """A finding that isn't in top_diseases still appears in Candidate Findings."""
+    output = SupervisorOutput(
+        drug_name="testdrug",
+        candidate_diseases=["Top Disease", "Extra Disease"],
+        top_diseases=["Top Disease"],
+        disease_findings=[
+            CandidateFindings(
+                disease="Top Disease",
+                source="competitor",
+                blurb=CandidateBlurb(prose="Top prose."),
+            ),
+            CandidateFindings(disease="Extra Disease", source="mechanism"),
+        ],
+    )
+
+    rendered = format_report(output)
+
+    # Top disease is the only one ranked in the Summary.
+    assert "1. Top Disease" in rendered
+    assert "1. Extra Disease" not in rendered
+    assert "2. Extra Disease" not in rendered
+    # Both findings appear under Candidate Findings.
+    assert "## Top Disease _(source: competitor)_" in rendered
+    assert "## Extra Disease _(source: mechanism)_" in rendered
 
 
 def test_format_report_no_candidates_or_findings():
     output = SupervisorOutput(drug_name="metformin")
     rendered = format_report(output)
-    assert "# IndicationScout Report: metformin" in rendered
+    assert "# IndicationScout Report: Metformin" in rendered
     assert "_No summary produced._" in rendered
     assert "_No candidates surfaced._" in rendered
     assert "_Mechanism analysis not run._" in rendered
@@ -298,4 +366,4 @@ def test_format_report_no_candidates_or_findings():
 def test_format_report_unknown_drug_name_default():
     output = SupervisorOutput()
     rendered = format_report(output)
-    assert "# IndicationScout Report: Unknown drug" in rendered
+    assert "# IndicationScout Report: Unknown Drug" in rendered
