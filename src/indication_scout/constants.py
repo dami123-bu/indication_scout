@@ -58,10 +58,14 @@ PUBMED_SUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
 # for retry/backoff traffic and for the MeSH resolver, which uses the same IP.
 PUBMED_MAX_CONCURRENT_REQUESTS: int = 8
 
+# Pre-call sleep on every uncached PubMed search.
+PUBMED_SEARCH_SLEEP_SECONDS: float = 1.0
+
 # -- MeSH resolver ----------------------------------------------------------
 NCBI_ESEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 NCBI_ESUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"
 MESH_RESOLVER_TTL_SECONDS: int = 60 * 60 * 24 * 30  # 30 days
+MESH_RESOLVER_MAX_CONCURRENT: int = 5
 
 # -- Clinical stage ranking (Open Targets) ----------------------------------
 # Maps maximumClinicalStage / maxClinicalStage string values to numeric ranks

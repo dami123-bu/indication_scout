@@ -37,7 +37,8 @@
       "Bash(ls /Users/dgupta/code/portfolio/IndicationScout/indication_scout/session_*.md)",
       "WebFetch(domain:www.ebi.ac.uk)",
       "Bash(/Users/dgupta/code/portfolio/IndicationScout/indication_scout/session_2026-02-28_18-46.md:*)",
-      "Bash(git -C /Users/dgupta/code/portfolio/IndicationScout/indication_scout status --short .claude/)"
+      "Bash(git -C /Users/dgupta/code/portfolio/IndicationScout/indication_scout status --short .claude/)",
+      "Bash(rm /Users/dgupta/.claude/CLAUDE.md.tmp)"
     ],
     "deny": [],
     "ask": [],
@@ -47,7 +48,8 @@
       "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude",
       "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/agents",
       "/Users/dgupta/code/portfolio/IndicationScout/indication_scout/.claude/commands",
-      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout"
+      "/Users/dgupta/code/portfolio/IndicationScout/indication_scout",
+      "/Users/dgupta/.claude"
     ]
   },
   "hooks": {

@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import sys
 from pathlib import Path
 from typing import Any, TypedDict
@@ -21,6 +22,7 @@ from indication_scout.config import get_settings
 from indication_scout.constants import (
     BROADENING_BLOCKLIST,
     DEFAULT_CACHE_DIR,
+    MESH_RESOLVER_MAX_CONCURRENT,
     MESH_RESOLVER_TTL_SECONDS,
     NCBI_ESEARCH_URL,
     NCBI_ESUMMARY_URL,
@@ -277,8 +279,8 @@ async def normalize_batch(
 # coroutines (e.g. parallel disease pairs from the supervisor) hit NCBI in the
 # same scheduler tick they otherwise blow past the 10 req/s ceiling and 429.
 # Jitter widens the firing window so concurrent callers don't land in lockstep.
-_NCBI_PRECALL_SLEEP_BASE: float = 0.5
-_NCBI_PRECALL_SLEEP_JITTER: float = 0.4
+_NCBI_PRECALL_SLEEP_BASE: float = 1.5
+_NCBI_PRECALL_SLEEP_JITTER: float = 0.5
 
 
 async def _ncbi_get_json(
@@ -352,20 +354,24 @@ async def _ncbi_get_json(
     )
 
 
+_MESH_PREF_TERM_RE = re.compile(r'"([^"]+)"\[MeSH Terms\]')
+_MESH_RESOLVER_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _mesh_semaphore() -> asyncio.Semaphore:
+    global _MESH_RESOLVER_SEMAPHORE
+    if _MESH_RESOLVER_SEMAPHORE is None:
+        _MESH_RESOLVER_SEMAPHORE = asyncio.Semaphore(MESH_RESOLVER_MAX_CONCURRENT)
+    return _MESH_RESOLVER_SEMAPHORE
+
+
 async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
-    """Resolve an indication string to its canonical MeSH descriptor.
+    """Resolve an indication to (descriptor_id, preferred_term) via MeSH ATM.
 
-    Basic strategy: NCBI esearch on MeSH db with `"{indication}"[MeSH Terms]`,
-    then esummary on the first hit to get the D-number (`ds_meshui`) and the
-    MeSH preferred term (`ds_meshterms[0]`). Returns (descriptor_id,
-    preferred_term) or None if nothing resolves. Does NOT cache None results.
-
-    The preferred term is the canonical MeSH descriptor name (e.g.
-    "Depressive Disorder"), suitable for CT.gov's `AREA[ConditionMeshTerm]`
-    server-side filter. The remaining entries in `ds_meshterms` are entry
-    terms / synonyms.
+    Parses the preferred term from esearch's `querytranslation` because
+    esummary on the MeSH db returns empty records for valid UIDs.
     """
-    cache_params = {"indication": indication.strip().lower(), "v": 2}
+    cache_params = {"indication": indication.strip().lower(), "v": 3}
     cached = cache_get("mesh_resolver", cache_params, DEFAULT_CACHE_DIR)
     if cached is not None:
         return tuple(cached) if isinstance(cached, list) else cached
@@ -374,83 +380,54 @@ async def resolve_mesh_id(indication: str) -> tuple[str, str] | None:
 
     esearch_params: dict[str, Any] = {
         "db": "mesh",
-        "term": f'"{indication}"[MeSH Terms]',
+        "term": indication,
         "retmode": "json",
         "retmax": 1,
     }
     if api_key:
         esearch_params["api_key"] = api_key
 
-    async with aiohttp.ClientSession() as session:
-        await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-        async with PubMedClient._get_semaphore():
-            esearch_data = await _ncbi_get_json(
-                session, NCBI_ESEARCH_URL, esearch_params, indication
-            )
-
-        uids = esearch_data.get("esearchresult", {}).get("idlist", [])
-        if not uids:
-            # Fallback: retry without the [MeSH Terms] field tag so NCBI's
-            # Automatic Term Mapping can resolve descriptive phrases
-            # (e.g. "skin melanoma" → "cutaneous malignant melanoma"). Only
-            # accept the hit if ATM actually translated into a MeSH Terms
-            # query — otherwise it's a non-MeSH match we don't want.
-            retry_params = dict(esearch_params)
-            retry_params["term"] = indication
-            await asyncio.sleep(0.1)  # Stay under NCBI rate limit
+    async with _mesh_semaphore(), aiohttp.ClientSession() as session:
+        # NCBI's MeSH backend intermittently returns empty idlist for valid
+        # terms. Retry up to 3 times on empty before treating as a real miss.
+        for attempt in range(3):
+            await asyncio.sleep(0.1)
             async with PubMedClient._get_semaphore():
                 esearch_data = await _ncbi_get_json(
-                    session, NCBI_ESEARCH_URL, retry_params, indication
+                    session, NCBI_ESEARCH_URL, esearch_params, indication
                 )
-            translation = esearch_data.get("esearchresult", {}).get(
-                "querytranslation", ""
-            )
-            if "[MeSH Terms]" in translation:
-                uids = esearch_data.get("esearchresult", {}).get("idlist", [])
-                logger.info(
-                    "MeSH resolver: ATM translated '%s' → %s",
-                    indication,
-                    translation,
-                )
+            uids = esearch_data.get("esearchresult", {}).get("idlist", [])
+            if uids:
+                break
+            await asyncio.sleep(2)
 
-        if not uids:
-            logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
-            return None
+    translation = esearch_data.get("esearchresult", {}).get("querytranslation", "")
 
-        esummary_params: dict[str, Any] = {
-            "db": "mesh",
-            "id": uids[0],
-            "retmode": "json",
-        }
-        if api_key:
-            esummary_params["api_key"] = api_key
+    if not uids:
+        logger.warning("MeSH resolver: no esearch hit for '%s'", indication)
+        return None
 
-        await asyncio.sleep(0.1)  # Stay under NCBI rate limit
-        async with PubMedClient._get_semaphore():
-            esummary_data = await _ncbi_get_json(
-                session, NCBI_ESUMMARY_URL, esummary_params, indication
-            )
-
-    result = esummary_data.get("result", {})
-    uid = uids[0]
-    record = result.get(uid, {})
-    mesh_id = record.get("ds_meshui")
-    mesh_terms = record.get("ds_meshterms") or []
-    preferred_term = mesh_terms[0] if mesh_terms else None
-
-    if not mesh_id or not preferred_term:
+    match = _MESH_PREF_TERM_RE.search(translation)
+    if not match:
         logger.warning(
-            "MeSH resolver: esummary missing ds_meshui or ds_meshterms for "
-            "'%s' (uid=%s, mesh_id=%r, preferred_term=%r)",
+            "MeSH resolver: ATM did not produce a MeSH-Terms translation for "
+            "'%s' (translation=%r)",
             indication,
-            uid,
-            mesh_id,
-            preferred_term,
+            translation,
         )
         return None
 
-    resolved = (mesh_id, preferred_term)
+    preferred_term = match.group(1)
+    mesh_id = uids[0]
 
+    logger.info(
+        "MeSH resolver: '%s' → uid=%s pref=%r",
+        indication,
+        mesh_id,
+        preferred_term,
+    )
+
+    resolved = (mesh_id, preferred_term)
     cache_set(
         "mesh_resolver",
         cache_params,

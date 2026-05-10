@@ -11,17 +11,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 from indication_scout.config import get_settings
 from indication_scout.constants import (
     DEFAULT_CACHE_DIR,
     PUBMED_FETCH_URL,
     PUBMED_MAX_CONCURRENT_REQUESTS,
+    PUBMED_SEARCH_SLEEP_SECONDS,
     PUBMED_SEARCH_URL,
     PUBMED_SUMMARY_URL,
 )
@@ -114,10 +118,14 @@ class PubMedClient(BaseClient):
             params["maxdate"] = effective_maxdate.strftime("%Y/%m/%d")
 
         async with self._get_semaphore():
+            await asyncio.sleep(PUBMED_SEARCH_SLEEP_SECONDS)
             data = await self._rest_get_json_tolerant(
                 self.SEARCH_URL, self._inject_api_key(params)
             )
         pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
+
+        if not pmids:
+            logger.warning("PubMed search returned 0 PMIDs for query: %r", query)
 
         # NOTE: the post-search esummary date guard used to live here. It
         # was moved into RetrievalService.fetch_and_cache so it can read

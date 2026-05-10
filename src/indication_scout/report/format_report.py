@@ -56,23 +56,6 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
     if ct.summary:
         lines.append(ct.summary)
 
-    if ct.approval:
-        ap = ct.approval
-        if ap.is_approved:
-            matched = f" ({ap.matched_indication})" if ap.matched_indication else ""
-            lines.append(f"\n**FDA approval:** Approved{matched}")
-        elif ap.label_found:
-            lines.append(
-                "\n**FDA approval:** Not found on FDA label for this indication"
-            )
-        else:
-            names = (
-                ", ".join(ap.drug_names_checked) if ap.drug_names_checked else "drug"
-            )
-            lines.append(
-                f"\n**FDA approval:** No FDA label found for {names} — status undetermined"
-            )
-
     if ct.search:
         s = ct.search
         lines.append(
@@ -255,7 +238,7 @@ def _splice_blurbs_into_summary(summary: str, findings: list[CandidateFindings])
     """Replace each ranked summary line's structured tail with the matching blurb.
 
     The supervisor's summary string is a ranked list of the form
-    `N. <disease> — literature: ..., trials: ...; FDA approval: ...`. For each line
+    `N. <disease> — literature: ..., trials: ...`. For each line
     that matches a finding with a populated CandidateBlurb, the structured tail
     (everything from the em-dash onward) is stripped and the blurb is rendered
     underneath as: structured fields (only non-empty ones), then the 2-sentence

@@ -751,10 +751,25 @@ class RetrievalService:
         synonyms = all_names[1:]
         organ_term = await self.extract_organ_term(disease_name)
 
+        # Resolve the disease string to its canonical MeSH preferred term and
+        # pass that into the prompt instead of the raw disease name. PubMed's
+        # auto-term-mapping breaks when bare multi-word phrases appear on
+        # either side of AND, so the prompt template instructs the LLM to wrap
+        # the disease term in double quotes for reliable parsing. If the
+        # MeSH lookup misses, fall back to the raw disease name.
+        from indication_scout.services.disease_helper import resolve_mesh_id
+        mesh_result = await resolve_mesh_id(disease_name)
+        disease_term = mesh_result[1] if mesh_result else disease_name
+        if mesh_result is None:
+            logger.warning(
+                "expand_search_terms: MeSH resolution missed for %r; using raw disease name",
+                disease_name,
+            )
+
         template = (_PROMPTS_DIR / "expand_search_terms.txt").read_text()
         prompt = template.format(
             drug_name=pref_name,
-            disease_name=disease_name,
+            disease_name=disease_term,
             organ_term=organ_term,
             synonyms=", ".join(synonyms),
             target_gene_symbols=", ".join(drug_profile.target_gene_symbols),
