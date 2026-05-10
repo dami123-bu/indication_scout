@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from indication_scout.agents.supervisor.supervisor_output import (
+    CandidateBlurb,
     CandidateFindings,
     SupervisorOutput,
 )
@@ -189,28 +190,95 @@ def _title_case_known_diseases(text: str, disease_names: list[str]) -> str:
     return text
 
 
+_BLURB_TABLE_FIELDS: list[tuple[str, str]] = [
+    ("stage", "Stage"),
+    ("literature", "Literature"),
+    ("blocker", "Blocker"),
+    ("active_programs", "Active programs"),
+    ("key_risk", "Key risk"),
+    ("verdict", "Verdict"),
+]
+
+
+def _escape_table_cell(value: str) -> str:
+    """Escape characters that would break a markdown table cell.
+
+    Pipes need backslash-escaping; embedded newlines collapse to a space (the
+    LLM is instructed to keep field values on one line, but defensive).
+    """
+    return value.replace("|", r"\|").replace("\n", " ").strip()
+
+
+def _render_blurb(blurb: CandidateBlurb) -> list[str]:
+    """Render a CandidateBlurb as markdown lines.
+
+    Layout per candidate:
+        1. A 2-column markdown table with one row per non-empty structured field
+           (Stage, Blocker, Active programs, Key risk, Verdict). The header row
+           is intentionally blank so the table reads as a label/value pair list.
+        2. A single bold-prefix `**Watch:** ...` line, only if `watch` is set.
+        3. The 2-sentence italicized prose, only if set.
+
+    If every structured field AND the prose are empty, returns an empty list
+    (caller falls through to the unchanged ranked line).
+    """
+    table_rows: list[tuple[str, str]] = []
+    for attr, label in _BLURB_TABLE_FIELDS:
+        value = getattr(blurb, attr, "").strip()
+        if value:
+            table_rows.append((label, _escape_table_cell(value)))
+    watch = blurb.watch.strip()
+    prose = blurb.prose.strip()
+    if not table_rows and not watch and not prose:
+        return []
+
+    out: list[str] = []
+    if table_rows:
+        # Empty header row → CommonMark still renders a valid table; the visible
+        # output looks like a label/value pair list with column alignment.
+        out.append("|  |  |")
+        out.append("|---|---|")
+        for label, value in table_rows:
+            out.append(f"| **{label}** | {value} |")
+    if watch:
+        if out:
+            out.append("")
+        out.append(f"**Watch:** {_escape_table_cell(watch)}")
+    if prose:
+        if out:
+            out.append("")
+        out.append(f"_{prose}_")
+    return out
+
+
 def _splice_blurbs_into_summary(summary: str, findings: list[CandidateFindings]) -> str:
     """Replace each ranked summary line's structured tail with the matching blurb.
 
     The supervisor's summary string is a ranked list of the form
     `N. <disease> — literature: ..., trials: ...; FDA approval: ...`. For each line
-    that matches a finding with a non-empty blurb, the structured tail (everything
-    from the em-dash onward) is stripped and replaced with the blurb on the next
-    line. Lines that don't match any finding (e.g. the trailing "Closed signals:"
+    that matches a finding with a populated CandidateBlurb, the structured tail
+    (everything from the em-dash onward) is stripped and the blurb is rendered
+    underneath as: structured fields (only non-empty ones), then the 2-sentence
+    prose. Lines that don't match any finding (e.g. the trailing "Closed signals:"
     line) and lines without an em-dash are passed through unchanged. Disease
     matching is case-insensitive on the disease name only.
     """
-    blurb_by_disease = {
-        f.disease.lower().strip(): f.blurb.strip()
-        for f in findings
-        if f.blurb and f.blurb.strip()
-    }
+    blurb_by_disease: dict[str, CandidateBlurb] = {}
+    for f in findings:
+        if f.blurb is None:
+            continue
+        rendered = _render_blurb(f.blurb)
+        if not rendered:
+            continue
+        blurb_by_disease[f.disease.lower().strip()] = f.blurb
     if not blurb_by_disease:
         return summary
 
-    # Group 1: rank prefix ("N. "). Group "head": disease portion (before em-dash).
-    # The em-dash separator and structured tail are dropped on a successful match.
-    rank_line = re.compile(r"^(\s*\d+\.\s+)(?P<head>.+?)\s+—\s+.+$")
+    # Group "rank": the rank number ("1", "2", ...). Group "head": disease portion
+    # (before em-dash). Any leading whitespace the LLM emitted is dropped — the rank
+    # line is rebuilt flush-left so it lines up with the field/prose lines rendered
+    # below it (and so CommonMark doesn't treat 4+ leading spaces as a code block).
+    rank_line = re.compile(r"^\s*(?P<rank>\d+)\.\s+(?P<head>.+?)\s+—\s+.+$")
     out_lines: list[str] = []
     for line in summary.splitlines():
         m = rank_line.match(line)
@@ -230,13 +298,13 @@ def _splice_blurbs_into_summary(summary: str, findings: list[CandidateFindings])
             out_lines.append(line)
             continue
         blurb = blurb_by_disease.pop(match_key)
-        prefix = m.group(1)
+        rank = m.group("rank")
         # Markdown collapses adjacent non-blank lines into one paragraph, so emit
-        # a blank line between the ranked disease line and its blurb (and a trailing
-        # blank so the next ranked entry doesn't fold back into this blurb).
-        out_lines.append(f"{prefix}{_title_case_disease(head)}")
+        # a blank line between the ranked disease line and the blurb block (and a
+        # trailing blank so the next ranked entry doesn't fold back into this one).
+        out_lines.append(f"{rank}. {_title_case_disease(head)}")
         out_lines.append("")
-        out_lines.append(f"_{blurb}_")
+        out_lines.extend(_render_blurb(blurb))
         out_lines.append("")
     return "\n".join(out_lines)
 
@@ -254,21 +322,33 @@ def format_report(output: SupervisorOutput) -> str:
         "",
     ]
 
-    # Summary — splice each top-5 candidate's blurb directly under its ranked line,
-    # then title-case any known disease names that appear inside the LLM-generated text.
+    # Summary — render the supervisor's prose intro, then each top-disease as a ranked
+    # entry with its blurb pulled from disease_findings. Title-case any known disease
+    # names that appear inside the LLM-generated prose.
+    known_diseases = [f.disease for f in output.disease_findings] + list(
+        output.candidate_diseases or []
+    )
+    findings_by_canonical = {
+        f.disease.lower().strip(): f for f in output.disease_findings
+    }
+
+    lines += ["## Summary", ""]
     if output.summary:
-        summary_text = _splice_blurbs_into_summary(output.summary, output.findings)
-        known_diseases = [f.disease for f in output.findings] + list(
-            output.candidates or []
-        )
-        summary_text = _title_case_known_diseases(summary_text, known_diseases)
-    else:
-        summary_text = "_No summary produced._"
+        lines.append(_title_case_known_diseases(output.summary, known_diseases))
+        lines.append("")
+    elif not output.top_diseases:
+        lines.append("_No summary produced._")
+        lines.append("")
+
+    for rank, disease in enumerate(output.top_diseases, start=1):
+        finding = findings_by_canonical.get(disease.lower().strip())
+        lines.append(f"{rank}. {_title_case_disease(disease)}")
+        lines.append("")
+        if finding is not None and finding.blurb is not None:
+            lines.extend(_render_blurb(finding.blurb))
+        lines.append("")
+
     lines += [
-        "## Summary",
-        "",
-        summary_text,
-        "",
         "_Note: trial counts in this summary reflect ClinicalTrials.gov only and may "
         "undercount activity registered in ex-US registries (e.g. jRCT, ChiCTR, "
         "EU-CTR, ANZCTR). Studies cited in the literature section may reference "
@@ -280,14 +360,14 @@ def format_report(output: SupervisorOutput) -> str:
 
     # Candidate diseases
     lines += ["## Candidate Diseases", ""]
-    if output.candidates:
+    if output.candidate_diseases:
         lines.append(
             "_Note: not every candidate listed here is investigated in depth. "
             "Only diseases with a section under **Candidate Findings** below have "
             "literature and clinical-trial evidence pulled for this run._"
         )
         lines.append("")
-        for c in output.candidates:
+        for c in output.candidate_diseases:
             lines.append(f"- {_title_case_disease(c)}")
     else:
         lines.append("_No candidates surfaced._")
@@ -301,14 +381,10 @@ def format_report(output: SupervisorOutput) -> str:
         lines.append("_Mechanism analysis not run._")
     lines += ["", "---", ""]
 
-    # Per-candidate findings
+    # Per-disease findings
     lines += ["## Candidate Findings", ""]
-    if output.findings:
-        # Build set of investigated disease keys so we can list any
-        # mechanism candidates that were promoted but not investigated below.
-        investigated_keys = {f.disease.lower().strip() for f in output.findings}
-
-        for finding in output.findings:
+    if output.disease_findings:
+        for finding in output.disease_findings:
             lines += [
                 f"## {_title_case_disease(finding.disease)} _(source: {finding.source})_",
                 "",
@@ -332,31 +408,6 @@ def format_report(output: SupervisorOutput) -> str:
 
             lines.append("---")
             lines.append("")
-
-        # Surface mechanism candidates that were promoted to the allowlist
-        # but not selected for deep investigation in the findings above.
-        mech_only_uninvestigated: list[str] = []
-        if output.mechanism and output.mechanism.candidates:
-            seen: set[str] = set()
-            for c in output.mechanism.candidates:
-                key = c.disease_name.lower().strip()
-                if not key or key in seen or key in investigated_keys:
-                    continue
-                seen.add(key)
-                mech_only_uninvestigated.append(_title_case_disease(c.disease_name))
-
-        if mech_only_uninvestigated:
-            lines += [
-                "### Other mechanism candidates (promoted, not investigated)",
-                "",
-                "These diseases were surfaced by the mechanism agent and added to the "
-                "investigation allowlist, but the supervisor did not select them for deep "
-                "literature / clinical-trials analysis in this run.",
-                "",
-            ]
-            for name in mech_only_uninvestigated:
-                lines.append(f"- {name}")
-            lines += ["", "---", ""]
     else:
         lines.append("_No candidate findings produced._")
 

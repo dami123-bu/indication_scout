@@ -20,10 +20,12 @@ from langgraph.prebuilt import create_react_agent
 
 from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 from indication_scout.agents.supervisor.supervisor_output import (
+    CandidateBlurb,
     CandidateFindings,
     SupervisorOutput,
 )
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
+from indication_scout.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +192,22 @@ async def run_supervisor_agent(
     # diseases the supervisor actually investigated this run (i.e. already present in
     # findings_by_disease). Names are canonicalised through the merged allowlist so casing /
     # synonym variants land on the right finding. Holdout runs send an empty blurbs list.
+    structured_keys = (
+        "stage",
+        "literature",
+        "blocker",
+        "active_programs",
+        "key_risk",
+        "verdict",
+        "watch",
+    )
     for entry in blurbs:
         disease_raw = entry.get("disease", "")
-        blurb_text = entry.get("blurb", "")
-        if not disease_raw or not blurb_text:
+        if not disease_raw:
+            continue
+        prose = (entry.get("prose") or "").strip()
+        fields = {k: (entry.get(k) or "").strip() for k in structured_keys}
+        if not prose and not any(fields.values()):
             continue
         match = _canonical(disease_raw)
         if match is None:
@@ -209,16 +223,50 @@ async def run_supervisor_agent(
                 disease_raw,
             )
             continue
-        finding.blurb = blurb_text
+        finding.blurb = CandidateBlurb(prose=prose, **fields)
 
     # Candidates surfaced to downstream consumers = every disease in the merged allowlist,
     # mapped back to its canonical name. Includes mechanism-promoted diseases.
-    candidates = [canonical for (canonical, _) in allowed_lower.values()]
+    candidate_diseases = [canonical for (canonical, _) in allowed_lower.values()]
+
+    # Build top_diseases from the supervisor's blurb list (rank-ordered). Drop any blurb
+    # disease that isn't in the allowlist or wasn't investigated this run, then hard cap
+    # at 5. Enforces top_diseases ⊆ disease_findings ⊆ candidate_diseases.
+    top_diseases: list[str] = []
+    seen_top: set[str] = set()
+    for entry in blurbs:
+        disease_raw = entry.get("disease", "")
+        if not disease_raw:
+            continue
+        match = _canonical(disease_raw)
+        if match is None:
+            continue
+        canonical, _ = match
+        if canonical not in findings_by_disease:
+            logger.warning(
+                "Skipping top_diseases entry for disease=%r (not investigated this run)",
+                disease_raw,
+            )
+            continue
+        if canonical in seen_top:
+            continue
+        seen_top.add(canonical)
+        top_diseases.append(canonical)
+    top_diseases = top_diseases[: get_settings().supervisor_candidate_cap]
+
+    # Reorder disease_findings so top_diseases entries appear first in rank order, with
+    # any remaining investigated diseases following in insertion order.
+    top_set = set(top_diseases)
+    disease_findings = [findings_by_disease[name] for name in top_diseases]
+    for canonical, finding in findings_by_disease.items():
+        if canonical not in top_set:
+            disease_findings.append(finding)
 
     return SupervisorOutput(
         drug_name=drug_name,
-        candidates=candidates,
+        candidate_diseases=candidate_diseases,
         mechanism=mechanism,
-        findings=list(findings_by_disease.values()),
+        disease_findings=disease_findings,
+        top_diseases=top_diseases,
         summary=summary,
     )

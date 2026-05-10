@@ -341,7 +341,7 @@ async def get_all_drug_names(
     async with ChEMBLClient(cache_dir=cache_dir) as client:
         # 1. Get pref_name and trade names from the parent molecule itself
         parent = await client.get_molecule(chembl_id)
-        pref_name = parent.pref_name if parent.pref_name else chembl_id
+        pref_name = parent.pref_name if parent.pref_name else chembl_id.lower()
 
         all_names.extend(s.molecule_synonym for s in parent.molecule_synonyms)
 

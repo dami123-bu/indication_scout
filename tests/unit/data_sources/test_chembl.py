@@ -513,7 +513,7 @@ async def test_get_all_drug_names_no_synonyms_no_pref_name(tmp_path):
     with _patch_rest_get(mock_rest_get):
         result = await get_all_drug_names("CHEMBL999", cache_dir=tmp_path)
 
-    assert result == ["CHEMBL999"]
+    assert result == ["chembl999"]
 
 
 async def test_get_all_drug_names_hierarchy_failure_still_returns_parent_names(

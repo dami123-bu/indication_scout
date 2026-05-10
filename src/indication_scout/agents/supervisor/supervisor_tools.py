@@ -784,19 +784,47 @@ def build_supervisor_tools(
         Arguments:
         - summary: your ranked structured fact list of investigated candidates
           (see WRITING THE SUMMARY in the system prompt).
-        - blurbs: a list of {"disease": <name>, "blurb": <exactly 2 sentences>} entries
-          for the TOP 5 ranked candidates in your summary, in rank order. Each
-          blurb must synthesize ONLY the literature and clinical_trials sub-agent
-          summaries you saw for that disease this run — do not include mechanism
-          content. Pass an empty list if no candidates were investigated. The
-          disease name must match a name returned verbatim by find_candidates
-          or promoted by analyze_mechanism (otherwise the blurb is dropped).
+        - blurbs: a list of structured per-candidate entries for the TOP 5
+          ranked candidates in your summary, in rank order. Each entry is a
+          dict with these keys:
+            - disease: <verbatim candidate name from find_candidates or
+              analyze_mechanism>
+            - stage: where the pair sits in development (single line)
+            - literature: one-line summary of the literature evidence base —
+              strength + shape, e.g. "Strong, 5 RCTs / meta-analyses",
+              "Weak, case reports only", "None"
+            - blocker: what is currently holding the program back, or empty
+              if nothing is
+            - active_programs: short summary of what is still moving
+            - key_risk: the single biggest risk to the hypothesis
+            - verdict: short interpretive tag (e.g. "Live but bottlenecked")
+            - watch: next concrete data readout or trial worth watching
+              (NCT id and/or expected timing); empty if none on record
+            - prose: exactly 2 sentences of interpretive synthesis
+          Each blurb must synthesize ONLY the literature and clinical_trials
+          sub-agent summaries you saw for that disease this run — do not
+          include mechanism content. Pass an empty list if no candidates were
+          investigated. Diseases not in the allowlist are dropped. An entry
+          with empty disease, or empty in BOTH prose AND every structured
+          field, is dropped.
         """
         validated: list[dict] = []
+        structured_keys = (
+            "stage",
+            "literature",
+            "blocker",
+            "active_programs",
+            "key_risk",
+            "verdict",
+            "watch",
+        )
         for item in blurbs or []:
             disease = (item.get("disease") or "").strip()
-            blurb = (item.get("blurb") or "").strip()
-            if not disease or not blurb:
+            if not disease:
+                continue
+            fields = {k: (item.get(k) or "").strip() for k in structured_keys}
+            prose = (item.get("prose") or "").strip()
+            if not prose and not any(fields.values()):
                 continue
             if disease.lower().strip() not in allowed_diseases:
                 logger.warning(
@@ -805,7 +833,8 @@ def build_supervisor_tools(
                     disease,
                 )
                 continue
-            validated.append({"disease": disease, "blurb": blurb})
+            entry = {"disease": disease, "prose": prose, **fields}
+            validated.append(entry)
         artifact = {"summary": summary, "blurbs": validated}
         return "Supervisor analysis complete.", artifact
 
