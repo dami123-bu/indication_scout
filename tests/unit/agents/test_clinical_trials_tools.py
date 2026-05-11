@@ -16,6 +16,7 @@ from indication_scout.models.model_clinical_trials import (
     CompletedTrialsResult,
     IndicationLandscape,
     Intervention,
+    MeshTerm,
     PrimaryOutcome,
     RecentStart,
     SearchTrialsResult,
@@ -61,6 +62,7 @@ async def test_search_trials_returns_search_trials_result_artifact():
         overall_status="COMPLETED",
         why_stopped=None,
         indications=["Breast Cancer"],
+        mesh_conditions=[MeshTerm(id="D001943", term="Breast Neoplasms")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Trastuzumab"),
             Intervention(intervention_type="Drug", intervention_name="Capecitabine"),
@@ -214,6 +216,7 @@ async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
         phase="Phase 2",
         overall_status="RECRUITING",
         sponsor="S",
+        mesh_conditions=[MeshTerm(id="D003866", term="Depressive Disorder")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Bupropion"),
         ],
@@ -270,6 +273,7 @@ async def test_get_completed_returns_completed_trials_result_artifact():
         overall_status="COMPLETED",
         sponsor="Sponsor",
         enrollment=500,
+        mesh_conditions=[MeshTerm(id="D003924", term="Diabetes Mellitus, Type 2")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
         ],
@@ -397,6 +401,7 @@ async def test_get_terminated_returns_terminated_trials_result_artifact():
         why_stopped="Serious adverse events observed",
         sponsor="Novo Nordisk",
         enrollment=40,
+        mesh_conditions=[MeshTerm(id="D050177", term="Overweight")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
         ],
@@ -409,6 +414,7 @@ async def test_get_terminated_returns_terminated_trials_result_artifact():
         why_stopped="The trial was terminated for strategic reasons.",
         sponsor="Novo Nordisk",
         enrollment=20,
+        mesh_conditions=[MeshTerm(id="D050177", term="Overweight")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Semaglutide"),
         ],
@@ -467,6 +473,7 @@ async def test_get_terminated_content_notes_cap_when_total_exceeds_shown():
         overall_status="TERMINATED",
         why_stopped="Lack of efficacy",
         sponsor="S",
+        mesh_conditions=[MeshTerm(id="D050177", term="Overweight")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Drug_x"),
         ],
@@ -587,6 +594,7 @@ async def test_search_trials_drops_trial_where_drug_only_in_eligibility():
         phase="Phase 2",
         overall_status="COMPLETED",
         sponsor="S",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
         ],
@@ -597,6 +605,7 @@ async def test_search_trials_drops_trial_where_drug_only_in_eligibility():
         phase="Phase 3",
         overall_status="TERMINATED",
         sponsor="Infinity",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(
                 intervention_type="Drug",
@@ -655,6 +664,7 @@ async def test_search_trials_drops_observational_trial_with_no_interventions():
         phase="Not Applicable",
         overall_status="COMPLETED",
         sponsor="Taiwan University",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[],
     )
     mock_result = SearchTrialsResult(
@@ -703,6 +713,7 @@ async def test_search_trials_keeps_trial_matched_by_trade_name_alias():
         phase="Phase 2",
         overall_status="RECRUITING",
         sponsor="BMS",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Sprycel 100 mg"),
         ],
@@ -753,6 +764,7 @@ async def test_search_trials_skips_filter_when_alias_resolution_fails():
         phase="Phase 2",
         overall_status="RECRUITING",
         sponsor="S",
+        mesh_conditions=[MeshTerm(id="D000001", term="Test Term")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Some Other Drug"),
         ],
@@ -803,6 +815,7 @@ async def test_get_terminated_drops_eligibility_only_trial_and_recomputes_safety
         overall_status="TERMINATED",
         why_stopped="Lack of efficacy",
         sponsor="S",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
         ],
@@ -814,6 +827,7 @@ async def test_get_terminated_drops_eligibility_only_trial_and_recomputes_safety
         overall_status="TERMINATED",
         why_stopped="Sponsor decision",
         sponsor="Infinity",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(
                 intervention_type="Drug",
@@ -866,6 +880,7 @@ async def test_get_completed_drops_eligibility_only_trial():
         phase="Phase 3",
         overall_status="COMPLETED",
         sponsor="BMS",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name="Dasatinib"),
         ],
@@ -876,6 +891,7 @@ async def test_get_completed_drops_eligibility_only_trial():
         phase="Not Applicable",
         overall_status="COMPLETED",
         sponsor="Taiwan University",
+        mesh_conditions=[MeshTerm(id="D046152", term="Gastrointestinal Stromal Tumors")],
         interventions=[],
     )
     mock_result = CompletedTrialsResult(total_count=2, trials=[real_trial, noise_trial])
@@ -1001,6 +1017,538 @@ def test_trial_intervenes_with_drug_matches_biological_type():
         ],
     )
     assert _trial_intervenes_with_drug(trial, ["trastuzumab", "herceptin"]) is True
+
+
+# ------------------------------------------------------------------
+# _trial_indication_is_primary (top-2 mesh primacy unit)
+# ------------------------------------------------------------------
+
+
+def test_trial_indication_is_primary_position_0_id_match():
+    """First-listed mesh_condition matching the queried descriptor id → primary."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        mesh_conditions=[
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+        ],
+    )
+    assert (
+        _trial_indication_is_primary(trial, "D016640", "Diabetes, Gestational") is True
+    )
+
+
+def test_trial_indication_is_primary_position_1_id_match():
+    """Second-listed mesh_condition is still primary under top-2."""
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+        ],
+    )
+    assert (
+        _trial_indication_is_primary(trial, "D016640", "Diabetes, Gestational") is True
+    )
+
+
+def test_trial_indication_is_primary_rejects_position_2_plus():
+    """Indication appearing only at position 2+ in mesh_conditions is NOT primary.
+
+    Reproduces NCT00994812: PCOS first, Gestational Diabetes fifth → metformin
+    × gestational diabetes search must drop this trial.
+    """
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(
+        nct_id="NCT00994812",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D000022", term="Abortion, Spontaneous"),
+            MeshTerm(id="D007246", term="Infertility"),
+            MeshTerm(id="D014115", term="Toxemia"),
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+            MeshTerm(id="D011248", term="Pregnancy Complications"),
+        ],
+    )
+    assert (
+        _trial_indication_is_primary(trial, "D016640", "Diabetes, Gestational") is False
+    )
+
+
+def test_trial_indication_is_primary_accepts_ncbi_uid_form():
+    """resolve_mesh_id returns NCBI UID (68016640); CT.gov stores D016640.
+    Both forms must match the same descriptor.
+    """
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        mesh_conditions=[MeshTerm(id="D016640", term="Diabetes, Gestational")],
+    )
+    assert (
+        _trial_indication_is_primary(trial, "68016640", "Diabetes, Gestational") is True
+    )
+
+
+def test_trial_indication_is_primary_falls_back_to_term_match():
+    """If ids don't match but the preferred term equals a top-2 mesh term
+    (case-insensitive), still treat as primary.
+    """
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(
+        nct_id="NCT1",
+        mesh_conditions=[MeshTerm(id="", term="Diabetes, Gestational")],
+    )
+    assert (
+        _trial_indication_is_primary(trial, "D016640", "Diabetes, Gestational") is True
+    )
+
+
+def test_trial_indication_is_primary_empty_mesh_conditions_returns_false():
+    """A trial with no mesh_conditions can't be classified as primary → drop.
+
+    CT.gov sometimes returns trials with no derived MeSH (older / minimally
+    tagged records). The conservative call is to drop rather than keep.
+    """
+    from indication_scout.agents.clinical_trials.clinical_trials_tools import (
+        _trial_indication_is_primary,
+    )
+
+    trial = Trial(nct_id="NCT1", mesh_conditions=[])
+    assert (
+        _trial_indication_is_primary(trial, "D016640", "Diabetes, Gestational") is False
+    )
+
+
+# ------------------------------------------------------------------
+# Primary-indication filter (top-2 mesh) — end-to-end via the three
+# pair-scoped tools.
+# ------------------------------------------------------------------
+
+
+async def test_search_trials_drops_non_primary_indication_trial():
+    """Reproduces NCT00994812: metformin × gestational diabetes must not
+    return a trial where the indication appears at position 5 in mesh_conditions.
+    """
+    pcos_trial = Trial(
+        nct_id="NCT00994812",
+        title="Metformin in PCOS",
+        phase="Phase 4",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D000022", term="Abortion, Spontaneous"),
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+        ],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    primary_trial = Trial(
+        nct_id="NCT99999999",
+        title="Metformin in Gestational Diabetes",
+        phase="Phase 3",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+        ],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=2,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[pcos_trial, primary_trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D016640", "Diabetes, Gestational")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin", "glucophage"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "metformin", "indication": "gestational diabetes"},
+                id="tc_primary_search",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT99999999"
+
+
+async def test_get_completed_drops_non_primary_indication_trial():
+    """Same primary-indication filter applied in get_completed."""
+    pcos_trial = Trial(
+        nct_id="NCT00994812",
+        title="Metformin in PCOS",
+        phase="Phase 4",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D000022", term="Abortion, Spontaneous"),
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+        ],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = CompletedTrialsResult(total_count=1, trials=[pcos_trial])
+    mock_client = _mock_client(get_completed_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D016640", "Diabetes, Gestational")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "metformin", "indication": "gestational diabetes"},
+                id="tc_primary_completed",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
+
+
+async def test_get_terminated_drops_non_primary_indication_trial():
+    """Same primary-indication filter applied in get_terminated."""
+    pcos_trial = Trial(
+        nct_id="NCT00994812",
+        title="Metformin in PCOS",
+        phase="Phase 2",
+        overall_status="TERMINATED",
+        why_stopped="lack of efficacy",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D000022", term="Abortion, Spontaneous"),
+            MeshTerm(id="D016640", term="Diabetes, Gestational"),
+        ],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = TerminatedTrialsResult(total_count=1, trials=[pcos_trial])
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D016640", "Diabetes, Gestational")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "metformin", "indication": "gestational diabetes"},
+                id="tc_primary_terminated",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
+
+
+# ------------------------------------------------------------------
+# LLM primacy filter — orchestrator wiring in the three pair-scoped tools
+# ------------------------------------------------------------------
+
+
+async def test_search_trials_drops_trial_via_llm_primacy_filter():
+    """A trial that survives the deterministic top-2 mesh filter (queried mesh
+    at position 1) is judged SECONDARY by Haiku and dropped. Reproduces
+    NCT00842140 (PCOS-primary, CV at mesh position 1) for metformin × CV.
+    """
+    pcos_cv_trial = Trial(
+        nct_id="NCT00842140",
+        title="Safety of Hormonal Contraceptives in PCOS",
+        phase="Phase 2",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D002318", term="Cardiovascular Diseases"),
+        ],
+        indications=["Polycystic Ovary Syndrome"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    primary_trial = Trial(
+        nct_id="NCT99999999",
+        title="Metformin for CV Risk Reduction",
+        phase="Phase 3",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D002318", term="Cardiovascular Diseases"),
+        ],
+        indications=["Cardiovascular Disease"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=2,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[pcos_cv_trial, primary_trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D002318", "Cardiovascular Diseases")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.classify_trials_by_primacy",
+            new=AsyncMock(return_value={"NCT00842140"}),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "metformin", "indication": "cardiovascular disease"},
+                id="tc_llm_search",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 1
+    assert len(msg.artifact.trials) == 1
+    assert msg.artifact.trials[0].nct_id == "NCT99999999"
+
+
+async def test_search_trials_skips_llm_for_position_0_only_trials():
+    """When every survivor of the top-2 filter has the queried mesh at
+    position 0, the LLM is not called — it's a no-op cost saver. The
+    underlying call to `classify_trials_by_primacy` is asserted-not-awaited.
+    """
+    pos0_trial = Trial(
+        nct_id="NCT99999991",
+        title="Metformin for T2D",
+        phase="Phase 3",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D003924", term="Diabetes Mellitus, Type 2"),
+        ],
+        indications=["Type 2 Diabetes"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = SearchTrialsResult(
+        total_count=1,
+        by_status={"RECRUITING": 0, "ACTIVE_NOT_RECRUITING": 0, "WITHDRAWN": 0},
+        trials=[pos0_trial],
+    )
+    mock_client = _mock_client(search_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    llm_mock = AsyncMock(return_value=set())
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D003924", "Diabetes Mellitus, Type 2")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.classify_trials_by_primacy",
+            new=llm_mock,
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "search_trials").ainvoke(
+            LCToolCall(
+                name="search_trials",
+                args={"drug": "metformin", "indication": "type 2 diabetes"},
+                id="tc_llm_skip",
+                type="tool_call",
+            )
+        )
+
+    llm_mock.assert_not_awaited()
+    assert msg.artifact.total_count == 1
+    assert msg.artifact.trials[0].nct_id == "NCT99999991"
+
+
+async def test_get_completed_applies_llm_primacy_filter():
+    """LLM primacy filter is applied in get_completed."""
+    pcos_cv_trial = Trial(
+        nct_id="NCT00842140",
+        title="Safety of Hormonal Contraceptives in PCOS",
+        phase="Phase 2",
+        overall_status="COMPLETED",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D002318", term="Cardiovascular Diseases"),
+        ],
+        indications=["Polycystic Ovary Syndrome"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = CompletedTrialsResult(total_count=1, trials=[pcos_cv_trial])
+    mock_client = _mock_client(get_completed_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D002318", "Cardiovascular Diseases")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.classify_trials_by_primacy",
+            new=AsyncMock(return_value={"NCT00842140"}),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_completed").ainvoke(
+            LCToolCall(
+                name="get_completed",
+                args={"drug": "metformin", "indication": "cardiovascular disease"},
+                id="tc_llm_completed",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
+
+
+async def test_get_terminated_applies_llm_primacy_filter():
+    """LLM primacy filter is applied in get_terminated."""
+    pcos_cv_trial = Trial(
+        nct_id="NCT00842140",
+        title="Safety of Hormonal Contraceptives in PCOS",
+        phase="Phase 2",
+        overall_status="TERMINATED",
+        why_stopped="lack of efficacy",
+        sponsor="University",
+        mesh_conditions=[
+            MeshTerm(id="D011085", term="Polycystic Ovary Syndrome"),
+            MeshTerm(id="D002318", term="Cardiovascular Diseases"),
+        ],
+        indications=["Polycystic Ovary Syndrome"],
+        interventions=[
+            Intervention(intervention_type="Drug", intervention_name="Metformin"),
+        ],
+    )
+    mock_result = TerminatedTrialsResult(total_count=1, trials=[pcos_cv_trial])
+    mock_client = _mock_client(get_terminated_trials=mock_result)
+    tools = build_clinical_trials_tools(date_before=None)
+
+    with (
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.resolve_mesh_id",
+            new=AsyncMock(return_value=("D002318", "Cardiovascular Diseases")),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools._resolve_drug_aliases",
+            new=AsyncMock(return_value=["metformin"]),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.classify_trials_by_primacy",
+            new=AsyncMock(return_value={"NCT00842140"}),
+        ),
+        patch(
+            "indication_scout.agents.clinical_trials.clinical_trials_tools.ClinicalTrialsClient",
+            return_value=mock_client,
+        ),
+    ):
+        msg = await _get_tool(tools, "get_terminated").ainvoke(
+            LCToolCall(
+                name="get_terminated",
+                args={"drug": "metformin", "indication": "cardiovascular disease"},
+                id="tc_llm_terminated",
+                type="tool_call",
+            )
+        )
+
+    assert msg.artifact.total_count == 0
+    assert msg.artifact.trials == []
 
 
 # ------------------------------------------------------------------
@@ -1510,6 +2058,7 @@ def _trial(
         overall_status=overall_status,
         why_stopped=why_stopped,
         indications=["Breast Cancer"],
+        mesh_conditions=[MeshTerm(id="D001943", term="Breast Neoplasms")],
         interventions=[
             Intervention(intervention_type="Drug", intervention_name=drug_name)
         ],

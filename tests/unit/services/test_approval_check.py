@@ -373,13 +373,13 @@ def test_get_approved_indications_semaglutide_pre_2017_returns_empty():
 
 
 def test_get_approved_indications_semaglutide_2022_returns_three():
-    """Cutoff 2022-01-01 → T2DM (2017), CV risk (2020), and chronic weight
-    management (2021) are all approved; CKD (2025) and MASH (2025) are not.
+    """Cutoff 2022-01-01 → T2DM (2017), CV risk (2020), and obesity (2021)
+    are all approved; CKD (2025) and MASH (2025) are not.
     """
     candidates = [
         "type 2 diabetes mellitus",
         "cardiovascular risk reduction",
-        "chronic weight management",
+        "obesity",
         "chronic kidney disease",
         "MASH",
     ]
@@ -391,7 +391,7 @@ def test_get_approved_indications_semaglutide_2022_returns_three():
     assert result == {
         "type 2 diabetes mellitus",
         "cardiovascular risk reduction",
-        "chronic weight management",
+        "obesity",
     }
 
 
@@ -430,7 +430,7 @@ def test_list_approved_indications_at_semaglutide_2022():
     assert result == [
         "type 2 diabetes mellitus",
         "cardiovascular risk reduction",
-        "chronic weight management",
+        "obesity",
     ]
 
 

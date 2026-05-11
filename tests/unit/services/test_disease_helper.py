@@ -439,31 +439,29 @@ async def test_resolve_mesh_id_returns_none_when_esearch_empty():
 
 
 async def test_resolve_mesh_id_writes_cache_on_success():
-    """On a successful resolution, (D-number, preferred_term) is cached."""
+    """On a successful resolution, (uid, preferred_term) is cached.
+
+    The resolver parses the preferred term out of esearch's `querytranslation`
+    (esummary on the MeSH db returns empty records for valid UIDs).
+    """
     from indication_scout.constants import MESH_RESOLVER_TTL_SECONDS
 
-    esearch_response = {"esearchresult": {"idlist": ["68006973"]}}
-    esummary_response = {
-        "result": {
-            "68006973": {
-                "ds_meshui": "D006973",
-                "ds_meshterms": ["Hypertension", "High Blood Pressure"],
-            }
+    esearch_response = {
+        "esearchresult": {
+            "idlist": ["68006973"],
+            "querytranslation": '"Hypertension"[MeSH Terms]',
         }
     }
-
-    call_results = [esearch_response, esummary_response]
 
     def make_resp():
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
-        resp.json = AsyncMock(side_effect=lambda: call_results.pop(0))
+        resp.json = AsyncMock(return_value=esearch_response)
         resp.__aenter__ = AsyncMock(return_value=resp)
         resp.__aexit__ = AsyncMock(return_value=None)
         return resp
 
     mock_session = MagicMock()
-    # Return a fresh response context for each .get() call
     mock_session.get = MagicMock(side_effect=lambda *a, **kw: make_resp())
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=None)
@@ -483,12 +481,12 @@ async def test_resolve_mesh_id_writes_cache_on_success():
     ):
         result = await resolve_mesh_id("hypertension")
 
-    assert result == ("D006973", "Hypertension")
+    assert result == ("68006973", "Hypertension")
     mock_cache_set.assert_called_once()
     args, kwargs = mock_cache_set.call_args
     assert args[0] == "mesh_resolver"
-    assert args[1] == {"indication": "hypertension", "v": 2}
-    assert args[2] == ("D006973", "Hypertension")
+    assert args[1] == {"indication": "hypertension", "v": 3}
+    assert args[2] == ("68006973", "Hypertension")
     assert kwargs["ttl"] == MESH_RESOLVER_TTL_SECONDS
 
 
@@ -505,13 +503,10 @@ async def test_resolve_mesh_id_round_trip_through_real_cache(tmp_path, monkeypat
         "indication_scout.services.disease_helper.DEFAULT_CACHE_DIR", tmp_path
     )
 
-    esearch_response = {"esearchresult": {"idlist": ["68006973"]}}
-    esummary_response = {
-        "result": {
-            "68006973": {
-                "ds_meshui": "D006973",
-                "ds_meshterms": ["Hypertension", "High Blood Pressure"],
-            }
+    esearch_response = {
+        "esearchresult": {
+            "idlist": ["68006973"],
+            "querytranslation": '"Hypertension"[MeSH Terms]',
         }
     }
 
@@ -529,8 +524,6 @@ async def test_resolve_mesh_id_round_trip_through_real_cache(tmp_path, monkeypat
         call_log.append(url)
         if "esearch" in url:
             return make_resp(esearch_response)
-        if "esummary" in url:
-            return make_resp(esummary_response)
         raise AssertionError(f"Unexpected URL in test: {url}")
 
     def make_session():
@@ -549,12 +542,12 @@ async def test_resolve_mesh_id_round_trip_through_real_cache(tmp_path, monkeypat
         second = await resolve_mesh_id("hypertension")
         calls_after_second = len(call_log)
 
-    assert first == ("D006973", "Hypertension")
-    assert second == ("D006973", "Hypertension")
-    # First call: esearch + esummary = 2 HTTP requests
-    assert calls_after_first == 2
+    assert first == ("68006973", "Hypertension")
+    assert second == ("68006973", "Hypertension")
+    # First call: esearch only = 1 HTTP request
+    assert calls_after_first == 1
     # Second call: must hit the cache and skip the network entirely
-    assert calls_after_second == 2, (
+    assert calls_after_second == 1, (
         f"Cache miss on second call — saw {calls_after_second - calls_after_first} "
         f"extra HTTP requests on what should have been a cache hit"
     )
@@ -568,8 +561,8 @@ async def test_resolve_mesh_id_round_trip_through_real_cache(tmp_path, monkeypat
     # Confirm the on-disk payload deserialises back to the expected tuple
     raw = json.loads(cache_files[0].read_text())
     assert raw["ns"] == "mesh_resolver"
-    assert raw["params"] == {"indication": "hypertension", "v": 2}
-    assert raw["data"] == ["D006973", "Hypertension"]
+    assert raw["params"] == {"indication": "hypertension", "v": 3}
+    assert raw["data"] == ["68006973", "Hypertension"]
 
 
 async def test_resolve_mesh_id_does_not_cache_failures(tmp_path, monkeypatch):

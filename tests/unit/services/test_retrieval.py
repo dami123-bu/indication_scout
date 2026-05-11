@@ -219,6 +219,10 @@ async def test_expand_search_terms_prompt_contains_drug_name(
             "indication_scout.services.retrieval.RetrievalService.extract_organ_term",
             new=AsyncMock(return_value="colon"),
         ),
+        patch(
+            "indication_scout.services.disease_helper.resolve_mesh_id",
+            new=AsyncMock(return_value=None),
+        ),
         patch("indication_scout.services.retrieval.query_small_llm", new=capture_llm),
     ):
         await RetrievalService(tmp_path).expand_search_terms(
@@ -1281,7 +1285,12 @@ async def test_get_drug_competitors_returns_cached(tmp_path):
     from indication_scout.utils.cache import cache_set
 
     cached = {"depression": ["competitor_a"]}
-    cache_set("competitors_merged", {"chembl_id": "CHEMBL1"}, cached, tmp_path)
+    cache_set(
+        "competitors_merged",
+        {"chembl_id": "CHEMBL1", "date_before": None},
+        cached,
+        tmp_path,
+    )
 
     mock_client = AsyncMock()
     with patch(
