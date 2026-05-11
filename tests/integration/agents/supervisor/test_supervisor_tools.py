@@ -9,6 +9,7 @@ Hits real Anthropic, Open Targets, ChEMBL, openFDA, ClinicalTrials.gov, and PubM
 Uses the test database (scout_test) via db_session_truncating.
 """
 
+import asyncio
 import itertools
 import logging
 from datetime import date
@@ -59,6 +60,23 @@ def _allowlist_state(tools: dict) -> tuple[dict, dict]:
     )
 
 
+def _preset_mechanism_gate(tools: dict) -> None:
+    """Pre-set analyze_mechanism_done so find_candidates can run in isolation.
+
+    find_candidates blocks on analyze_mechanism_done before returning so its result
+    reflects the merged competitor + mechanism allowlist. In tests that only
+    exercise the competitor path (i.e. don't invoke analyze_mechanism), pre-set the
+    gate so find_candidates returns immediately after its competitor work.
+
+    The gate lives in the OUTER analyze_mechanism wrapper's closure (the try/finally
+    references it directly); the _analyze_mechanism_impl inner function doesn't close
+    over it because it doesn't reference it by name. Read from the outer wrapper.
+    """
+    am = tools["analyze_mechanism"]
+    outer = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
+    outer["analyze_mechanism_done"].cell_contents.set()
+
+
 @pytest.fixture
 def llm():
     return ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
@@ -93,6 +111,7 @@ async def test_find_candidates_random(llm, db_session_truncating, test_cache_dir
         llm=llm, svc=svc, db=db_session_truncating
     )
     tools = _tool_map(tools_list)
+    _preset_mechanism_gate(tools)
     msg = await tools["find_candidates"].ainvoke(
         _tc("find_candidates", drug_name="citalopram")
     )
@@ -108,6 +127,7 @@ async def test_find_candidates_metformin(llm, db_session_truncating, test_cache_
         llm=llm, svc=svc, db=db_session_truncating
     )
     tools = _tool_map(tools_list)
+    _preset_mechanism_gate(tools)
 
     msg = await tools["find_candidates"].ainvoke(
         _tc("find_candidates", drug_name=_DRUG)
@@ -220,11 +240,16 @@ async def test_analyze_mechanism_dedups_against_competitor_allowlist(
     )
     tools = _tool_map(tools_list)
 
-    await tools["find_candidates"].ainvoke(
-        _tc("find_candidates", drug_name=_MERGE_DRUG)
-    )
-    await tools["analyze_mechanism"].ainvoke(
-        _tc("analyze_mechanism", drug_name=_MERGE_DRUG)
+    # find_candidates blocks on analyze_mechanism_done before returning, so the two
+    # seed-phase tools must run concurrently (mirrors how the LLM invokes them in
+    # parallel in production).
+    await asyncio.gather(
+        tools["find_candidates"].ainvoke(
+            _tc("find_candidates", drug_name=_MERGE_DRUG)
+        ),
+        tools["analyze_mechanism"].ainvoke(
+            _tc("analyze_mechanism", drug_name=_MERGE_DRUG)
+        ),
     )
 
     allowed_diseases, allowed_efo_ids = _allowlist_state(tools)
@@ -280,21 +305,30 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
     )
     tools = _tool_map(tools_list)
 
-    await tools["find_candidates"].ainvoke(
-        _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
+    # find_candidates blocks on analyze_mechanism_done before returning, so the two
+    # seed-phase tools must run concurrently (mirrors how the LLM invokes them in
+    # parallel in production).
+    await asyncio.gather(
+        tools["find_candidates"].ainvoke(
+            _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
+        ),
+        tools["analyze_mechanism"].ainvoke(
+            _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+        ),
     )
 
     allowed_diseases, _ = _allowlist_state(tools)
 
-    competitor_keys_before = {
-        k for k, (_, source) in allowed_diseases.items() if source == "competitor"
+    # Entries originating from find_candidates carry source 'competitor' or 'both' (the
+    # latter if analyze_mechanism's merge upgraded them). Mechanism-only entries carry
+    # source 'mechanism'. The two sets must be disjoint by construction.
+    competitor_or_both_keys = {
+        k
+        for k, (_, source) in allowed_diseases.items()
+        if source in ("competitor", "both")
     }
-    assert (
-        competitor_keys_before
-    ), "find_candidates should seed competitor entries first"
-
-    await tools["analyze_mechanism"].ainvoke(
-        _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+    assert competitor_or_both_keys, (
+        f"find_candidates should seed competitor entries for {_MECH_ONLY_DRUG}"
     )
 
     mechanism_only_keys = {
@@ -305,10 +339,10 @@ async def test_analyze_mechanism_promotes_mechanism_only_candidates(
         f"{_MECH_ONLY_DRUG}; got sources: "
         f"{sorted({s for _, s in allowed_diseases.values()})}"
     )
-    # Mechanism-only entries must not overlap with what find_candidates seeded.
-    assert not (mechanism_only_keys & competitor_keys_before), (
-        f"Mechanism-only entries should not overlap with original competitor keys; "
-        f"overlap: {mechanism_only_keys & competitor_keys_before}"
+    # Mechanism-only entries must not overlap with competitor/both entries.
+    assert not (mechanism_only_keys & competitor_or_both_keys), (
+        f"Mechanism-only entries should not overlap with competitor/both keys; "
+        f"overlap: {mechanism_only_keys & competitor_or_both_keys}"
     )
 
 
@@ -336,11 +370,16 @@ async def test_mechanism_promoted_disease_is_investigatable_downstream(
     )
     tools = _tool_map(tools_list)
 
-    await tools["find_candidates"].ainvoke(
-        _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
-    )
-    await tools["analyze_mechanism"].ainvoke(
-        _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+    # find_candidates blocks on analyze_mechanism_done before returning, so the two
+    # seed-phase tools must run concurrently (mirrors how the LLM invokes them in
+    # parallel in production).
+    await asyncio.gather(
+        tools["find_candidates"].ainvoke(
+            _tc("find_candidates", drug_name=_MECH_ONLY_DRUG)
+        ),
+        tools["analyze_mechanism"].ainvoke(
+            _tc("analyze_mechanism", drug_name=_MECH_ONLY_DRUG)
+        ),
     )
 
     allowed_diseases, _ = _allowlist_state(tools)
@@ -448,6 +487,7 @@ async def test_analyze_clinical_trials_respects_cutoff(
         llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
     )
     tools = _tool_map(tools_list)
+    _preset_mechanism_gate(tools)
 
     # Populate the allowlist; pick a real candidate from the live result set so the
     # test doesn't bake in an assumption about a specific OT disease being present.
@@ -529,6 +569,7 @@ async def test_analyze_literature_respects_cutoff(
         llm=llm, svc=svc, db=db_session_truncating, date_before=_CUTOFF
     )
     tools = _tool_map(tools_list)
+    _preset_mechanism_gate(tools)
 
     find_msg = await tools["find_candidates"].ainvoke(
         _tc("find_candidates", drug_name=_CUTOFF_DRUG)

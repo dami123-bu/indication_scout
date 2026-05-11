@@ -174,9 +174,9 @@ def _title_case_known_diseases(text: str, disease_names: list[str]) -> str:
 
 
 _BLURB_TABLE_FIELDS: list[tuple[str, str]] = [
-    ("stage", "Stage"),
+    ("stage", "Development state"),
     ("literature", "Literature"),
-    ("blocker", "Blocker"),
+    ("blocker", "Constraint"),
     ("active_programs", "Active programs"),
     ("key_risk", "Key risk"),
     ("verdict", "Verdict"),

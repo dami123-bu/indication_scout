@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
 from indication_scout.config import get_settings
+from indication_scout.constants import SUPERVISOR_MIN_PMIDS_NO_TRIALS
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
 from indication_scout.data_sources.fda import FDAClient
 from indication_scout.data_sources.open_targets import OpenTargetsClient
@@ -115,10 +116,13 @@ def build_supervisor_tools(
     # mechanism candidates against competitor entries by ontology ID even when names differ
     # (e.g. "NSCLC" vs "non-small cell lung cancer").
     allowed_efo_ids: dict[str, str] = {}
-    # Seed-phase gates. analyze_literature and analyze_clinical_trials must not run until both
-    # find_candidates and analyze_mechanism have populated the allowlist (and merged), otherwise
-    # they may investigate a disease against a stale competitor-only or mechanism-only view.
-    # Both events are set in a try/finally so a sub-agent crash doesn't deadlock downstream tools.
+    # Seed-phase gates. find_candidates and analyze_mechanism are invoked in parallel by the
+    # LLM, but find_candidates blocks on analyze_mechanism_done before returning so its return
+    # value reflects the merged competitor + mechanism allowlist. find_candidates sets its own
+    # gate BEFORE awaiting mechanism, so analyze_mechanism's merge step (which awaits
+    # find_candidates_done) doesn't deadlock against find_candidates. analyze_literature and
+    # analyze_clinical_trials wait on both gates so they always see the fully-merged allowlist.
+    # Both events are set in try/finally so a sub-agent crash doesn't deadlock downstream tools.
     find_candidates_done = asyncio.Event()
     analyze_mechanism_done = asyncio.Event()
 
@@ -135,6 +139,15 @@ def build_supervisor_tools(
     # Keyed by lowercase canonical disease name → {"literature": LiteratureOutput,
     # "clinical_trials": ClinicalTrialsOutput}.
     auto_findings: dict[str, dict] = {}
+
+    # Per-disease sub-agent artifacts written by analyze_literature and
+    # analyze_clinical_trials as the supervisor runs. Used by
+    # finalize_supervisor to enforce the top-N evidence gate (drop blurbs
+    # for candidates that fail the (0 trials AND <N PMIDs) check). Keyed by
+    # lowercase canonical disease name (the allowlist key) →
+    # {"literature": LiteratureOutput | None,
+    #  "clinical_trials": ClinicalTrialsOutput | None}.
+    findings_local: dict[str, dict] = {}
 
     def _drug_key(drug_name: str) -> str:
         return drug_name.lower().strip()
@@ -192,8 +205,10 @@ def build_supervisor_tools(
     async def find_candidates(drug_name: str) -> tuple[str, list[str]]:
         """Surface candidate diseases for repurposing this drug.
 
-        Uses Open Targets to find diseases where competitor drugs (drugs sharing the same molecular
-        targets) are being developed. Returns a list of disease names ranked by competitor activity.
+        Returns the merged candidate list — diseases where competitor drugs (sharing the same
+        molecular targets) are being developed, PLUS diseases surfaced by the mechanism sub-agent.
+        Waits for analyze_mechanism to finish so its candidates are included. Each line in the
+        content string is tagged [competitor], [mechanism], or [both].
         """
         try:
             return await _find_candidates_impl(drug_name)
@@ -301,12 +316,14 @@ def build_supervisor_tools(
 
         diseases = [d for d in diseases if d.lower().strip() not in fda_approved_lower]
 
-        # Cap how many candidates the supervisor sees. Order is preserved from upstream
-        # ranking (OpenTargets competitor merge), so this keeps the top-N.
+        # Cap applies to competitor entries only. Mechanism-promoted entries are appended on top
+        # after the merge below — they're already small (capped upstream by
+        # MECHANISM_TOP_CANDIDATES) and dropping them here would defeat the purpose of the merge.
         candidate_cap = get_settings().supervisor_candidate_cap
         if len(diseases) > candidate_cap:
             logger.warning(
-                "[TOOL] find_candidates capping candidates from %d to %d (SUPERVISOR_CANDIDATE_CAP)",
+                "[TOOL] find_candidates capping competitor candidates from %d to %d "
+                "(SUPERVISOR_CANDIDATE_CAP)",
                 len(diseases),
                 candidate_cap,
             )
@@ -334,10 +351,38 @@ def build_supervisor_tools(
             f"CANDIDATE ALLOWLIST for {drug_name} ({chembl_id}) — competitor source",
             diseases,
         )
-        return (
-            f"Found {len(diseases)} candidate diseases for {drug_name} ({chembl_id})",
-            diseases,
-        )
+
+        # Release the seed gate now so analyze_mechanism's merge step (which awaits
+        # find_candidates_done) can proceed. Done BEFORE awaiting analyze_mechanism_done to
+        # avoid a circular wait.
+        find_candidates_done.set()
+
+        # Wait for analyze_mechanism to finish merging mechanism candidates into
+        # allowed_diseases. The mechanism sub-agent's finally block always sets this gate, so
+        # a mechanism crash means we just see an empty mechanism contribution rather than
+        # deadlocking.
+        await analyze_mechanism_done.wait()
+
+        # Snapshot the merged allowlist in insertion order: competitor entries first (in
+        # their existing OT ranked order), then mechanism-only entries (in the order
+        # analyze_mechanism appended them). "both" entries stay in their competitor slot.
+        merged: list[tuple[str, str]] = [
+            (canonical, source) for (canonical, source) in allowed_diseases.values()
+        ]
+        n_competitor = sum(1 for _, s in merged if s == "competitor")
+        n_both = sum(1 for _, s in merged if s == "both")
+        n_mechanism = sum(1 for _, s in merged if s == "mechanism")
+
+        lines = [
+            f"Found {len(merged)} candidate diseases for {drug_name} ({chembl_id}) — "
+            f"{n_competitor} competitor, {n_both} both, {n_mechanism} mechanism-only:"
+        ]
+        for i, (canonical, source) in enumerate(merged, start=1):
+            lines.append(f"  {i}. {canonical} [{source}]")
+        content = "\n".join(lines)
+
+        merged_names = [canonical for canonical, _ in merged]
+        return content, merged_names
 
     def _reject(disease_name: str, tool_label: str, empty_output):
         valid = sorted(allowed_diseases.keys())
@@ -398,6 +443,11 @@ def build_supervisor_tools(
         summary = (
             f"{header}\n\n{sub_agent_summary}".strip() if sub_agent_summary else header
         )
+        # Write-through for the top-N evidence gate in finalize_supervisor.
+        slot = findings_local.setdefault(
+            disease_name.lower().strip(), {"literature": None, "clinical_trials": None}
+        )
+        slot["literature"] = output
         return summary, output
 
     @tool(response_format="content_and_artifact")
@@ -521,6 +571,11 @@ def build_supervisor_tools(
         summary = f"{header}{structured}"
         if sub_agent_summary:
             summary = f"{summary}\n\n{sub_agent_summary}"
+        # Write-through for the top-N evidence gate in finalize_supervisor.
+        slot = findings_local.setdefault(
+            disease_name.lower().strip(), {"literature": None, "clinical_trials": None}
+        )
+        slot["clinical_trials"] = output
         return summary, output
 
     @tool(response_format="content_and_artifact")
@@ -826,11 +881,34 @@ def build_supervisor_tools(
             prose = (item.get("prose") or "").strip()
             if not prose and not any(fields.values()):
                 continue
-            if disease.lower().strip() not in allowed_diseases:
+            disease_key = disease.lower().strip()
+            if disease_key not in allowed_diseases:
                 logger.warning(
                     "[TOOL] finalize_supervisor dropping blurb for disease=%r "
                     "(not in allowlist)",
                     disease,
+                )
+                continue
+            # Top-N evidence gate: drop candidates where 0 trials AND fewer
+            # than SUPERVISOR_MIN_PMIDS_NO_TRIALS PMIDs. Missing artifacts
+            # count as 0. Investigated-but-filtered candidates still appear
+            # in disease_findings (per-disease section); they are only
+            # removed from the top-N ranking + blurbs.
+            slot = findings_local.get(disease_key) or {}
+            lit = slot.get("literature")
+            ct = slot.get("clinical_trials")
+            n_pmids = len(lit.pmids) if lit else 0
+            n_trials = (
+                ct.search.total_count if (ct is not None and ct.search is not None)
+                else 0
+            )
+            if n_trials == 0 and n_pmids < SUPERVISOR_MIN_PMIDS_NO_TRIALS:
+                logger.warning(
+                    "[TOOL] finalize_supervisor dropping blurb for disease=%r "
+                    "(evidence gate: %d trials, %d PMIDs)",
+                    disease,
+                    n_trials,
+                    n_pmids,
                 )
                 continue
             entry = {"disease": disease, "prose": prose, **fields}

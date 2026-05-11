@@ -210,6 +210,14 @@ GOF_ACTION_TYPES: frozenset[str] = frozenset(
 # Number of top POSITIVE repurposing candidates the mechanism agent surfaces.
 MECHANISM_TOP_CANDIDATES: int = 5
 
+# -- Supervisor top-N evidence gate -----------------------------------------
+# A candidate is excluded from the supervisor's top-N ranking (summary +
+# blurbs) when it has both zero clinical trials AND fewer than this many
+# PubMed PMIDs. Investigated candidates that fail this gate still appear in
+# disease_findings (per-disease Candidate Findings section) but are dropped
+# from top_diseases and from the blurbs list.
+SUPERVISOR_MIN_PMIDS_NO_TRIALS: int = 5
+
 # -- openFDA ----------------------------------------------------------------
 OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/label.json"
 OPENFDA_LABEL_LIMIT: int = 5

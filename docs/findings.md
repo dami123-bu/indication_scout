@@ -76,3 +76,46 @@ Each entry is dated and categorized.
 - Implemented 2026-05-01: per-trial detail (NCT id, phase, mesh_conditions, title; plus dates and stop classification where appropriate) now goes into the `content` strings of `search_trials`, `get_completed`, `get_terminated`, and the supervisor's `analyze_clinical_trials`. Shared formatters live at `src/indication_scout/agents/_trial_formatting.py`. The exact column set per LLM is specified in `agent_data_contracts.md` at the project root — that file is the prompt-side contract; update it before changing rendering.
 - The Borda-rank tie-break inside `_borda_rank_by_enrollment_and_recency` ranks trials by enrollment desc and completion_date desc independently, sums the two ranks per trial, and returns the top-k by combined score. This surfaces both well-powered older trials and newer trials without letting either dominate the supervisor's view.
 
+### Literature agent's `expand_search_terms` tool was bypassing the production path (2026-05-10)
+- The `expand_search_terms` tool in `src/indication_scout/agents/literature/literature_tools.py` had its production code (`svc.expand_search_terms(...)`) commented out and was returning `[f"{drug_name} AND {disease_name}"]` directly. Every literature run was effectively a "no expansion" run regardless of what the supervisor or any caller intended.
+- Restored the production path. The first end-to-end pipeline-comparison run (Experiment 3 in `methods/methods.md`) produced identical PMID sets across both arms because of this bug — the experiment was actually no_expand vs no_expand.
+- Lesson: tools that look like wrappers around service methods are easy to silently dead-code. Adding a single log line that includes the number of generated queries (or a unit test that asserts >1 query for a drug with synonyms/genes/mechanisms) would have caught it.
+
+### PubMed `AND` parser breaks on bare multi-word phrases (2026-05-10)
+- `bupropion AND substance dependence` returns 0 PMIDs from PubMed eutils. `bupropion substance dependence` (no AND) returns 200. PubMed's automatic term mapping cannot translate bare multi-word phrases on either side of `AND` reliably.
+- Quoting alone is not sufficient: `bupropion AND "substance dependence"` also returns 0 (PubMed forces a strict phrase match instead of mapping to the descriptor). `bupropion AND "substance abuse"` returns 128 because that exact phrase happens to be indexed.
+- Robust forms (verified):
+  - `<drug>[tiab] AND "<MeSH preferred term>"[MeSH]` — works reliably, e.g. `bupropion[tiab] AND "Substance-Related Disorders"[MeSH]` returns 500+.
+  - `<drug> <disease>` (space, no AND, no quotes) — relies on auto-term-mapping; works most of the time.
+  - MeSH UID search via eutils does NOT work: `D015431[MeSH]` returns 0 even though the descriptor exists. Stick to the preferred-term form.
+- Implication: any LLM prompt that produces bare `<term> AND <multi-word>` queries will silently 0-out a fraction of pairs. The expansion prompt now resolves the disease to its MeSH preferred term and instructs the LLM to wrap it in double quotes (e.g. `metformin AND "Colorectal Neoplasms"`).
+
+### NCBI MeSH-db `esummary` returns empty records for valid UIDs (2026-05-10)
+- `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=mesh&id=<uid>` consistently returns `{"ds_meshui": null, "ds_meshterms": null}` and an empty record body for valid UIDs. The endpoint is broken for the MeSH database.
+- The fix in `services/disease_helper.resolve_mesh_id`: skip esummary entirely. Parse the preferred term out of esearch's `querytranslation` field, which always contains a `"<descriptor>"[MeSH Terms]` clause when ATM resolves to a real MeSH entry. The UID comes from `idlist[0]`.
+- The previous strict `f'"{indication}"[MeSH Terms]'` esearch term often returned no idlist for common phrasings (e.g. "weight loss" → empty). The bare-term form `term=indication` (relying on ATM) works much more reliably.
+- The MeSH backend also intermittently returns empty `idlist=[]` for valid terms — same exact request returns the descriptor on retry. Added a 3-attempt retry on empty idlist with 2s spacing inside `resolve_mesh_id`.
+- Throttling: concurrent calls for the same disease across parallel literature-agent runs cause duplicate NCBI hits and 429s. `MESH_RESOLVER_MAX_CONCURRENT = 5` semaphore in `disease_helper` caps parallelism.
+
+### `expand_search_terms` now uses the resolved MeSH preferred term (2026-05-10)
+- `RetrievalService.expand_search_terms` resolves the disease via `resolve_mesh_id` before calling the LLM, then passes the preferred term into the prompt as `disease_name` (overriding the raw input). When MeSH lookup misses, falls back to the raw disease name and logs a warning.
+- The expansion prompt at `src/indication_scout/prompts/expand_search_terms.txt` now instructs the LLM to wrap the disease term in double quotes verbatim and not to paraphrase it. Drug/gene/mechanism sides are unchanged.
+- Output is uniformly lower-cased — the codebase convention is to keep diseases lowercase. NCBI's `querytranslation` returns the preferred term lowercase already.
+
+### `PubMedClient.search` now logs zero-hit queries and pre-call sleeps 1s (2026-05-10)
+- A warning is logged whenever an uncached PubMed search returns 0 PMIDs. The earlier silent-zero pattern was the root cause of mistaken "expansion changed nothing" findings — the broken `AND` queries were not even hitting PubMed correctly.
+- Pre-call sleep `PUBMED_SEARCH_SLEEP_SECONDS = 1.0` (in `constants.py`) inside the existing semaphore. Inside the semaphore, so it serializes with other in-flight searches.
+
+### Reports do not include per-disease "FDA approval" yes/no (2026-05-10)
+- Removed the `FDA approval: <yes|no>` field from the supervisor's summary line format (in both `supervisor.txt` and `supervisor_holdout.txt`) and the `**FDA approval:** ...` line from `format_report.py`'s clinical-trials block.
+- Rationale: the report is, by definition, a list of repurposing candidates. Every line saying "FDA approval: no" is structurally redundant and creates a misleading-vs-approval-adjacent signal that Perplexity and other reviewers flagged as inconsistent (the line says "no" while the per-disease blurb correctly notes a related/narrower approval).
+- Approval-relationship context (Same/Narrower/Broader/Related family/Combination component) is still surfaced inside the per-candidate blurb prose, driven by the existing classification block in `supervisor.txt`. The `check_fda_approval` tool still runs internally so the supervisor knows the relationship — it's just no longer surfaced as a yes/no field.
+- Added a "combination component" classification (e.g. naltrexone/bupropion (Contrave) for obesity) → demote like "same disease". This was triggered by bupropion ranking obesity #1 because the bare bupropion label has no obesity indication; the LLM was reading "FDA approval: no" + strong literature as a clean repurposing signal. Verified the prompt fix on the wellbutrin re-run (obesity dropped from #1 to #5).
+
+### Query expansion is a wider net with a real older-literature trade (2026-05-10)
+- Across 4 drugs (semaglutide, sildenafil, bupropion/wellbutrin, rituximab) and 22 overlapping disease comparisons, expansion vs literal-pair changes the strength label in 4 cases — 1 rescue (sildenafil × hypertension `none → weak`, where the literal-pair query returned nothing usable) and 3 downgrades (sildenafil × CVD `strong → moderate`, rituximab × NMO/ITP `strong → moderate`).
+- The downgrade pattern is structural: synonym/mechanism queries surface older mechanism-era literature (e.g. 2014–2017 for rituximab × NMO) that is honestly weaker on the evidence-quality scale (smaller cohorts, retrospective designs). The synthesis step rates that older literature accordingly. For drugs with long mechanistic histories (rituximab, sildenafil, bupropion), this bias toward older citations is structural.
+- Qualitative reviews (independent, two drugs) consistently rated the expand version's prose as more accurate on regulatory context, competitive-landscape nuance, and off-label-vs-unmet-need framing — even when the strength label was lower.
+- Decision: keep expansion as default. It is a wider net that produces richer prose framing at the cost of older citations and lower strength labels. Strength labels are coarse 4-bucket signals; prose is what readers act on.
+- Diff details and per-disease tables in `methods/methods.md` (Experiments 3–6) and `methods/query_expansion/diff_summary.md`.
+
