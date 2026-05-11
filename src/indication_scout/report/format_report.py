@@ -30,7 +30,7 @@ def _fmt_literature(lit: LiteratureOutput) -> str:
     if lit.evidence_summary:
         es = lit.evidence_summary
         lines.append(f"**Evidence strength:** {es.strength}")
-        lines.append(f"**Study count:** {es.study_count}")
+        lines.append(f"**Relevant studies:** {es.study_count}")
         if es.summary:
             lines.append(f"\n{es.summary}")
         if es.key_findings:
@@ -42,7 +42,7 @@ def _fmt_literature(lit: LiteratureOutput) -> str:
                 f"[{pmid}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/)"
                 for pmid in es.supporting_pmids
             )
-            lines.append(f"\n**Supporting PMIDs:** {pmid_links}")
+            lines.append(f"\n**Relevant PMIDs (favorable only):** {pmid_links}")
     else:
         lines.append("_No evidence summary available._")
 
@@ -76,14 +76,6 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
         lines.append(
             f"\n**Trial activity:** {s.total_count} total trial(s) for this pair"
         )
-        if s.by_status:
-            status_bits = [
-                f"{count} {status.lower().replace('_', ' ')}"
-                for status, count in s.by_status.items()
-                if count
-            ]
-            if status_bits:
-                lines.append(f"- {', '.join(status_bits)}")
         if s.total_count == 0:
             lines.append(
                 "- _Whitespace: no trials found for this drug × indication pair._"

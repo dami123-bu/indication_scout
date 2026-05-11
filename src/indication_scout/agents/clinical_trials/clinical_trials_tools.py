@@ -288,33 +288,6 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
-        # Primary-indication filter: drop trials where the queried MeSH term
-        # is not among the first 2 mesh_conditions (i.e. not a primary focus).
-        primary_kept = [
-            t
-            for t in result.trials
-            if _trial_indication_is_primary(t, mesh_id, mesh_term)
-        ]
-        primary_dropped = len(result.trials) - len(primary_kept)
-        result.trials = primary_kept
-        result.total_count = max(0, result.total_count - primary_dropped)
-
-        # LLM primacy filter: judge position-1+ survivors that the
-        # deterministic top-2 rule can't safely classify (synonym/abbreviation
-        # ambiguity, semantic equivalence). Position-0 trials skip the LLM.
-        result.trials, llm_dropped = await _apply_llm_primacy_filter(
-            result.trials, mesh_id, mesh_term, indication
-        )
-        result.total_count = max(0, result.total_count - llm_dropped)
-
-        aliases = await _resolve_drug_aliases(drug)
-        dropped = 0
-        if aliases is not None:
-            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
-            dropped = len(result.trials) - len(kept)
-            result.trials = kept
-            result.total_count = max(0, result.total_count - dropped)
-
         # Holdout scrubber: when date_before is set, strip outcome fields
         # for trials that completed/terminated AFTER the cutoff so the
         # supervisor doesn't see future trial outcomes. search_trials
@@ -332,26 +305,15 @@ def build_clinical_trials_tools(
 
         shown = len(result.trials)
         cap_note = "; top 50 shown" if shown < result.total_count else ""
-        filter_note = (
-            f"; dropped {dropped} non-intervention trials (drug appeared in "
-            f"eligibility/description only)"
-            if dropped
-            else ""
-        )
         scrub_note = (
             f"; scrubbed post-cutoff outcomes from {scrubbed_n} trial(s) "
             f"(status set to UNKNOWN)"
             if scrubbed_n
             else ""
         )
-        by = result.by_status
         header = (
-            f"Search for {drug} × {indication}: {result.total_count} trials "
-            f"(recruiting={by.get('RECRUITING', 0)}, "
-            f"active={by.get('ACTIVE_NOT_RECRUITING', 0)}, "
-            f"withdrawn={by.get('WITHDRAWN', 0)}, "
-            f"unknown={by.get('UNKNOWN', 0)})"
-            f"{cap_note}{filter_note}{scrub_note}"
+            f"Search for {drug} × {indication}: {result.total_count} trials"
+            f"{cap_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
@@ -398,28 +360,6 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
-        primary_kept = [
-            t
-            for t in result.trials
-            if _trial_indication_is_primary(t, mesh_id, mesh_term)
-        ]
-        primary_dropped = len(result.trials) - len(primary_kept)
-        result.trials = primary_kept
-        result.total_count = max(0, result.total_count - primary_dropped)
-
-        result.trials, llm_dropped = await _apply_llm_primacy_filter(
-            result.trials, mesh_id, mesh_term, indication
-        )
-        result.total_count = max(0, result.total_count - llm_dropped)
-
-        aliases = await _resolve_drug_aliases(drug)
-        dropped = 0
-        if aliases is not None:
-            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
-            dropped = len(result.trials) - len(kept)
-            result.trials = kept
-            result.total_count = max(0, result.total_count - dropped)
-
         # Holdout drop: a trial that completed AFTER the cutoff was not
         # completed at the cutoff, so it does not belong in this scope.
         # Drop it (search_trials will still surface it as in-progress).
@@ -437,12 +377,6 @@ def build_clinical_trials_tools(
 
         shown = len(result.trials)
         cap_note = "; top 50 shown" if shown < result.total_count else ""
-        filter_note = (
-            f"; dropped {dropped} non-intervention trials (drug appeared in "
-            f"eligibility/description only)"
-            if dropped
-            else ""
-        )
         scrub_note = (
             f"; dropped {scrub_dropped} post-cutoff completion(s) "
             f"(not yet completed at cutoff)"
@@ -451,7 +385,7 @@ def build_clinical_trials_tools(
         )
         header = (
             f"Completed for {drug} × {indication}: {result.total_count} total"
-            f"{cap_note}{filter_note}{scrub_note}"
+            f"{cap_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
@@ -503,28 +437,6 @@ def build_clinical_trials_tools(
                 date_before=date_before,
             )
 
-        primary_kept = [
-            t
-            for t in result.trials
-            if _trial_indication_is_primary(t, mesh_id, mesh_term)
-        ]
-        primary_dropped = len(result.trials) - len(primary_kept)
-        result.trials = primary_kept
-        result.total_count = max(0, result.total_count - primary_dropped)
-
-        result.trials, llm_dropped = await _apply_llm_primacy_filter(
-            result.trials, mesh_id, mesh_term, indication
-        )
-        result.total_count = max(0, result.total_count - llm_dropped)
-
-        aliases = await _resolve_drug_aliases(drug)
-        dropped = 0
-        if aliases is not None:
-            kept = [t for t in result.trials if _trial_intervenes_with_drug(t, aliases)]
-            dropped = len(result.trials) - len(kept)
-            result.trials = kept
-            result.total_count = max(0, result.total_count - dropped)
-
         # Holdout drop: a trial that terminated AFTER the cutoff was not
         # terminated at the cutoff. Drop from this scope (search_trials
         # still surfaces it with UNKNOWN status).
@@ -551,12 +463,6 @@ def build_clinical_trials_tools(
             if shown < result.total_count
             else ""
         )
-        filter_note = (
-            f"; dropped {dropped} non-intervention trials (drug appeared in "
-            f"eligibility/description only)"
-            if dropped
-            else ""
-        )
         scrub_note = (
             f"; dropped {scrub_dropped} post-cutoff termination(s) "
             f"(not yet terminated at cutoff)"
@@ -565,7 +471,7 @@ def build_clinical_trials_tools(
         )
         header = (
             f"Terminated for {drug} × {indication}: {result.total_count} total "
-            f"({safety_efficacy} safety/efficacy in shown set){cap_note}{filter_note}{scrub_note}"
+            f"({safety_efficacy} safety/efficacy in shown set){cap_note}{scrub_note}"
         )
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
