@@ -73,6 +73,35 @@ class CandidateBlurb(BaseModel):
             "expected timing if known). Empty when no scheduled readout exists."
         ),
     )
+    approval_relationship: (
+        Literal[
+            "same",
+            "narrower",
+            "broader_overlapping",
+            "broader_distinct",
+            "related_family",
+            "combination",
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Classification of this candidate against the drug's approved "
+            "indications. None when there is no related approval. Values: "
+            "'same' (candidate is the approved indication or a synonym); "
+            "'narrower' (candidate is a sub-population of an approved indication); "
+            "'broader_overlapping' (candidate is a parent term that includes the "
+            "approved subtype but also has clinically distinct uncovered "
+            "populations — e.g. NAFLD when MASH is approved); "
+            "'broader_distinct' (candidate is a parent term whose only meaningful "
+            "population beyond the approved subtype is unrelated — e.g. "
+            "Hypertension when PAH is approved; the trial/literature artifact is "
+            "contaminated by inherited subtype data); "
+            "'related_family' (sibling indication, not a subset/superset); "
+            "'combination' (drug is approved only as part of a combination "
+            "product for this indication)."
+        ),
+    )
     prose: str = Field(
         default="",
         description=(

@@ -770,7 +770,8 @@ async def test_fetch_and_cache_returns_deduped_pmids(svc):
 
     with (
         patch(
-            "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+            "indication_scout.services.retrieval.get_literature_client",
+            return_value=mock_client,
         ),
         patch("indication_scout.services.retrieval.embed_async", return_value=[]),
         patch("indication_scout.services.retrieval.insert"),
@@ -794,7 +795,8 @@ async def test_fetch_and_cache_calls_search_per_query(svc):
 
     with (
         patch(
-            "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+            "indication_scout.services.retrieval.get_literature_client",
+            return_value=mock_client,
         ),
         patch("indication_scout.services.retrieval.insert"),
     ):
@@ -825,7 +827,8 @@ async def test_fetch_and_cache_empty_queries_returns_empty(svc):
     mock_client.search = AsyncMock(return_value=[])
 
     with patch(
-        "indication_scout.services.retrieval.PubMedClient", return_value=mock_client
+        "indication_scout.services.retrieval.get_literature_client",
+        return_value=mock_client,
     ):
         result = await svc.fetch_and_cache([], mock_db)
 

@@ -26,6 +26,10 @@ from indication_scout.services.disease_helper import (
     llm_normalize_disease_batch,
     merge_duplicate_diseases,
 )
+from indication_scout.data_sources.literature import (
+    LiteratureClient,
+    get_literature_client,
+)
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.models.model_drug_profile import DrugProfile
 from indication_scout.models.model_pubmed_abstract import PubmedAbstract
@@ -230,7 +234,7 @@ class RetrievalService:
         return {row[0] for row in rows}
 
     async def fetch_new_abstracts(
-        self, all_pmids: list[str], stored_pmids: set[str], client: PubMedClient
+        self, all_pmids: list[str], stored_pmids: set[str], client: LiteratureClient
     ) -> list[PubmedAbstract]:
         """Fetch PubMed abstracts for PMIDs not already in the database.
 
@@ -415,7 +419,7 @@ class RetrievalService:
         pmids: list[str],
         date_before: date,
         db: Session,
-        client: PubMedClient,
+        client: LiteratureClient,
     ) -> list[str]:
         """Drop PMIDs whose publication date is on/after `date_before`.
 
@@ -456,8 +460,15 @@ class RetrievalService:
         if not unknown:
             return from_db_kept
 
-        from_esummary_kept = await client._filter_pmids_by_date(unknown, date_before)
-        # Preserve original input order
+        # PubMed needs the esummary post-filter because NCBI's `maxdate` is not
+        # strict. Europe PMC's FIRST_PDATE range filter IS honored, so unknown
+        # PMIDs returned by the search were already date-checked upstream.
+        if isinstance(client, PubMedClient):
+            from_esummary_kept = await client._filter_pmids_by_date(
+                unknown, date_before
+            )
+        else:
+            from_esummary_kept = unknown
         kept_set = set(from_db_kept) | set(from_esummary_kept)
         return [p for p in pmids if p in kept_set]
 
@@ -491,7 +502,7 @@ class RetrievalService:
             that pass this list to semantic_search will see those PMIDs silently skipped
             by the WHERE pmid = ANY(:pmids) clause, which is intentional and correct.
         """
-        async with PubMedClient(cache_dir=self.cache_dir) as client:
+        async with get_literature_client(cache_dir=self.cache_dir) as client:
             # 1. Search all queries concurrently
             search_results = await asyncio.gather(
                 *[

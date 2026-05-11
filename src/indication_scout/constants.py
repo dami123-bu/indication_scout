@@ -61,6 +61,17 @@ PUBMED_MAX_CONCURRENT_REQUESTS: int = 8
 # Pre-call sleep on every uncached PubMed search.
 PUBMED_SEARCH_SLEEP_SECONDS: float = 1.0
 
+# -- Europe PMC -------------------------------------------------------------
+EUROPE_PMC_SEARCH_URL: str = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+# Cap concurrent in-flight requests to Europe PMC. No published per-IP
+# rate ceiling; 8 matches PubMed and leaves headroom for retries.
+EUROPE_PMC_MAX_CONCURRENT_REQUESTS: int = 8
+# Page size cap accepted by the Europe PMC search API (1..1000).
+EUROPE_PMC_PAGE_SIZE_MAX: int = 1000
+# Restricts results to PubMed/MEDLINE-indexed records so `pmid` is always
+# present and the existing PubmedAbstracts schema stays valid.
+EUROPE_PMC_SOURCE_FILTER: str = "SRC:MED"
+
 # -- MeSH resolver ----------------------------------------------------------
 NCBI_ESEARCH_URL: str = f"{NCBI_BASE_URL}/esearch.fcgi"
 NCBI_ESUMMARY_URL: str = f"{NCBI_BASE_URL}/esummary.fcgi"

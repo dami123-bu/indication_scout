@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
+    # Literature source switch — "pubmed" (NCBI eutils) or "europe_pmc".
+    literature_source: str = "pubmed"
+
     # -- Tunable limits (values come from .env.constants) ----------------------
     # No defaults here — if .env.constants is missing a field, startup fails
     # immediately so you know what to add.

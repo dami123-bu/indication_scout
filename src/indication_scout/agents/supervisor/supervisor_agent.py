@@ -223,7 +223,14 @@ async def run_supervisor_agent(
                 disease_raw,
             )
             continue
-        finding.blurb = CandidateBlurb(prose=prose, **fields)
+        # finalize_supervisor already validated approval_relationship against the allowed
+        # literal set and coerced unknown values to None; pass through as-is.
+        approval_relationship = entry.get("approval_relationship")
+        finding.blurb = CandidateBlurb(
+            prose=prose,
+            approval_relationship=approval_relationship,
+            **fields,
+        )
 
     # Candidates surfaced to downstream consumers = every disease in the merged allowlist,
     # mapped back to its canonical name. Includes mechanism-promoted diseases.

@@ -31,6 +31,7 @@ from indication_scout.data_sources.base_client import (
     DataSourceError,
     log_data_source_failure,
 )
+from indication_scout.data_sources.literature import get_literature_client
 from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.services.llm import query_small_llm, strip_markdown_fences
 from indication_scout.utils.cache import cache_get, cache_set
@@ -184,7 +185,7 @@ async def pubmed_count(query: str) -> int:
         return cached
 
     try:
-        async with PubMedClient(cache_dir=DEFAULT_CACHE_DIR) as client:
+        async with get_literature_client(cache_dir=DEFAULT_CACHE_DIR) as client:
             count = await client.get_count(query)
     except DataSourceError as e:
         logger.warning("PubMed count failed for '%s': %s", query, e)

@@ -183,6 +183,19 @@ _BLURB_TABLE_FIELDS: list[tuple[str, str]] = [
 ]
 
 
+# Human-readable labels for the approval_relationship enum on CandidateBlurb.
+# Used in the per-disease section header so the reader sees the relationship
+# at a glance alongside the disease name.
+_APPROVAL_RELATIONSHIP_LABELS: dict[str, str] = {
+    "same": "same as approved indication",
+    "narrower": "narrower than approved indication",
+    "broader_overlapping": "broader than approved indication; uncovered population exists",
+    "broader_distinct": "parent of approved subtype; trial/literature data inherits from subtype",
+    "related_family": "related family of approved indication",
+    "combination": "approved only as combination product",
+}
+
+
 def _escape_table_cell(value: str) -> str:
     """Escape characters that would break a markdown table cell.
 
@@ -368,8 +381,20 @@ def format_report(output: SupervisorOutput) -> str:
     lines += ["## Candidate Findings", ""]
     if output.disease_findings:
         for finding in output.disease_findings:
+            relationship = (
+                finding.blurb.approval_relationship if finding.blurb else None
+            )
+            relationship_label = (
+                _APPROVAL_RELATIONSHIP_LABELS.get(relationship)
+                if relationship
+                else None
+            )
+            header_suffix = (
+                f" — {relationship_label}" if relationship_label else ""
+            )
             lines += [
-                f"## {_title_case_disease(finding.disease)} _(source: {finding.source})_",
+                f"## {_title_case_disease(finding.disease)} "
+                f"_(source: {finding.source}{header_suffix})_",
                 "",
             ]
 
@@ -385,6 +410,15 @@ def format_report(output: SupervisorOutput) -> str:
                 lines += [
                     "### Clinical Trials",
                     "",
+                ]
+                if relationship == "broader_distinct":
+                    lines += [
+                        "_Note: trial counts in this section include studies on the "
+                        "approved subtype of this disease and cannot be cleanly "
+                        "separated from the parent-only scope. Interpret accordingly._",
+                        "",
+                    ]
+                lines += [
                     _fmt_clinical_trials(finding.clinical_trials, finding.disease),
                     "",
                 ]

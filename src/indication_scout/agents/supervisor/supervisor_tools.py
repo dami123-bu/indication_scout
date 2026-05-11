@@ -868,6 +868,10 @@ def build_supervisor_tools(
             - verdict: short interpretive tag (e.g. "Live but bottlenecked")
             - watch: next concrete data readout or trial worth watching
               (NCT id and/or expected timing); empty if none on record
+            - approval_relationship: one of "same", "narrower",
+              "broader_overlapping", "broader_distinct", "related_family",
+              "combination", or omitted/null when there is no related approval
+              (see APPROVAL RELATIONSHIPS in the system prompt)
             - prose: exactly 2 sentences of interpretive synthesis
           Each blurb must synthesize ONLY the literature and clinical_trials
           sub-agent summaries you saw for that disease this run — do not
@@ -886,13 +890,51 @@ def build_supervisor_tools(
             "verdict",
             "watch",
         )
+        valid_approval_relationships = {
+            "same",
+            "narrower",
+            "broader_overlapping",
+            "broader_distinct",
+            "related_family",
+            "combination",
+        }
+        # Approval-relationship values that exclude the candidate from the ranked summary
+        # entirely. The prompt instructs the LLM to write a minimal blurb (disease,
+        # approval_relationship, one-sentence prose) for these and surface the candidate
+        # in a "Demoted — approval relationship:" footer instead of a rank line.
+        demoted_approval_relationships = {
+            "same",
+            "narrower",
+            "broader_distinct",
+            "combination",
+        }
         for item in blurbs or []:
             disease = (item.get("disease") or "").strip()
             if not disease:
                 continue
             fields = {k: (item.get(k) or "").strip() for k in structured_keys}
             prose = (item.get("prose") or "").strip()
-            if not prose and not any(fields.values()):
+            raw_relationship = item.get("approval_relationship")
+            if isinstance(raw_relationship, str):
+                raw_relationship = raw_relationship.strip().lower() or None
+            if raw_relationship is not None and raw_relationship not in valid_approval_relationships:
+                logger.warning(
+                    "[TOOL] finalize_supervisor dropping unknown approval_relationship=%r "
+                    "for disease=%r (must be one of %s)",
+                    raw_relationship,
+                    disease,
+                    sorted(valid_approval_relationships),
+                )
+                raw_relationship = None
+            is_demoted = raw_relationship in demoted_approval_relationships
+            # Demoted candidates carry minimal blurbs (only disease + prose +
+            # approval_relationship populated). Empty structured fields are expected
+            # for them; require only that prose is set so the per-disease section
+            # has something to render.
+            if is_demoted:
+                if not prose:
+                    continue
+            elif not prose and not any(fields.values()):
                 continue
             disease_key = disease.lower().strip()
             if disease_key not in allowed_diseases:
@@ -938,7 +980,11 @@ def build_supervisor_tools(
                     and n_pmids < SUPERVISOR_MIN_PMIDS_NO_TRIALS
                 )
             )
-            if n_trials == 0 and no_lit_signal:
+            # Evidence gate does not apply to demoted candidates — they're surfaced in the
+            # "Demoted — approval relationship:" footer, not in the ranked list, and the
+            # prompt explicitly instructs not to evidence-gate broader_distinct (the
+            # artifact's trial count is contaminated by the approved subtype).
+            if not is_demoted and n_trials == 0 and no_lit_signal:
                 logger.warning(
                     "[TOOL] finalize_supervisor dropping blurb for disease=%r "
                     "(evidence gate: %d trials, %d PMIDs, strength=%s, "
@@ -950,16 +996,33 @@ def build_supervisor_tools(
                     lit_study_count,
                 )
                 continue
-            entry = {"disease": disease, "prose": prose, **fields}
+            entry = {
+                "disease": disease,
+                "prose": prose,
+                "approval_relationship": raw_relationship,
+                **fields,
+            }
             validated.append(entry)
 
         # Filter the LLM-written summary string to drop ranked lines whose disease
-        # didn't pass the evidence gate (i.e. isn't in validated). Lines that aren't
-        # ranked entries (e.g. trailing "Closed signals:") pass through unchanged.
-        # Surviving lines are renumbered to keep the rank sequence contiguous.
-        # Uses the same regex and longest-substring match strategy as the report
-        # formatter's _splice_blurbs_into_summary so disease matching is consistent.
-        validated_diseases = {e["disease"].lower().strip() for e in validated}
+        # didn't pass the evidence gate (i.e. isn't in validated) OR whose blurb has a
+        # demoted approval_relationship. Demoted candidates belong only in the
+        # "Demoted — approval relationship:" footer, never in the ranked list — even if
+        # the LLM forgets the prompt instruction and writes a rank line for them.
+        # Lines that aren't ranked entries (e.g. trailing "Closed signals:") pass
+        # through unchanged. Surviving lines are renumbered to keep the rank sequence
+        # contiguous. Uses the same regex and longest-substring match strategy as the
+        # report formatter's _splice_blurbs_into_summary so disease matching is consistent.
+        demoted_diseases_lower = {
+            e["disease"].lower().strip()
+            for e in validated
+            if e.get("approval_relationship") in demoted_approval_relationships
+        }
+        validated_diseases = {
+            e["disease"].lower().strip()
+            for e in validated
+            if e.get("approval_relationship") not in demoted_approval_relationships
+        }
         rank_line = re.compile(r"^\s*(?P<rank>\d+)\.\s+(?P<head>.+?)\s+—\s+(?P<tail>.+)$")
         # Normalize the heading line so the report uses "signals" instead of
         # "candidates" / "opportunities" / "indications" regardless of what the LLM wrote.
@@ -984,6 +1047,22 @@ def build_supervisor_tools(
                 filtered_lines.append(line)
                 continue
             head_lower = m.group("head").lower()
+            # Drop ranked lines for demoted diseases first — these are honored even
+            # if the LLM wrote a rank line in violation of the prompt.
+            demoted_match = next(
+                (
+                    d for d in sorted(demoted_diseases_lower, key=len, reverse=True)
+                    if d and d in head_lower
+                ),
+                None,
+            )
+            if demoted_match is not None:
+                logger.warning(
+                    "[TOOL] finalize_supervisor dropping summary line for "
+                    "disease=%r (approval-relationship demotion; belongs in footer)",
+                    m.group("head"),
+                )
+                continue
             keep = any(
                 d and d in head_lower
                 for d in sorted(validated_diseases, key=len, reverse=True)
