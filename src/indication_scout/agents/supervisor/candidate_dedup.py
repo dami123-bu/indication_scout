@@ -202,12 +202,20 @@ Rules:
   {{survivor: "type 2 diabetes mellitus" OR "diabetes mellitus",
    dropped: [the other one]}}. T1DM is a SIBLING of T2DM and MUST be left
   alone, regardless of how poorly it fits the drug.
-- For each overlap, pick the ONE survivor that is MOST ACTIONABLE for THIS
-  drug's mechanism. Heuristics:
-    * If the drug's MoA / target biology is most clearly linked to a specific
-      subtype, prefer the subtype.
-    * If the evidence base or competitor activity sits at the broader level,
-      prefer the broader entry.
+- For each overlap, pick the ONE survivor. DEFAULT: prefer the SUBTYPE — it is
+  more actionable as a repurposing candidate than its parent. The parent only
+  wins when the subtype is itself an approved/standard indication for this
+  drug (so dropping it removes a non-opportunity) AND the parent has a
+  clinically distinct uncovered population not subsumed by the subtype.
+  Heuristics:
+    * Default: keep the subtype, drop the parent. Broad parent terms like
+      "metabolic disease", "cancer", "autoimmune disease" are rarely useful
+      as repurposing candidates and should lose to any specific child.
+    * Exception: if the subtype IS the drug's approved indication (e.g.
+      type 2 diabetes for metformin) AND the parent encompasses additional
+      uncovered populations, prefer the parent.
+    * For synonyms (NAFLD ↔ non-alcoholic fatty liver disease), either
+      spelling is fine — pick the more clinically standard form.
     * Source tag is informative but not decisive: "both" entries are slightly
       preferred (they had independent support) but can still be dropped if
       another entry is the better match.

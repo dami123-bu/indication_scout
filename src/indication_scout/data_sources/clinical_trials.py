@@ -27,6 +27,7 @@ from indication_scout.constants import (
     VACCINE_NAME_KEYWORDS,
 )
 from indication_scout.data_sources.base_client import BaseClient, DataSourceError
+from indication_scout.data_sources.pubmed import PubMedClient
 from indication_scout.utils.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,8 @@ class ClinicalTrialsClient(BaseClient):
 
         total, (trials, _) = await asyncio.gather(total_task, fetch_task)
 
+        await self._augment_references_via_pubmed(trials, date_before=date_before)
+
         result = TerminatedTrialsResult(total_count=total, trials=trials)
         cache_set(
             "ct_terminated",
@@ -272,6 +275,53 @@ class ClinicalTrialsClient(BaseClient):
             ttl=CLINICAL_TRIALS_CACHE_TTL,
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Private: PubMed NCT-fallback for missing trial references
+    # ------------------------------------------------------------------
+
+    async def _augment_references_via_pubmed(
+        self, trials: list[Trial], date_before: date | None = None
+    ) -> None:
+        """Backfill empty `Trial.references` via PubMed NCT-id search.
+
+        CT.gov's `referencesModule.references` is incomplete — many trials
+        have a real published readout in PubMed that CT.gov never linked.
+        PubMed's `[si]` (Secondary Source ID) field tag matches NCT numbers
+        cited in abstracts, so a query like `NCT01490632[si]` recovers the
+        readout paper directly.
+
+        Mutates `trials` in-place. Only fills `references` when it's empty;
+        never overwrites a CT.gov-provided PMID list. Failures (PubMed
+        errors, timeouts) log a warning and leave references untouched.
+        Honors `date_before` for holdout correctness.
+        """
+        targets = [t for t in trials if not t.references and t.nct_id]
+        if not targets:
+            return
+        async with PubMedClient(cache_dir=self.cache_dir) as pm:
+            tasks = [
+                pm.search(query=f"{t.nct_id}[si]", max_results=10, date_before=date_before)
+                for t in targets
+            ]
+            try:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as e:
+                logger.warning(
+                    "PubMed NCT-fallback gather failed: %r — leaving references empty",
+                    e,
+                )
+                return
+        for trial, pmids in zip(targets, results):
+            if isinstance(pmids, Exception):
+                logger.warning(
+                    "PubMed NCT-fallback for %s failed: %r — leaving references empty",
+                    trial.nct_id,
+                    pmids,
+                )
+                continue
+            if pmids:
+                trial.references = list(pmids)
 
     # ------------------------------------------------------------------
     # Public: get_completed_trials (COMPLETED pair query: count + top-50)
@@ -316,6 +366,8 @@ class ClinicalTrialsClient(BaseClient):
         )
 
         total, (trials, _) = await asyncio.gather(total_task, fetch_task)
+
+        await self._augment_references_via_pubmed(trials, date_before=date_before)
 
         result = CompletedTrialsResult(total_count=total, trials=trials)
         cache_set(

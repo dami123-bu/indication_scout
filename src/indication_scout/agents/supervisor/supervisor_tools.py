@@ -467,64 +467,69 @@ def build_supervisor_tools(
                 promoted,
             )
 
-        # Step 4: hierarchical LLM pass over the full merged list.
-        if len(allowed_diseases) < 2:
-            return
-
-        # Build the (name, source, efo_id) tuple list in insertion order. For each
-        # row we need the EFO ID, which is stored inverted in allowed_efo_ids.
-        name_to_efo: dict[str, str] = {}
-        for efo_id, lc_name in allowed_efo_ids.items():
-            if lc_name in allowed_diseases:
-                name_to_efo[lc_name] = efo_id
-
-        candidate_tuples: list[tuple[str, str, str | None]] = []
-        for lc_name, (canonical, source) in allowed_diseases.items():
-            candidate_tuples.append((canonical, source, name_to_efo.get(lc_name)))
-
-        decisions = await run_hierarchical_dedup(
-            drug_name=drug_name,
-            mechanism_targets=list(mechanism_targets_for_dedup),
-            candidates=candidate_tuples,
-        )
-        if not decisions.decisions:
-            return
-
-        # Apply decisions: remove dropped entries from allowed_diseases and
-        # allowed_efo_ids. A name appearing in multiple decisions is removed once.
-        canonical_to_lc: dict[str, str] = {
-            canonical: lc for lc, (canonical, _) in allowed_diseases.items()
-        }
-        removed_canonicals: list[str] = []
-        removed_lc: set[str] = set()
-        for decision in decisions.decisions:
-            for dropped_name in decision.dropped:
-                lc = canonical_to_lc.get(dropped_name)
-                if lc is None or lc in removed_lc:
-                    continue
-                removed_lc.add(lc)
-                removed_canonicals.append(dropped_name)
-                logger.warning(
-                    "[DEDUP] %r → %r (%s)",
-                    dropped_name,
-                    decision.survivor,
-                    decision.reason or "no reason given",
-                )
-                allowed_diseases.pop(lc, None)
-                # Invert lookup: drop any allowed_efo_ids row that points at this lc.
-                for efo_id in [e for e, v in allowed_efo_ids.items() if v == lc]:
-                    allowed_efo_ids.pop(efo_id, None)
-
-        if removed_canonicals:
-            _log_disease_banner(
-                f"HIERARCHICAL DEDUP removed candidates for {drug_name}",
-                removed_canonicals,
-            )
-            survivors = [canonical for canonical, _ in allowed_diseases.values()]
-            _log_disease_banner(
-                f"CANDIDATE ALLOWLIST for {drug_name} after hierarchical dedup",
-                survivors,
-            )
+        # Step 4: hierarchical LLM pass — temporarily disabled while we revisit
+        # the case that motivated it. The dedup was collapsing actionable
+        # subtype candidates (e.g. PCOS, gestational diabetes) into broad
+        # parents (metabolic disease) for broadly-acting drugs like metformin.
+        # Keep all candidates from the exact-match dedup until we decide on a
+        # hardcoded equivalence-group approach.
+        # if len(allowed_diseases) < 2:
+        #     return
+        #
+        # # Build the (name, source, efo_id) tuple list in insertion order. For each
+        # # row we need the EFO ID, which is stored inverted in allowed_efo_ids.
+        # name_to_efo: dict[str, str] = {}
+        # for efo_id, lc_name in allowed_efo_ids.items():
+        #     if lc_name in allowed_diseases:
+        #         name_to_efo[lc_name] = efo_id
+        #
+        # candidate_tuples: list[tuple[str, str, str | None]] = []
+        # for lc_name, (canonical, source) in allowed_diseases.items():
+        #     candidate_tuples.append((canonical, source, name_to_efo.get(lc_name)))
+        #
+        # decisions = await run_hierarchical_dedup(
+        #     drug_name=drug_name,
+        #     mechanism_targets=list(mechanism_targets_for_dedup),
+        #     candidates=candidate_tuples,
+        # )
+        # if not decisions.decisions:
+        #     return
+        #
+        # # Apply decisions: remove dropped entries from allowed_diseases and
+        # # allowed_efo_ids. A name appearing in multiple decisions is removed once.
+        # canonical_to_lc: dict[str, str] = {
+        #     canonical: lc for lc, (canonical, _) in allowed_diseases.items()
+        # }
+        # removed_canonicals: list[str] = []
+        # removed_lc: set[str] = set()
+        # for decision in decisions.decisions:
+        #     for dropped_name in decision.dropped:
+        #         lc = canonical_to_lc.get(dropped_name)
+        #         if lc is None or lc in removed_lc:
+        #             continue
+        #         removed_lc.add(lc)
+        #         removed_canonicals.append(dropped_name)
+        #         logger.warning(
+        #             "[DEDUP] %r → %r (%s)",
+        #             dropped_name,
+        #             decision.survivor,
+        #             decision.reason or "no reason given",
+        #         )
+        #         allowed_diseases.pop(lc, None)
+        #         # Invert lookup: drop any allowed_efo_ids row that points at this lc.
+        #         for efo_id in [e for e, v in allowed_efo_ids.items() if v == lc]:
+        #             allowed_efo_ids.pop(efo_id, None)
+        #
+        # if removed_canonicals:
+        #     _log_disease_banner(
+        #         f"HIERARCHICAL DEDUP removed candidates for {drug_name}",
+        #         removed_canonicals,
+        #     )
+        #     survivors = [canonical for canonical, _ in allowed_diseases.values()]
+        #     _log_disease_banner(
+        #         f"CANDIDATE ALLOWLIST for {drug_name} after hierarchical dedup",
+        #         survivors,
+        #     )
 
     def _reject(disease_name: str, tool_label: str, empty_output):
         valid = sorted(allowed_diseases.keys())

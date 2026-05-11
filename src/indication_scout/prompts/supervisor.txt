@@ -21,9 +21,13 @@ opportunity — biological rationale, clinical interest, hypothesis still open.
 1. Call find_candidates AND analyze_mechanism in parallel. Both are REQUIRED — analyze_mechanism
    is not optional. find_candidates internally waits for analyze_mechanism to finish and then
    returns the merged candidate list with source tags ([competitor], [mechanism], [both]).
-2. Pick 3-5 candidates from the merged list returned by find_candidates and call BOTH
-   analyze_literature and analyze_clinical_trials on each. [mechanism] and [both] candidates
-   are especially worth investigating — they have biological rationale from the drug's targets.
+2. Investigate ALL candidates in the merged list returned by find_candidates, in the order
+   they appear, up to a maximum of 6. Call BOTH analyze_literature and analyze_clinical_trials
+   on each. Do NOT skip candidates based on apparent priority, source tag, or your judgment
+   about likely outcomes — the dedup pipeline upstream already removed redundant entries, and
+   skipping creates report-to-report inconsistency (the same drug analyzed twice would surface
+   different candidate findings). If the merged list has more than 6 entries, take the first 6
+   in list order and skip the rest.
 3. Call get_drug_briefing.
 4. Call finalize_supervisor with your ranked summary.
 
@@ -86,16 +90,30 @@ These rules apply to ALL text you write — summary lines, blurb fields, and pro
   as "NCT... (PMID ...)" or surfaces a `refs:` field on completed/terminated rows) has a
   published readout in PubMed. Do NOT write "no RCT readout", "no completed RCT", "no
   pivotal RCT has reported", or "no published evidence" when such a trial exists for this
-  pair. The reverse is not true: a trial without a linked PMID does not mean a readout was
-  never published. Cite the trial by NCT and the publication by PMID when characterizing
-  the evidence base in the `literature` blurb field, the `stage` field, or the prose.
-- A trial's phase is whatever CT.gov's phase field says. Use it verbatim — a "Phase 2" trial
-  is Phase 2, a "Phase 1/Phase 2" trial is Phase 1/Phase 2, a "Phase 2/Phase 3" trial is
-  Phase 2/Phase 3. Do NOT downgrade or paraphrase the phase based on trial status
-  (UNKNOWN, terminated, etc.), enrollment size, or your judgment about evidence maturity.
-  An UNKNOWN-status Phase 2 trial is still Phase 2 — its outcome is unknowable but its
-  phase is not. Reserve "early-stage" or "Phase 1" for trials whose CT.gov phase field is
-  literally "Phase 1" or "Early Phase 1."
+  pair. The `refs:` field combines CT.gov-linked publications AND a PubMed NCT-id
+  fallback search, so an empty `refs:` field is a stronger negative signal than it used
+  to be — but it is still NOT conclusive. PubMed may not have indexed the readout yet,
+  or the publication may not cite the NCT id explicitly. Hedge as "no published readout
+  found in this run" rather than asserting "no readout exists." Cite the trial by NCT
+  and the publication by PMID when characterizing the evidence base in the `literature`
+  blurb field, the `stage` field, or the prose.
+- A trial's PHASE LABEL is whatever CT.gov's phase field says. Use it verbatim when
+  CITING a trial — a "Phase 2" trial is Phase 2, a "Phase 1/Phase 2" trial is Phase
+  1/Phase 2, a "Phase 2/Phase 3" trial is Phase 2/Phase 3. Do NOT rewrite the phase
+  label based on status (UNKNOWN, terminated, etc.). An UNKNOWN-status Phase 2 trial
+  is still Phase 2 — its outcome is unknowable but its phase label is not.
+- DEVELOPMENT MATURITY is a separate judgment from the phase label. A "Phase 2/Phase 3"
+  designation in CT.gov reflects the sponsor's declared study design; it does NOT by
+  itself establish pivotal-scale maturity. For ranking, blurb `stage` lines, and
+  prose, cross-check enrollment before treating a Phase 2/Phase 3 or Phase 3 trial as
+  pivotal-scale evidence. A Phase 2/Phase 3 trial with n<200 (typical pivotal Phase 3
+  trials enrol several hundred to several thousand) should be characterized as
+  Phase 2-scale in maturity even though its phase LABEL remains "Phase 2/Phase 3."
+  Example wording: "Phase 2/Phase 3 completed (NCT...; n=88, Phase 2-scale)" rather
+  than treating it as a pivotal Phase 3 readout. Reserve "Phase 3 completed" headline
+  language for trials whose phase IS "Phase 3" AND whose enrollment supports the
+  pivotal characterization. Reserve "early-stage" or "Phase 1" verbiage for trials
+  whose phase field is literally "Phase 1" or "Early Phase 1."
 
 # APPROVAL RELATIONSHIPS
 Before finalizing, classify each candidate against the briefing's approved indications and set
