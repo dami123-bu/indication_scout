@@ -18,6 +18,9 @@ from typing import Literal
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
+from indication_scout.agents.supervisor.candidate_dedup import (
+    run_hierarchical_dedup,
+)
 from indication_scout.config import get_settings
 from indication_scout.constants import SUPERVISOR_MIN_PMIDS_NO_TRIALS
 from indication_scout.data_sources.chembl import get_all_drug_names, resolve_drug_name
@@ -113,17 +116,26 @@ def build_supervisor_tools(
     allowed_diseases: dict[
         str, tuple[str, Literal["competitor", "mechanism", "both"]]
     ] = {}
-    # EFO ID → lowercase disease name (key into allowed_diseases). Lets analyze_mechanism dedup
+    # EFO ID → lowercase disease name (key into allowed_diseases). Lets the merge step dedup
     # mechanism candidates against competitor entries by ontology ID even when names differ
     # (e.g. "NSCLC" vs "non-small cell lung cancer").
     allowed_efo_ids: dict[str, str] = {}
-    # Seed-phase gates. find_candidates and analyze_mechanism are invoked in parallel by the
-    # LLM, but find_candidates blocks on analyze_mechanism_done before returning so its return
-    # value reflects the merged competitor + mechanism allowlist. find_candidates sets its own
-    # gate BEFORE awaiting mechanism, so analyze_mechanism's merge step (which awaits
-    # find_candidates_done) doesn't deadlock against find_candidates. analyze_literature and
-    # analyze_clinical_trials wait on both gates so they always see the fully-merged allowlist.
-    # Both events are set in try/finally so a sub-agent crash doesn't deadlock downstream tools.
+    # Raw mechanism candidates as they arrive. analyze_mechanism appends here; find_candidates
+    # consumes them in merge_and_dedup() after both seed tools have finished. Holding the full
+    # list (rather than merging per-candidate) lets the hierarchical LLM pass see the complete
+    # union of competitor + mechanism candidates in one shot.
+    mechanism_candidates_buffer: list = []
+    # Drug-level mechanism target list, set by analyze_mechanism and read by merge_and_dedup
+    # so the hierarchical LLM pass can reason about the drug's MoA when picking survivors.
+    mechanism_targets_for_dedup: list[tuple[str, str]] = []
+    # Seed-phase gates. find_candidates and analyze_mechanism run in parallel.
+    # analyze_mechanism only buffers raw candidates and sets analyze_mechanism_done; it does not
+    # touch the allowlist. find_candidates seeds the competitor allowlist, awaits
+    # analyze_mechanism_done, then runs merge_and_dedup which performs the centralized
+    # exact-match + hierarchical-LLM dedup over the union. find_candidates_done is set inside
+    # merge_and_dedup so downstream tools (analyze_literature, analyze_clinical_trials,
+    # investigate_top_candidates) only observe the post-dedup allowlist. Both events are set in
+    # try/finally so a sub-agent crash doesn't deadlock downstream tools.
     find_candidates_done = asyncio.Event()
     analyze_mechanism_done = asyncio.Event()
 
@@ -206,10 +218,12 @@ def build_supervisor_tools(
     async def find_candidates(drug_name: str) -> tuple[str, list[str]]:
         """Surface candidate diseases for repurposing this drug.
 
-        Returns the merged candidate list — diseases where competitor drugs (sharing the same
-        molecular targets) are being developed, PLUS diseases surfaced by the mechanism sub-agent.
-        Waits for analyze_mechanism to finish so its candidates are included. Each line in the
-        content string is tagged [competitor], [mechanism], or [both].
+        Returns the post-dedup candidate list — diseases where competitor drugs (sharing the
+        same molecular targets) are being developed, PLUS diseases surfaced by the mechanism
+        sub-agent. Waits for analyze_mechanism to finish, then runs merge_and_dedup which
+        performs exact-match dedup (ID, name, OT name-resolve) followed by a hierarchical LLM
+        pass to collapse super/subtype overlaps. Each line in the content string is tagged
+        [competitor], [mechanism], or [both].
         """
         try:
             return await _find_candidates_impl(drug_name)
@@ -353,20 +367,21 @@ def build_supervisor_tools(
             diseases,
         )
 
-        # Release the seed gate now so analyze_mechanism's merge step (which awaits
-        # find_candidates_done) can proceed. Done BEFORE awaiting analyze_mechanism_done to
-        # avoid a circular wait.
-        find_candidates_done.set()
-
-        # Wait for analyze_mechanism to finish merging mechanism candidates into
-        # allowed_diseases. The mechanism sub-agent's finally block always sets this gate, so
-        # a mechanism crash means we just see an empty mechanism contribution rather than
-        # deadlocking.
+        # Wait for analyze_mechanism to populate mechanism_candidates_buffer. The mechanism
+        # sub-agent's finally block always sets this gate, so a mechanism crash means we just
+        # see an empty mechanism contribution rather than deadlocking.
         await analyze_mechanism_done.wait()
 
-        # Snapshot the merged allowlist in insertion order: competitor entries first (in
-        # their existing OT ranked order), then mechanism-only entries (in the order
-        # analyze_mechanism appended them). "both" entries stay in their competitor slot.
+        # Run the centralized merge + dedup pipeline. find_candidates_done is set inside
+        # merge_and_dedup's finally so downstream readers (analyze_literature,
+        # analyze_clinical_trials, investigate_top_candidates) only ever see the post-dedup
+        # allowlist.
+        await merge_and_dedup(drug_name)
+
+        # Snapshot the post-dedup allowlist in dict insertion order. Competitor entries
+        # were inserted first (in OT ranked order), then mechanism-only entries (in the
+        # order analyze_mechanism produced them); the hierarchical dedup may have removed
+        # entries from either group. "both" entries stay in their original competitor slot.
         merged: list[tuple[str, str]] = [
             (canonical, source) for (canonical, source) in allowed_diseases.values()
         ]
@@ -384,6 +399,132 @@ def build_supervisor_tools(
 
         merged_names = [canonical for canonical, _ in merged]
         return content, merged_names
+
+    async def merge_and_dedup(drug_name: str) -> None:
+        """Merge buffered mechanism candidates into the competitor-seeded allowlist.
+
+        Pipeline (single chokepoint for all candidate-disease deduplication):
+          1. Exact ID match — drop mechanism candidate if disease_id already in
+             allowed_efo_ids. Upgrade matched competitor entry's source to "both".
+          2. Exact name match — drop mechanism candidate if lowercased name already
+             in allowed_diseases. Upgrade source to "both".
+          3. OT name-resolve — ask OT to resolve unresolved mechanism candidate names
+             to EFO IDs; retry step 1 against allowed_efo_ids.
+          4. Hierarchical LLM pass — over the full merged list, identify
+             super/subtype overlaps that the exact-match passes can't catch
+             (UC ⊂ IBD, T2DM ⊂ DM) and pick one survivor per overlap.
+
+        Sets find_candidates_done before returning so downstream readers
+        (analyze_literature, analyze_clinical_trials, investigate_top_candidates)
+        observe the post-dedup allowlist. The find_candidates wrapper's
+        try/finally still sets the gate on any exception path.
+        """
+        try:
+            await _merge_and_dedup_impl(drug_name)
+        finally:
+            find_candidates_done.set()
+
+    async def _merge_and_dedup_impl(drug_name: str) -> None:
+        # Steps 1-3: exact-match dedup against the competitor-seeded allowlist.
+        promoted: list[str] = []
+        if mechanism_candidates_buffer:
+            async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
+                for candidate in mechanism_candidates_buffer:
+                    key = candidate.disease_name.lower().strip()
+                    if not key:
+                        continue
+
+                    existing_key: str | None = None
+                    if candidate.disease_id and candidate.disease_id in allowed_efo_ids:
+                        existing_key = allowed_efo_ids[candidate.disease_id]
+                    elif key in allowed_diseases:
+                        existing_key = key
+                    else:
+                        resolved_id = await ot_client.resolve_disease_id(
+                            candidate.disease_name
+                        )
+                        if resolved_id and resolved_id in allowed_efo_ids:
+                            existing_key = allowed_efo_ids[resolved_id]
+
+                    if existing_key is not None:
+                        existing_name, source = allowed_diseases[existing_key]
+                        if source == "competitor":
+                            allowed_diseases[existing_key] = (existing_name, "both")
+                        if (
+                            candidate.disease_id
+                            and candidate.disease_id not in allowed_efo_ids
+                        ):
+                            allowed_efo_ids[candidate.disease_id] = existing_key
+                    else:
+                        allowed_diseases[key] = (candidate.disease_name, "mechanism")
+                        if candidate.disease_id:
+                            allowed_efo_ids[candidate.disease_id] = key
+                        promoted.append(candidate.disease_name)
+
+        if promoted:
+            _log_disease_banner(
+                f"MECHANISM-PROMOTED candidates added to allowlist for {drug_name}",
+                promoted,
+            )
+
+        # Step 4: hierarchical LLM pass over the full merged list.
+        if len(allowed_diseases) < 2:
+            return
+
+        # Build the (name, source, efo_id) tuple list in insertion order. For each
+        # row we need the EFO ID, which is stored inverted in allowed_efo_ids.
+        name_to_efo: dict[str, str] = {}
+        for efo_id, lc_name in allowed_efo_ids.items():
+            if lc_name in allowed_diseases:
+                name_to_efo[lc_name] = efo_id
+
+        candidate_tuples: list[tuple[str, str, str | None]] = []
+        for lc_name, (canonical, source) in allowed_diseases.items():
+            candidate_tuples.append((canonical, source, name_to_efo.get(lc_name)))
+
+        decisions = await run_hierarchical_dedup(
+            drug_name=drug_name,
+            mechanism_targets=list(mechanism_targets_for_dedup),
+            candidates=candidate_tuples,
+        )
+        if not decisions.decisions:
+            return
+
+        # Apply decisions: remove dropped entries from allowed_diseases and
+        # allowed_efo_ids. A name appearing in multiple decisions is removed once.
+        canonical_to_lc: dict[str, str] = {
+            canonical: lc for lc, (canonical, _) in allowed_diseases.items()
+        }
+        removed_canonicals: list[str] = []
+        removed_lc: set[str] = set()
+        for decision in decisions.decisions:
+            for dropped_name in decision.dropped:
+                lc = canonical_to_lc.get(dropped_name)
+                if lc is None or lc in removed_lc:
+                    continue
+                removed_lc.add(lc)
+                removed_canonicals.append(dropped_name)
+                logger.warning(
+                    "[DEDUP] %r → %r (%s)",
+                    dropped_name,
+                    decision.survivor,
+                    decision.reason or "no reason given",
+                )
+                allowed_diseases.pop(lc, None)
+                # Invert lookup: drop any allowed_efo_ids row that points at this lc.
+                for efo_id in [e for e, v in allowed_efo_ids.items() if v == lc]:
+                    allowed_efo_ids.pop(efo_id, None)
+
+        if removed_canonicals:
+            _log_disease_banner(
+                f"HIERARCHICAL DEDUP removed candidates for {drug_name}",
+                removed_canonicals,
+            )
+            survivors = [canonical for canonical, _ in allowed_diseases.values()]
+            _log_disease_banner(
+                f"CANDIDATE ALLOWLIST for {drug_name} after hierarchical dedup",
+                survivors,
+            )
 
     def _reject(disease_name: str, tool_label: str, empty_output):
         valid = sorted(allowed_diseases.keys())
@@ -596,8 +737,8 @@ def build_supervisor_tools(
         """Run the mechanism sub-agent for a drug.
 
         The mechanism agent returns target-level MoA data and the agent's narrative summary.
-        Mechanism-surfaced candidates are promoted into the investigation allowlist so
-        analyze_literature / analyze_clinical_trials can investigate them downstream.
+        Raw mechanism candidates are buffered for the centralized merge_and_dedup pass that
+        find_candidates runs once both seed tools have completed.
         """
         try:
             return await _analyze_mechanism_impl(drug_name)
@@ -611,58 +752,22 @@ def build_supervisor_tools(
         output = await run_mechanism_agent(mech_agent, drug_name)
         # logger.warning("[TOOL] analyze_mechanism(drug=%r)", drug_name)
 
-        # The mechanism sub-agent can run in parallel with find_candidates, but the merge step
-        # below must observe a fully-populated competitor allowlist. Wait here so we don't dedup
-        # mechanism candidates against an empty/partial competitor list.
-        await find_candidates_done.wait()
+        # Buffer raw mechanism candidates for find_candidates to consume in merge_and_dedup()
+        # after both seed tools have finished. The merge is centralized in one place so the
+        # full union of competitor + mechanism candidates can be passed to a single
+        # hierarchical-dedup pass.
+        mechanism_candidates_buffer.clear()
+        raw_received: list[str] = []
+        for candidate in output.candidates:
+            if not (candidate.disease_name or "").strip():
+                continue
+            mechanism_candidates_buffer.append(candidate)
+            raw_received.append(candidate.disease_name)
 
-        promoted: list[str] = []
-        async with OpenTargetsClient(cache_dir=svc.cache_dir) as ot_client:
-            for candidate in output.candidates:
-                key = candidate.disease_name.lower().strip()
-                if not key:
-                    continue
-
-                # Three-step dedup against the competitor allowlist.
-                #   1. ID match — common case when both sides emit the same OT canonical ID.
-                #   2. Exact-name match — covers the case where one side lacks an ID.
-                #   3. OT name-resolve — when the candidate's raw ID and name both miss, ask
-                #      OT's search to canonicalize the name to its disease ID and retry the ID
-                #      match. Catches cross-ontology drift (EFO vs MONDO) and synonyms.
-                existing_key: str | None = None
-                if candidate.disease_id and candidate.disease_id in allowed_efo_ids:
-                    existing_key = allowed_efo_ids[candidate.disease_id]
-                elif key in allowed_diseases:
-                    existing_key = key
-                else:
-                    resolved_id = await ot_client.resolve_disease_id(
-                        candidate.disease_name
-                    )
-                    if resolved_id and resolved_id in allowed_efo_ids:
-                        existing_key = allowed_efo_ids[resolved_id]
-
-                if existing_key is not None:
-                    existing_name, source = allowed_diseases[existing_key]
-                    if source == "competitor":
-                        allowed_diseases[existing_key] = (existing_name, "both")
-                    # Record the disease ID against the existing row when we learned it from
-                    # this mechanism candidate (e.g. competitor entry had no ID). Improves
-                    # dedup for subsequent candidates in the same run.
-                    if (
-                        candidate.disease_id
-                        and candidate.disease_id not in allowed_efo_ids
-                    ):
-                        allowed_efo_ids[candidate.disease_id] = existing_key
-                else:
-                    allowed_diseases[key] = (candidate.disease_name, "mechanism")
-                    if candidate.disease_id:
-                        allowed_efo_ids[candidate.disease_id] = key
-                    promoted.append(candidate.disease_name)
-
-        if promoted:
+        if raw_received:
             _log_disease_banner(
-                f"MECHANISM-PROMOTED candidates added to allowlist for {drug_name}",
-                promoted,
+                f"MECHANISM-RAW candidates received for {drug_name}",
+                raw_received,
             )
 
         # Drug-level write-through: populate mechanism_targets and
@@ -696,11 +801,16 @@ def build_supervisor_tools(
             assocs.append((cand.target_symbol, cand.disease_name, 0.0))
         entry["mechanism_disease_associations"] = assocs
 
+        # Record the mechanism target list so merge_and_dedup() can pass it to the
+        # hierarchical LLM pass as context for survivor selection.
+        mechanism_targets_for_dedup.clear()
+        mechanism_targets_for_dedup.extend(target_pairs)
+
         n_targets = len(output.drug_targets)
         header = (
             f"Mechanism analysis for {drug_name}: {n_targets} targets, "
             f"{len(output.candidates)} mechanism candidates "
-            f"({len(promoted)} new to allowlist)."
+            f"(merge into allowlist deferred to find_candidates)."
         )
         sub_agent_summary = output.summary or ""
         summary = (

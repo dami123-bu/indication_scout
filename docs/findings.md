@@ -130,3 +130,13 @@ Each entry is dated and categorized.
 - Rationale: raw PMID count is a poor signal proxy — duloxetine × obesity returned 138 PMIDs (mostly weight-gain side-effect literature) but synthesize correctly labeled `strength="none"`. Without this gate, obesity made the top-4 ranking with no trials and no usable literature.
 - Strong/moderate/weak literature with 0 trials is kept — that is a legitimate "untested-but-rationale-supported" repurposing signal.
 
+### Candidate dedup centralized in supervisor `merge_and_dedup`, with hierarchical LLM pass (2026-05-11)
+- All cross-source disease-candidate dedup happens in one place: `merge_and_dedup()` inside `build_supervisor_tools`, called once by `find_candidates` after both `find_candidates` (competitor) and `analyze_mechanism` finish their seed work.
+- `analyze_mechanism` no longer mutates `allowed_diseases` / `allowed_efo_ids` incrementally. It buffers raw mechanism candidates into `mechanism_candidates_buffer` and sets `analyze_mechanism_done`. The agents still run in parallel.
+- Pipeline order inside `merge_and_dedup`: (1) exact EFO-ID match, (2) exact lowercased-name match, (3) Open Targets `resolve_disease_id` name resolution and retry ID match, (4) hierarchical LLM pass (`run_hierarchical_dedup`) over the full merged list.
+- The hierarchical pass catches overlaps the exact-match steps cannot — both cross-source (UC ⊂ IBD with UC from mechanism, IBD from competitor) and within-source (T2DM ⊂ DM both from mechanism). Rosiglitazone regression: produced "ulcerative colitis" + "inflammatory bowel disease" + "type 2 diabetes mellitus" + "diabetes mellitus" all as distinct candidates; the LLM pass now collapses each pair.
+- Survivor policy is MoA-aware: the prompt is given the drug name and target list and instructed to pick the entry most actionable for that mechanism. Source tag (`competitor` / `mechanism` / `both`) is informative, not decisive.
+- Failure policy: on LLM error, parse error, or missing fields, `run_hierarchical_dedup` returns `HierarchyDedupOutput(decisions=[])` with a WARNING and the caller keeps every candidate. Error by omission, not fabrication.
+- `find_candidates_done` is set inside `merge_and_dedup`'s `finally` (with a safety-net `finally` in the tool wrapper) so downstream tools (`analyze_literature`, `analyze_clinical_trials`, `investigate_top_candidates`) only ever observe the post-dedup allowlist.
+- Log artifacts: `MECHANISM-RAW candidates received` → `CANDIDATE ALLOWLIST ... competitor source` → `MECHANISM-PROMOTED candidates added to allowlist` → per-decision `[DEDUP] 'dropped' → 'survivor' (reason)` lines → `HIERARCHICAL DEDUP removed candidates` → `CANDIDATE ALLOWLIST ... after hierarchical dedup`.
+
