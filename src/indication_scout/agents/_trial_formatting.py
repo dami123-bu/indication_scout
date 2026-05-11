@@ -132,6 +132,13 @@ def _format_trial_row(
                     parts.append("stop (raw): (none)")
         elif col == "mesh":
             parts.append(f"mesh: {_format_mesh_list(trial.mesh_conditions)}")
+        elif col == "refs":
+            # PMIDs from CT.gov's referencesModule — papers the registry
+            # links to this trial. Used by the supervisor as a signal that a
+            # completed trial has a real published readout (not just a
+            # registry entry).
+            pmids = [p for p in trial.references if p]
+            parts.append(f"refs: {', '.join(pmids) if pmids else '(none)'}")
         elif col == "title":
             parts.append(trial.title or "?")
         else:

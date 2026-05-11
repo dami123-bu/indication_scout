@@ -82,6 +82,20 @@ These rules apply to ALL text you write — summary lines, blurb fields, and pro
   record" — not "the sponsor chose not to pursue Phase 3."
 - If a trial's stop reason explicitly states a motive (per the analyze_clinical_trials
   output), you may quote that reason. Otherwise, do not assign one.
+- A completed trial cited with a linked PMID (the analyze_clinical_trials output names trials
+  as "NCT... (PMID ...)" or surfaces a `refs:` field on completed/terminated rows) has a
+  published readout in PubMed. Do NOT write "no RCT readout", "no completed RCT", "no
+  pivotal RCT has reported", or "no published evidence" when such a trial exists for this
+  pair. The reverse is not true: a trial without a linked PMID does not mean a readout was
+  never published. Cite the trial by NCT and the publication by PMID when characterizing
+  the evidence base in the `literature` blurb field, the `stage` field, or the prose.
+- A trial's phase is whatever CT.gov's phase field says. Use it verbatim — a "Phase 2" trial
+  is Phase 2, a "Phase 1/Phase 2" trial is Phase 1/Phase 2, a "Phase 2/Phase 3" trial is
+  Phase 2/Phase 3. Do NOT downgrade or paraphrase the phase based on trial status
+  (UNKNOWN, terminated, etc.), enrollment size, or your judgment about evidence maturity.
+  An UNKNOWN-status Phase 2 trial is still Phase 2 — its outcome is unknowable but its
+  phase is not. Reserve "early-stage" or "Phase 1" for trials whose CT.gov phase field is
+  literally "Phase 1" or "Early Phase 1."
 
 # APPROVAL RELATIONSHIPS
 Before finalizing, classify each candidate against the briefing's approved indications and set

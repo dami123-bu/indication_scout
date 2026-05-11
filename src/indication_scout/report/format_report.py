@@ -318,11 +318,11 @@ def format_report(output: SupervisorOutput) -> str:
     ]
 
     # Candidate diseases
-    lines += ["## Candidate Diseases", ""]
+    lines += ["## Diseases Considered", ""]
     if output.candidate_diseases:
         lines.append(
-            "_Note: not every candidate listed here is investigated in depth. "
-            "Only diseases with a section under **Candidate Findings** below have "
+            "_Note: not every disease listed here is investigated in depth. "
+            "Only diseases with a section under **Findings by Disease** below have "
             "literature and clinical-trial evidence pulled for this run._"
         )
         lines.append("")
@@ -333,7 +333,7 @@ def format_report(output: SupervisorOutput) -> str:
     lines += ["", "---", ""]
 
     # Per-disease findings
-    lines += ["## Candidate Findings", ""]
+    lines += ["## Findings by Disease", ""]
     if output.disease_findings:
         for finding in output.disease_findings:
             lines += [

@@ -390,7 +390,7 @@ def build_clinical_trials_tools(
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
             result.trials,
-            columns=("nct_id", "phase", "mesh", "title"),
+            columns=("nct_id", "phase", "refs", "mesh", "title"),
             cap=_settings.clinical_trials_cap,
         )
         content = (
@@ -476,7 +476,7 @@ def build_clinical_trials_tools(
         phase_dist = _phase_distribution(result.trials)
         table = _format_trial_table(
             result.trials,
-            columns=("nct_id", "phase", "stop_reason", "mesh", "title"),
+            columns=("nct_id", "phase", "stop_reason", "refs", "mesh", "title"),
             cap=_settings.clinical_trials_cap,
             include_why_stopped=True,
             stop_classifier=_classify_stop_reason,

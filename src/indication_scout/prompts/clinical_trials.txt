@@ -46,6 +46,13 @@ exact indication," not "the readout was not positive." Surface each trial's titl
 subtypes named there (GIST, MASH, DFSP) help the supervisor detect SUPERSET relationships.
 For Phase 3 trials completed less than ~2 years ago, the outcome is unknown — say so.
 
+The completed/terminated trial rows include a `refs:` field listing PMIDs that CT.gov links
+to the trial. A completed trial with one or more `refs:` PMIDs has a published readout in
+PubMed — do NOT characterize that trial as "no RCT readout" or "no published evidence";
+cite the trial by NCT and note that a publication exists (PMID listed). The reverse is not
+true: a missing `refs:` field does not mean a readout was never published — it only means
+CT.gov did not link one.
+
 Terminated trials: classify the why_stopped text yourself.
 - Safety or efficacy stop on this exact pair → moderate evidence the hypothesis was tested and
   stopped early. Cite the why_stopped text. Do not call the hypothesis "definitively closed."
