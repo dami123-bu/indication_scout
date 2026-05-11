@@ -5,6 +5,7 @@ inter-call data via a closure-scoped store dict. No InjectedState, no LangGraph 
 """
 
 import asyncio
+import logging
 from datetime import date
 
 from langchain_core.tools import tool
@@ -17,7 +18,7 @@ from indication_scout.models.model_drug_profile import DrugProfile
 _settings = get_settings()
 from indication_scout.models.model_evidence_summary import EvidenceSummary
 from indication_scout.services.retrieval import AbstractResult, RetrievalService
-
+logger = logging.getLogger(__name__)
 
 def build_literature_tools(
     svc: RetrievalService,
@@ -103,17 +104,16 @@ def build_literature_tools(
             abstracts,
             holdout_mode=date_before is not None,
         )
+        # logger.warning(
+        #     f"literature agent evidence: {evidence}")
         return f"Evidence strength: {evidence.strength}", evidence
 
     @tool(response_format="content_and_artifact")
-    async def finalize_analysis(summary: str) -> tuple[str, str]:
-        """Signal that the analysis is complete.
-
-        Call this as the very last step, passing your 3-4 sentence plain-text summary of the
-        findings. This terminates the agent loop.
+    async def finalize_analysis() -> tuple[str, str]:
+        """Signal that the analysis is complete. Takes no arguments; this is purely a
+        termination signal. The EvidenceSummary from synthesize is the complete output.
         """
-        store["final_summary"] = summary
-        return "Analysis complete.", summary
+        return "Analysis complete.", ""
 
     return [
         build_drug_profile,

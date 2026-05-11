@@ -10,6 +10,7 @@ for a drug.
 
 import asyncio
 import logging
+import re
 import time
 from datetime import date
 from typing import Literal
@@ -439,10 +440,22 @@ def build_supervisor_tools(
             f"Literature for {drug_name} × {disease_name}: "
             f"{len(output.pmids)} PMIDs, strength={strength}."
         )
-        sub_agent_summary = output.summary or ""
-        summary = (
-            f"{header}\n\n{sub_agent_summary}".strip() if sub_agent_summary else header
+        # Build supervisor-facing summary deterministically from EvidenceSummary so adverse-signal
+        # language reaches the supervisor verbatim with no LLM rewrite in between.
+        synth_summary = (
+            output.evidence_summary.summary if output.evidence_summary else ""
         )
+        key_findings = (
+            output.evidence_summary.key_findings if output.evidence_summary else []
+        )
+        parts = [header]
+        if synth_summary:
+            parts.append(synth_summary)
+        if key_findings:
+            parts.append(
+                "Key findings:\n" + "\n".join(f"- {f}" for f in key_findings)
+            )
+        summary = "\n\n".join(parts)
         # Write-through for the top-N evidence gate in finalize_supervisor.
         slot = findings_local.setdefault(
             disease_name.lower().strip(), {"literature": None, "clinical_trials": None}
@@ -889,11 +902,15 @@ def build_supervisor_tools(
                     disease,
                 )
                 continue
-            # Top-N evidence gate: drop candidates where 0 trials AND fewer
-            # than SUPERVISOR_MIN_PMIDS_NO_TRIALS PMIDs. Missing artifacts
-            # count as 0. Investigated-but-filtered candidates still appear
-            # in disease_findings (per-disease section); they are only
-            # removed from the top-N ranking + blurbs.
+            # Top-N evidence gate: drop candidates where 0 trials AND
+            # synthesize indicates no usable literature signal —
+            # strength="none" OR study_count==0 (OR both). Strong/moderate/weak
+            # literature with at least one relevant abstract and 0 trials is a
+            # legitimate repurposing signal and is kept. PMID-count fallback
+            # applies only when synthesize didn't run.
+            # Investigated-but-filtered candidates still appear in
+            # disease_findings (per-disease section); they are only removed
+            # from the top-N ranking + blurbs.
             slot = findings_local.get(disease_key) or {}
             lit = slot.get("literature")
             ct = slot.get("clinical_trials")
@@ -902,18 +919,89 @@ def build_supervisor_tools(
                 ct.search.total_count if (ct is not None and ct.search is not None)
                 else 0
             )
-            if n_trials == 0 and n_pmids < SUPERVISOR_MIN_PMIDS_NO_TRIALS:
+            lit_strength = (
+                lit.evidence_summary.strength
+                if lit and lit.evidence_summary
+                else None
+            )
+            lit_study_count = (
+                lit.evidence_summary.study_count
+                if lit and lit.evidence_summary
+                else None
+            )
+            no_lit_signal = (
+                lit_strength == "none"
+                or lit_study_count == 0
+                or (
+                    lit_strength is None
+                    and lit_study_count is None
+                    and n_pmids < SUPERVISOR_MIN_PMIDS_NO_TRIALS
+                )
+            )
+            if n_trials == 0 and no_lit_signal:
                 logger.warning(
                     "[TOOL] finalize_supervisor dropping blurb for disease=%r "
-                    "(evidence gate: %d trials, %d PMIDs)",
+                    "(evidence gate: %d trials, %d PMIDs, strength=%s, "
+                    "study_count=%s)",
                     disease,
                     n_trials,
                     n_pmids,
+                    lit_strength,
+                    lit_study_count,
                 )
                 continue
             entry = {"disease": disease, "prose": prose, **fields}
             validated.append(entry)
-        artifact = {"summary": summary, "blurbs": validated}
+
+        # Filter the LLM-written summary string to drop ranked lines whose disease
+        # didn't pass the evidence gate (i.e. isn't in validated). Lines that aren't
+        # ranked entries (e.g. trailing "Closed signals:") pass through unchanged.
+        # Surviving lines are renumbered to keep the rank sequence contiguous.
+        # Uses the same regex and longest-substring match strategy as the report
+        # formatter's _splice_blurbs_into_summary so disease matching is consistent.
+        validated_diseases = {e["disease"].lower().strip() for e in validated}
+        rank_line = re.compile(r"^\s*(?P<rank>\d+)\.\s+(?P<head>.+?)\s+—\s+(?P<tail>.+)$")
+        # Normalize the heading line so the report uses "signals" instead of
+        # "candidates" / "opportunities" / "indications" regardless of what the LLM wrote.
+        heading_line = re.compile(
+            r"^\s*Ranked\s+repurposing\s+"
+            r"(?:candidates|opportunities|indications|signals)"
+            r"(?P<rest>\s+for\s+.+?:?\s*)$",
+            re.IGNORECASE,
+        )
+        filtered_lines: list[str] = []
+        next_rank = 1
+        for line in summary.splitlines():
+            heading_match = heading_line.match(line)
+            if heading_match is not None:
+                rest = heading_match.group("rest").rstrip()
+                if not rest.endswith(":"):
+                    rest = rest + ":"
+                filtered_lines.append(f"Ranked repurposing signals{rest}")
+                continue
+            m = rank_line.match(line)
+            if m is None:
+                filtered_lines.append(line)
+                continue
+            head_lower = m.group("head").lower()
+            keep = any(
+                d and d in head_lower
+                for d in sorted(validated_diseases, key=len, reverse=True)
+            )
+            if not keep:
+                logger.warning(
+                    "[TOOL] finalize_supervisor dropping summary line for "
+                    "disease=%r (failed evidence gate)",
+                    m.group("head"),
+                )
+                continue
+            filtered_lines.append(
+                f"{next_rank}. {m.group('head')} — {m.group('tail')}"
+            )
+            next_rank += 1
+        filtered_summary = "\n".join(filtered_lines)
+
+        artifact = {"summary": filtered_summary, "blurbs": validated}
         return "Supervisor analysis complete.", artifact
 
     def get_merged_allowlist() -> (

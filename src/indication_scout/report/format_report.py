@@ -179,7 +179,7 @@ _BLURB_TABLE_FIELDS: list[tuple[str, str]] = [
     ("blocker", "Constraint"),
     ("active_programs", "Active programs"),
     ("key_risk", "Key risk"),
-    ("verdict", "Verdict"),
+    ("verdict", "Assessment"),
 ]
 
 

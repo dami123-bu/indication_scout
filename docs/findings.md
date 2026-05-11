@@ -119,3 +119,14 @@ Each entry is dated and categorized.
 - Decision: keep expansion as default. It is a wider net that produces richer prose framing at the cost of older citations and lower strength labels. Strength labels are coarse 4-bucket signals; prose is what readers act on.
 - Diff details and per-disease tables in `methods/methods.md` (Experiments 3–6) and `methods/query_expansion/diff_summary.md`.
 
+### Literature agent → supervisor flow: deterministic, no LLM rewrite of synthesize output (2026-05-10)
+- The literature agent no longer writes any narrative summary. `finalize_analysis()` is a pure termination signal with no arguments. The system prompt explicitly states synthesize is the source of truth.
+- Rationale: the LLM-finalize step previously rewrote the `EvidenceSummary.summary` and repeatedly softened or dropped adverse-event/contraindication signals (observed on duloxetine × panic disorder — synthesize correctly identified an induced-panic-attacks case report and a review noting harm > benefit; the LLM rewrite first omitted, then actively denied the signal). No amount of prompt-hardening was reliable.
+- The supervisor-facing literature summary in `analyze_literature` is now built deterministically: `header + evidence_summary.summary verbatim + key_findings as a bullet list`. No LLM rewrite sits between synthesize and the supervisor. `LiteratureOutput.summary` was removed.
+- `EvidenceSummary.strength == "none"` is overloaded: per `synthesize.txt`, it can mean "no supporting evidence," "evidence suggests contraindication," OR "insufficient to assess." Gates that drop on `strength == "none"` alone may discard contraindication signals.
+
+### Top-N evidence gate uses literature signal, not raw PMID count (2026-05-10)
+- The `finalize_supervisor` evidence gate drops a candidate from the top-N ranking when `n_trials == 0` AND (`EvidenceSummary.strength == "none"` OR `EvidenceSummary.study_count == 0`). PMID-count fallback (`< SUPERVISOR_MIN_PMIDS_NO_TRIALS`) only fires when synthesize didn't run.
+- Rationale: raw PMID count is a poor signal proxy — duloxetine × obesity returned 138 PMIDs (mostly weight-gain side-effect literature) but synthesize correctly labeled `strength="none"`. Without this gate, obesity made the top-4 ranking with no trials and no usable literature.
+- Strong/moderate/weak literature with 0 trials is kept — that is a legitimate "untested-but-rationale-supported" repurposing signal.
+

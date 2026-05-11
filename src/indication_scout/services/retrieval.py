@@ -672,6 +672,7 @@ class RetrievalService:
             self.cache_dir,
             ttl=CACHE_TTL,
         )
+
         return summary
 
     async def extract_organ_term(self, disease_name: str) -> str:

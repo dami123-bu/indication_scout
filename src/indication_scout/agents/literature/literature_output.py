@@ -25,7 +25,3 @@ class LiteratureOutput(BaseModel):
         default=None,
         description="Structured evidence summary from synthesize.",
     )
-    summary: str = Field(
-        default="",
-        description="LLM narrative summary from the final agent message.",
-    )
