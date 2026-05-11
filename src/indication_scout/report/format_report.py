@@ -56,6 +56,22 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
     if ct.summary:
         lines.append(ct.summary)
 
+    if ct.approval:
+        a = ct.approval
+        if a.label_found:
+            if a.is_approved:
+                target = a.matched_indication or "this indication"
+                lines.append(f"**FDA approval:** Approved ({target})")
+            else:
+                lines.append(
+                    "**FDA approval:** Not found on FDA label for this indication"
+                )
+        else:
+            names = ", ".join(a.drug_names_checked) if a.drug_names_checked else "drug"
+            lines.append(
+                f"**FDA approval:** No FDA label found for {names} — status undetermined"
+            )
+
     if ct.search:
         s = ct.search
         lines.append(
@@ -95,8 +111,7 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
                 classified = _classify_stop_reason(t.why_stopped)
                 category = (
                     f" [{classified}]"
-                    if classified not in {"unknown", "other"}
-                    and classified != t.why_stopped
+                    if classified != t.why_stopped
                     else ""
                 )
                 lines.append(
@@ -174,7 +189,7 @@ def _title_case_known_diseases(text: str, disease_names: list[str]) -> str:
 
 
 _BLURB_TABLE_FIELDS: list[tuple[str, str]] = [
-    ("stage", "Development state"),
+    ("stage", "Stage"),
     ("literature", "Literature"),
     ("blocker", "Constraint"),
     ("active_programs", "Active programs"),

@@ -52,6 +52,7 @@ async def run_literature_agent(
         "pmids": [],
         "abstracts": [],
         "evidence": None,
+        "summary": "",
     }
     # maps tool names → keys in the local artifacts dict , used for mapping to LiteratureOutput
     field_map = {
@@ -59,6 +60,7 @@ async def run_literature_agent(
         "fetch_and_cache": "pmids",
         "semantic_search": "abstracts",
         "synthesize": "evidence",
+        "finalize_analysis": "summary",
     }
 
     for msg in result["messages"]:
@@ -87,4 +89,5 @@ async def run_literature_agent(
         pmids=artifacts["pmids"],
         semantic_search_results=artifacts["abstracts"],
         evidence_summary=artifacts["evidence"],
+        summary=artifacts["summary"],
     )

@@ -102,18 +102,17 @@ def build_literature_tools(
             chembl_id,
             disease_name,
             abstracts,
-            holdout_mode=date_before is not None,
         )
         # logger.warning(
         #     f"literature agent evidence: {evidence}")
         return f"Evidence strength: {evidence.strength}", evidence
 
     @tool(response_format="content_and_artifact")
-    async def finalize_analysis() -> tuple[str, str]:
-        """Signal that the analysis is complete. Takes no arguments; this is purely a
-        termination signal. The EvidenceSummary from synthesize is the complete output.
+    async def finalize_analysis(summary: str) -> tuple[str, str]:
+        """Signal that the analysis is complete. Pass the narrative summary as the argument;
+        it is returned as the artifact for downstream assembly into LiteratureOutput.
         """
-        return "Analysis complete.", ""
+        return "Analysis complete.", summary
 
     return [
         build_drug_profile,

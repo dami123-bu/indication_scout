@@ -25,3 +25,7 @@ class LiteratureOutput(BaseModel):
         default=None,
         description="Structured evidence summary from synthesize.",
     )
+    summary: str = Field(
+        default="",
+        description="Narrative summary returned by finalize_analysis.",
+    )

@@ -31,6 +31,7 @@ from indication_scout.services.approval_check import (
     get_approved_indications,
 )
 from indication_scout.services.disease_helper import resolve_mesh_id
+from indication_scout.services.trial_primacy_filter import classify_trials_by_primacy
 
 _settings = get_settings()
 
@@ -62,6 +63,99 @@ async def _resolve_drug_aliases(drug: str) -> list[str] | None:
         )
         return None
     return names
+
+
+def _trial_indication_is_primary(
+    trial: Trial, mesh_id: str, mesh_term: str, top_n: int = 2
+) -> bool:
+    """Return True iff the queried indication is among the trial's first
+    `top_n` mesh_conditions.
+
+    CT.gov preserves condition order — first-listed ≈ primary focus. A
+    multi-condition trial like NCT00994812 (PCOS first, gestational diabetes
+    fifth) is legitimately tagged with the queried MeSH term server-side
+    but is not a primary-focus trial for that indication.
+
+    Matches on descriptor id first (CT.gov uses `D016640`, NCBI MeSH UID
+    is `68016640` — same descriptor, different prefix). Falls back to a
+    case-insensitive term match.
+    """
+    if not trial.mesh_conditions:
+        return False
+    top = trial.mesh_conditions[:top_n]
+    # NCBI MeSH UID (e.g. "68016640") drops the leading "6" and prepends "D"
+    # to match CT.gov's descriptor id (e.g. "D016640"). Build the candidate
+    # set to cover both forms.
+    target_ids: set[str] = set()
+    if mesh_id:
+        target_ids.add(mesh_id)
+        if mesh_id.startswith("6") and mesh_id[1:].isdigit():
+            target_ids.add(f"D{mesh_id[1:]}")
+        elif mesh_id.startswith("D"):
+            target_ids.add(f"6{mesh_id[1:]}")
+    target_term = mesh_term.lower().strip()
+    for m in top:
+        if m.id and m.id in target_ids:
+            return True
+        if m.term and m.term.lower().strip() == target_term:
+            return True
+    return False
+
+
+def _trial_queried_mesh_is_position_0(
+    trial: Trial, mesh_id: str, mesh_term: str
+) -> bool:
+    """Return True iff the queried mesh is the FIRST mesh_condition on the trial.
+
+    Position-0 trials are deterministically primary by CT.gov's ordering and
+    don't need LLM judgment. Position-1+ survivors of the top-2 filter are
+    the suspect cases the LLM should review.
+    """
+    if not trial.mesh_conditions:
+        return False
+    first = trial.mesh_conditions[0]
+    target_ids: set[str] = set()
+    if mesh_id:
+        target_ids.add(mesh_id)
+        if mesh_id.startswith("6") and mesh_id[1:].isdigit():
+            target_ids.add(f"D{mesh_id[1:]}")
+        elif mesh_id.startswith("D"):
+            target_ids.add(f"6{mesh_id[1:]}")
+    if first.id and first.id in target_ids:
+        return True
+    target_term = mesh_term.lower().strip()
+    return bool(first.term and first.term.lower().strip() == target_term)
+
+
+async def _apply_llm_primacy_filter(
+    trials: list[Trial],
+    mesh_id: str,
+    mesh_term: str,
+    queried_indication: str,
+) -> tuple[list[Trial], int]:
+    """Run the LLM primacy filter on trials where the queried mesh is at
+    position 1+ (the suspect cases). Returns (kept_trials, dropped_count).
+
+    Position-0 trials skip the LLM entirely (deterministically primary).
+    On LLM failure, classify_trials_by_primacy returns an empty drop set,
+    so the filter degrades gracefully to "keep all top-2 survivors."
+    """
+    if not trials:
+        return trials, 0
+    suspects = [
+        t
+        for t in trials
+        if not _trial_queried_mesh_is_position_0(t, mesh_id, mesh_term)
+    ]
+    if not suspects:
+        return trials, 0
+    drop_ids = await classify_trials_by_primacy(
+        suspects, queried_indication, mesh_term
+    )
+    if not drop_ids:
+        return trials, 0
+    kept = [t for t in trials if t.nct_id not in drop_ids]
+    return kept, len(drop_ids)
 
 
 def _trial_intervenes_with_drug(trial: Trial, aliases: list[str]) -> bool:
@@ -185,7 +279,7 @@ def build_clinical_trials_tools(
                 f"Search for {drug} × {indication}: MeSH unresolved, skipped.",
                 SearchTrialsResult(),
             )
-        _mesh_id, mesh_term = resolved
+        mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
             result = await client.search_trials(
@@ -193,6 +287,25 @@ def build_clinical_trials_tools(
                 mesh_term,
                 date_before=date_before,
             )
+
+        # Primary-indication filter: drop trials where the queried MeSH term
+        # is not among the first 2 mesh_conditions (i.e. not a primary focus).
+        primary_kept = [
+            t
+            for t in result.trials
+            if _trial_indication_is_primary(t, mesh_id, mesh_term)
+        ]
+        primary_dropped = len(result.trials) - len(primary_kept)
+        result.trials = primary_kept
+        result.total_count = max(0, result.total_count - primary_dropped)
+
+        # LLM primacy filter: judge position-1+ survivors that the
+        # deterministic top-2 rule can't safely classify (synonym/abbreviation
+        # ambiguity, semantic equivalence). Position-0 trials skip the LLM.
+        result.trials, llm_dropped = await _apply_llm_primacy_filter(
+            result.trials, mesh_id, mesh_term, indication
+        )
+        result.total_count = max(0, result.total_count - llm_dropped)
 
         aliases = await _resolve_drug_aliases(drug)
         dropped = 0
@@ -276,7 +389,7 @@ def build_clinical_trials_tools(
                 f"Completed for {drug} × {indication}: MeSH unresolved, skipped.",
                 CompletedTrialsResult(),
             )
-        _mesh_id, mesh_term = resolved
+        mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
             result = await client.get_completed_trials(
@@ -284,6 +397,20 @@ def build_clinical_trials_tools(
                 mesh_term,
                 date_before=date_before,
             )
+
+        primary_kept = [
+            t
+            for t in result.trials
+            if _trial_indication_is_primary(t, mesh_id, mesh_term)
+        ]
+        primary_dropped = len(result.trials) - len(primary_kept)
+        result.trials = primary_kept
+        result.total_count = max(0, result.total_count - primary_dropped)
+
+        result.trials, llm_dropped = await _apply_llm_primacy_filter(
+            result.trials, mesh_id, mesh_term, indication
+        )
+        result.total_count = max(0, result.total_count - llm_dropped)
 
         aliases = await _resolve_drug_aliases(drug)
         dropped = 0
@@ -367,7 +494,7 @@ def build_clinical_trials_tools(
                 f"Terminated for {drug} × {indication}: MeSH unresolved, skipped.",
                 TerminatedTrialsResult(),
             )
-        _mesh_id, mesh_term = resolved
+        mesh_id, mesh_term = resolved
 
         async with ClinicalTrialsClient() as client:
             result = await client.get_terminated_trials(
@@ -375,6 +502,20 @@ def build_clinical_trials_tools(
                 mesh_term,
                 date_before=date_before,
             )
+
+        primary_kept = [
+            t
+            for t in result.trials
+            if _trial_indication_is_primary(t, mesh_id, mesh_term)
+        ]
+        primary_dropped = len(result.trials) - len(primary_kept)
+        result.trials = primary_kept
+        result.total_count = max(0, result.total_count - primary_dropped)
+
+        result.trials, llm_dropped = await _apply_llm_primacy_filter(
+            result.trials, mesh_id, mesh_term, indication
+        )
+        result.total_count = max(0, result.total_count - llm_dropped)
 
         aliases = await _resolve_drug_aliases(drug)
         dropped = 0
