@@ -203,6 +203,32 @@ def render(input_path: Path, out_dir: Path, no_write: bool) -> None:
     click.echo(f"Report:    {md_path}")
 
 
+@cli.command("diff-report")
+@click.argument("golden", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("current", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def diff_report(golden: Path, current: Path) -> None:
+    """Diff two SupervisorOutput JSON snapshots and print the result.
+
+    Both arguments must be paths to JSON files produced by serializing a
+    SupervisorOutput (`model_dump_json`). The diff is the same one the
+    regression test runs, so a clean output here means the regression test
+    would pass.
+    """
+    from indication_scout.agents.supervisor.supervisor_output import SupervisorOutput
+    from indication_scout.regression.harness import (
+        compare_reports,
+        has_errors,
+        render_diffs,
+    )
+
+    g = SupervisorOutput.model_validate_json(golden.read_text())
+    c = SupervisorOutput.model_validate_json(current.read_text())
+    diffs = compare_reports(g, c)
+    click.echo(render_diffs(diffs))
+    if has_errors(diffs):
+        raise click.exceptions.Exit(code=1)
+
+
 def main() -> None:
     """Console-script entry point referenced by `pyproject.toml`."""
     _load_env()

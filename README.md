@@ -115,11 +115,27 @@ Replace `<password>` with the value of `DB_PASSWORD` from your `.env` file.
 ### CLI
 
 ```bash
-scout find -d "metformin"                          # writes <drug>_<timestamp>.{md,json} to ./snapshots
-scout find -d "metformin" --out-dir reports/       # custom output directory
-scout find -d "metformin" --no-write               # print the markdown report to stdout
+scout find -d "metformin"                          # writes <drug>_<timestamp>.md to ./snapshots and <drug>_<timestamp>.json to ./test_reports
+scout find -d "metformin" --out-dir reports/       # custom markdown output directory
+scout find -d "metformin" --no-write               # print the markdown report to stdout (JSON payload is still saved to ./test_reports)
 scout --help
 ```
+
+#### Re-rendering a report without re-running the pipeline
+
+Every `scout find` run also writes the `SupervisorOutput` payload to
+`test_reports/<drug>_<timestamp>.json`. `scout render` reloads that payload and
+re-runs the markdown formatter — no agents, no LLM calls, no network:
+
+```bash
+scout render -i test_reports/metformin_2026-05-11_14-30-22.json    # writes <stem>.md next to the JSON
+scout render -i <payload.json> --out-dir reports/                  # custom output directory
+scout render -i <payload.json> --no-write                          # print the markdown report to stdout
+```
+
+This is the fast path for iterating on `format_report` or producing fresh
+markdown after a renderer change. Holdout runs (`--date-before`) do not save a
+JSON payload.
 
 #### Temporal holdout (`--date-before`)
 
@@ -128,7 +144,7 @@ every evidence query to what was knowable on or before a cutoff date:
 
 ```bash
 scout find -d "semaglutide" --date-before 2022-01-01
-# → snapshots/semaglutide_holdout_2022-01-01_<timestamp>.{md,json}
+# → snapshots/holdouts/semaglutide_holdout_2022-01-01_<timestamp>.md
 ```
 
 What it does:
@@ -147,8 +163,9 @@ What it does:
 
 > **Note:** To run a prospective holdout study, [`drug_approvals.json`](drug_approvals.json) must be updated with the drug's known approvals (and their approval dates) before running with `--date-before`. Drugs missing from this table will not get approval reasoning during the holdout.
 
-Holdout reports are written to `snapshots/holdouts/{drug}_holdout_{cutoff}_{timestamp}.{md,json}`
-to keep them visually distinct from current-state runs.
+Holdout reports are written to `snapshots/holdouts/{drug}_holdout_{cutoff}_{timestamp}.md`
+to keep them visually distinct from current-state runs. No JSON payload is
+saved for holdout runs, so `scout render` is not available for them.
 
 Known limitations are documented in [`future.md`](future.md) — most notably,
 the OpenTargets candidate list and mechanism scores remain current-state
