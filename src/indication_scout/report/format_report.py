@@ -15,7 +15,6 @@ from indication_scout.agents.clinical_trials.clinical_trials_tools import (
     _classify_stop_reason,
 )
 from indication_scout.agents.literature.literature_output import LiteratureOutput
-from indication_scout.agents.mechanism.mechanism_output import MechanismOutput
 
 
 def _title_case_disease(name: str) -> str:
@@ -131,36 +130,6 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
 
     if not lines:
         lines.append("_No clinical trials data available._")
-
-    return "\n".join(lines)
-
-
-def _fmt_mechanism(mech: MechanismOutput) -> str:
-    lines: list[str] = []
-
-    if mech.summary:
-        lines.append(mech.summary)
-
-    if mech.drug_targets:
-        targets = ", ".join(sorted(mech.drug_targets.keys()))
-        lines.append(f"\n**Molecular targets:** {targets}")
-
-    if mech.mechanisms_of_action:
-        lines.append("\n**Mechanisms of action:**")
-        for moa in mech.mechanisms_of_action:
-            syms = ", ".join(moa.target_symbols) if moa.target_symbols else "—"
-            lines.append(f"- {moa.mechanism_of_action} ({moa.action_type}) → {syms}")
-
-    if mech.candidates:
-        lines.append("\n**Repurposing candidates:**")
-        for c in mech.candidates:
-            lines.append(
-                f"- **{c.target_symbol} ({c.action_type}) → {_title_case_disease(c.disease_name)}**"
-            )
-            if c.disease_description:
-                lines.append(f"  - {c.disease_description}")
-            if c.target_function:
-                lines.append(f"  - _Target function:_ {c.target_function}")
 
     return "\n".join(lines)
 
@@ -369,14 +338,6 @@ def format_report(output: SupervisorOutput) -> str:
             lines.append(f"- {_title_case_disease(c)}")
     else:
         lines.append("_No candidates surfaced._")
-    lines += ["", "---", ""]
-
-    # Mechanism
-    lines += ["## Mechanistic Analysis", ""]
-    if output.mechanism:
-        lines.append(_fmt_mechanism(output.mechanism))
-    else:
-        lines.append("_Mechanism analysis not run._")
     lines += ["", "---", ""]
 
     # Per-disease findings
