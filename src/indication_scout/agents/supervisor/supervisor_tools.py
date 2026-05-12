@@ -958,6 +958,100 @@ def build_supervisor_tools(
             )
         return "\n".join(lines), artifacts
 
+    def _reconstruct_holdout_summary() -> str:
+        """Build the holdout summary deterministically from findings_local.
+
+        Holdout mode renders a structured fact list — no LLM prose. Each
+        investigated candidate becomes one ranked line with literature strength,
+        PMID count, and trial counts pulled directly from the typed sub-agent
+        artifacts. Candidates with zero trials and no usable literature signal
+        (matching the same gate finalize_supervisor applies to blurbs) drop into
+        a single "Evidence gate exclusions:" footer line.
+        """
+        strength_rank = {"strong": 3, "moderate": 2, "weak": 1, "none": 0}
+
+        ranked: list[tuple] = []
+        excluded: list[str] = []
+        for disease_lower, slot in findings_local.items():
+            allow = allowed_diseases.get(disease_lower)
+            if allow is None:
+                continue
+            canonical = allow[0]
+            lit = slot.get("literature")
+            ct = slot.get("clinical_trials")
+            n_pmids = len(lit.pmids) if lit else 0
+            lit_strength = (
+                lit.evidence_summary.strength
+                if lit and lit.evidence_summary
+                else "none"
+            )
+            lit_study_count = (
+                lit.evidence_summary.study_count
+                if lit and lit.evidence_summary
+                else None
+            )
+            total_trials = (
+                ct.search.total_count
+                if (ct is not None and ct.search is not None)
+                else 0
+            )
+            completed_trials = (
+                ct.completed.total_count
+                if (ct is not None and ct.completed is not None)
+                else 0
+            )
+            terminated_trials = (
+                ct.terminated.total_count
+                if (ct is not None and ct.terminated is not None)
+                else 0
+            )
+
+            no_lit_signal = (
+                lit_strength == "none"
+                or lit_study_count == 0
+                or (
+                    lit_strength is None
+                    and lit_study_count is None
+                    and n_pmids < SUPERVISOR_MIN_PMIDS_NO_TRIALS
+                )
+            )
+            if total_trials == 0 and no_lit_signal:
+                excluded.append(canonical)
+                continue
+
+            ranked.append(
+                (
+                    strength_rank.get(lit_strength or "none", 0),
+                    total_trials,
+                    n_pmids,
+                    canonical.lower(),
+                    canonical,
+                    lit_strength or "none",
+                    n_pmids,
+                    total_trials,
+                    completed_trials,
+                    terminated_trials,
+                )
+            )
+
+        ranked.sort(
+            key=lambda r: (-r[0], -r[1], -r[2], r[3]),
+        )
+
+        lines: list[str] = []
+        for i, row in enumerate(ranked, start=1):
+            _, _, _, _, canonical, strength, n_pmids, total, completed, terminated = row
+            lines.append(
+                f"{i}. {canonical} — literature: {strength}, {n_pmids} PMIDs; "
+                f"trials: {total} total, {completed} completed, "
+                f"{terminated} terminated."
+            )
+        if excluded:
+            excluded.sort(key=lambda s: s.lower())
+            lines.append("")
+            lines.append("Evidence gate exclusions: " + ", ".join(excluded) + ".")
+        return "\n".join(lines)
+
     @tool(response_format="content_and_artifact")
     async def finalize_supervisor(
         summary: str, blurbs: list[dict] | None = None
@@ -1069,6 +1163,16 @@ def build_supervisor_tools(
                 continue
             entry = {"disease": disease, "prose": prose, **fields}
             validated.append(entry)
+
+        if date_before is not None:
+            # Holdout mode: ignore the LLM's summary string entirely and rebuild
+            # it deterministically from the typed artifacts in findings_local.
+            # The LLM drifts to narrative prose under the # APPROVAL RELATIONSHIPS
+            # instructions; reconstruction enforces the structured fact-list
+            # contract documented in supervisor_holdout.txt.
+            filtered_summary = _reconstruct_holdout_summary()
+            artifact = {"summary": filtered_summary, "blurbs": []}
+            return "Supervisor analysis complete.", artifact
 
         # Filter the LLM-written summary string to drop ranked lines whose disease
         # didn't pass the evidence gate (i.e. isn't in validated). Lines that aren't
