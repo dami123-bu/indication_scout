@@ -38,7 +38,9 @@
       "WebFetch(domain:www.ebi.ac.uk)",
       "Bash(/Users/dgupta/code/portfolio/IndicationScout/indication_scout/session_2026-02-28_18-46.md:*)",
       "Bash(git -C /Users/dgupta/code/portfolio/IndicationScout/indication_scout status --short .claude/)",
-      "Bash(rm /Users/dgupta/.claude/CLAUDE.md.tmp)"
+      "Bash(rm /Users/dgupta/.claude/CLAUDE.md.tmp)",
+      "Read(//tmp/render_check/**)",
+      "Read(//private/tmp/render_check/**)"
     ],
     "deny": [],
     "ask": [],

@@ -1,24 +1,21 @@
-"""Phase 5 regression: pre- vs post-MeSH-filter trial counts.
+"""Regression: MeSH resolver -> CT.gov server-side condition filter.
 
-Hits NCBI (MeSH resolver) and ClinicalTrials.gov for a small, fixed set of
-drug-indication pairs. For each pair, runs `search_trials` once without the
-MeSH filter (Essie recall — includes glaucoma, portal, pulmonary hypertension
-when querying "hypertension") and once with the resolved MeSH D-number, then
-logs the pre/post counts so the human can eyeball whether the filter is
-narrowing too aggressively.
+For a small fixed set of drug-indication pairs, resolves the indication to
+its MeSH preferred term via the resolver, then calls `search_trials` with
+that term. The client passes it as `AREA[ConditionMeshTerm]"<term>"` so
+filtering happens server-side; there is no longer a pre/post comparison.
 
-`is_whitespace` is `exact_match_count == 0`, so there is no numeric threshold
-to recalibrate against. The assertions instead check filter sanity:
+Assertions are sanity checks on the resolver + client pipeline:
+  - resolver returns a (descriptor_id, preferred_term) tuple for each
+    indication
+  - `len(result.trials) <= result.total_count` (top-50 fetch never exceeds
+    total)
+  - at least len(_PAIRS) - 1 pairs return >0 trials (the pipeline isn't
+    catastrophically empty for known-active pairs). Threshold scales so
+    pairs can be commented out locally; minimum of 1.
 
-  - post <= pre              (the filter only narrows; never invents trials)
-  - at least len(_PAIRS) - 1 pairs retain >0 trials (the filter isn't
-                             catastrophically over-dropping known-active
-                             pairs). Threshold scales with len(_PAIRS) so
-                             pairs can be commented out for local debugging
-                             without the assertion breaking; minimum of 1.
-
-A `date_before=2025-01-01` cutoff is used to keep counts roughly stable across
-runs; counts may still drift as CT.gov re-tags trials.
+A `date_before=2025-01-01` cutoff keeps counts roughly stable; counts may
+still drift as CT.gov re-tags trials.
 """
 
 import logging
@@ -31,8 +28,6 @@ logger = logging.getLogger(__name__)
 
 _CUTOFF = date(2025, 1, 1)
 
-# (drug, indication) — chosen because the indication has known Essie noise
-# (sibling MeSH branches the loose CT.gov query mixes in).
 _PAIRS: list[tuple[str, str]] = [
     ("metformin", "hypertension"),
     ("aspirin", "diabetes mellitus"),
@@ -40,50 +35,45 @@ _PAIRS: list[tuple[str, str]] = [
 ]
 
 
-async def test_mesh_filter_pre_vs_post_counts(
+async def test_search_trials_with_resolved_mesh_term(
     clinical_trials_client: ClinicalTrialsClient,
 ):
-    results: list[tuple[str, str, str, int, int]] = []
+    results: list[tuple[str, str, str, str, int, int]] = []
 
     for drug, indication in _PAIRS:
-        mesh_id = await resolve_mesh_id(indication)
-        assert mesh_id is not None, f"resolver returned None for {indication!r}"
+        resolved = await resolve_mesh_id(indication)
+        assert resolved is not None, f"resolver returned None for {indication!r}"
+        descriptor_id, preferred_term = resolved
 
-        pre_trials = await clinical_trials_client.search_trials(
-            drug=drug, indication=indication, date_before=_CUTOFF
-        )
-        post_trials = await clinical_trials_client.search_trials(
-            drug=drug,
-            indication=indication,
-            date_before=_CUTOFF,
-            target_mesh_id=mesh_id,
+        result = await clinical_trials_client.search_trials(
+            drug=drug, mesh_term=preferred_term, date_before=_CUTOFF
         )
 
-        pre, post = len(pre_trials), len(post_trials)
-        results.append((drug, indication, mesh_id, pre, post))
+        total, fetched = result.total_count, len(result.trials)
+        results.append(
+            (drug, indication, descriptor_id, preferred_term, total, fetched)
+        )
 
         logger.info(
-            "MeSH filter: %s x %s (mesh=%s) — pre=%d post=%d dropped=%d",
+            "search_trials: %s x %s (mesh=%s/%r) — total=%d fetched=%d",
             drug,
             indication,
-            mesh_id,
-            pre,
-            post,
-            pre - post,
+            descriptor_id,
+            preferred_term,
+            total,
+            fetched,
         )
 
-        # Filter only narrows.
-        assert (
-            post <= pre
-        ), f"{drug} x {indication}: post-filter count {post} exceeds pre-filter {pre}"
+        # Fetch is capped by CLINICAL_TRIALS_FETCH_MAX; never exceeds total.
+        assert fetched <= total, (
+            f"{drug} x {indication}: fetched {fetched} exceeds total {total}"
+        )
 
-    # Allow at most one pair to collapse to zero post-filter (e.g. a
-    # resolver mis-pick on a single ambiguous indication). If more than
-    # one collapses, the filter is over-aggressive across the board and
-    # needs investigation. Threshold scales with len(_PAIRS) so pairs can
-    # be commented out locally without breaking the assertion.
-    nonempty = sum(1 for *_, post in results if post > 0)
+    # Allow at most one pair to return zero trials (e.g. resolver mis-pick
+    # on an ambiguous indication). If more than one is empty, the pipeline
+    # is broken across the board.
+    nonempty = sum(1 for *_, total, _ in results if total > 0)
     min_nonempty = max(1, len(results) - 1)
-    assert (
-        nonempty >= min_nonempty
-    ), f"only {nonempty}/{len(results)} pairs retained trials post-filter: {results}"
+    assert nonempty >= min_nonempty, (
+        f"only {nonempty}/{len(results)} pairs returned trials: {results}"
+    )

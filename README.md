@@ -182,7 +182,7 @@ uvicorn indication_scout.api.main:app --reload
 ### Running Tests
 
 ```bash
-# All tests
+# All tests (regression + live tests are excluded by default)
 pytest
 
 # Integration tests only
@@ -191,6 +191,164 @@ pytest tests/integration/
 # Unit tests only
 pytest tests/unit/
 ```
+
+### Regression Testing
+
+Catch unintentional changes to the repurposing report as the pipeline evolves.
+A regression test runs the full supervisor pipeline against committed
+**cassettes** (recorded HTTP + LLM traffic) and compares the resulting
+`SupervisorOutput` against a committed **golden** snapshot.
+
+Comparison is structural + semantic — not exact text. The harness checks set
+overlap of candidate diseases (Jaccard), presence of required nested fields,
+and bounded drift on numeric counts (PMID totals, trial totals). Free-text
+fields (summary, blurb prose) are checked for length bounds only, never exact
+match. Thresholds live in `src/indication_scout/regression/constants.py`.
+
+#### Prerequisites
+
+Two things to set up once, in the venv you'll run pytest from:
+
+1. **Install dev deps into the venv (not the system Python):**
+   ```bash
+   .venv/bin/python -m pip install -e ".[dev]"
+   ```
+   The `.venv/bin/python -m pip` form bypasses any `pip` Homebrew put on your
+   `PATH` and guarantees the install lands in the active venv. If you see
+   `ModuleNotFoundError: No module named 'vcr'` during a regression run, it
+   means `pip` resolved to a different Python — re-run the line above.
+   Verify with:
+   ```bash
+   .venv/bin/python -c "import vcr; print(vcr.__file__)"
+   ```
+   The path should be under `.venv/lib/.../site-packages/vcr/...`.
+
+2. **Choose which constants file to record against.** By default,
+   `tests/conftest.py` pins `CONSTANTS_FILE=.env.constants.test` (test
+   limits — small top-k, short timeouts). Regression goldens are more useful
+   when recorded against `.env.constants` (production limits) since that's
+   what users actually see. Export the production value in your shell
+   **before** invoking pytest:
+   ```bash
+   export CONSTANTS_FILE=.env.constants
+   ```
+   Setting it in the shell wins over the root `conftest.py`'s `setdefault`,
+   and it pre-dates any conftest loading — important because `config.py`
+   reads `CONSTANTS_FILE` at import time, which a `tests/regression/
+   conftest.py` cannot reliably beat. Keep this consistent across all your
+   pinned drugs so the cassettes and goldens are comparable.
+
+#### Layout
+
+```
+src/indication_scout/regression/
+├── constants.py     # tunable thresholds (Jaccard min, count tolerance, length bounds)
+├── diff.py          # Diff dataclass + Jaccard
+└── harness.py       # compare_reports(golden, current) -> list[Diff]
+tests/regression/
+├── cassette.py      # vcrpy wiring (record / replay / live modes)
+├── golden/          # committed SupervisorOutput JSON per pinned drug
+├── cassettes/       # committed HTTP cassettes per pinned drug
+├── test_harness.py  # unit tests for compare_reports (no LLM, no network)
+└── test_pipeline_regression.py   # marker-gated full-pipeline test
+```
+
+Pinned drugs live in `PINNED_DRUGS` at the top of
+`tests/regression/test_pipeline_regression.py`.
+
+#### Modes
+
+The cassette mode is selected by the `SCOUT_CASSETTE_MODE` env var:
+
+| Mode | Behaviour | When to use |
+|------|-----------|-------------|
+| `replay` (default) | Play back the committed cassette. No network. Fails if a request isn't recorded. | Day-to-day regression checks. |
+| `record` | Hit real APIs, overwrite cassette **and** golden together. | First-time setup, or when a pipeline change legitimately moves the report. |
+| `live`   | Hit real APIs without recording. | Sanity-check against real services without touching cassettes. |
+
+#### First-time setup: pinning a golden
+
+```bash
+# 0. Add the drug to PINNED_DRUGS in tests/regression/test_pipeline_regression.py
+#    (e.g. PINNED_DRUGS = ["metformin"]). The `-k <drug>` filter only matches
+#    parametrize ids, so the drug must be pinned before pytest will run it.
+
+# 1. Set the constants file once per shell, before invoking pytest.
+#    (See Prerequisites above for why this must happen in the shell, not a
+#    conftest.)
+export CONSTANTS_FILE=.env.constants
+
+# 2. Record a fresh cassette and golden together. The test deliberately does
+#    not skip when the golden is missing AND record mode is on — this is the
+#    bootstrap path.
+SCOUT_CASSETTE_MODE=record pytest -m regression -k metformin
+
+# 3. Eyeball the golden — confirm candidate diseases, top diseases, and
+#    per-disease findings look correct. If they don't, fix the pipeline and
+#    re-record. Don't commit a bad golden.
+$EDITOR tests/regression/golden/metformin.json
+
+# 4. Replay it once with no env var to confirm the cassette is sound.
+pytest -m regression -k metformin   # CONSTANTS_FILE still exported from step 1
+
+# 5. Commit both files together
+git add tests/regression/golden/metformin.json tests/regression/cassettes/metformin/
+git commit
+```
+
+Shortcut: `scout find` already saves a `SupervisorOutput` payload to
+`test_reports/<drug>_<timestamp>.json`. That's the same shape the harness
+compares, so a good run can be promoted directly without re-recording:
+
+```bash
+cp test_reports/metformin_2026-05-11_14-30-22.json tests/regression/golden/metformin.json
+# (You still need a cassette — capture one with SCOUT_CASSETTE_MODE=record
+#  once the golden is in place.)
+```
+
+#### Day-to-day: running the test
+
+```bash
+pytest -m regression                    # replay all pinned drugs
+pytest -m regression -k metformin       # replay just metformin
+```
+
+If the test fails, the assertion message lists the `error`-severity Diffs.
+For a richer diff between two saved snapshots (no test runner needed):
+
+```bash
+scout diff-report tests/regression/golden/metformin.json test_reports/metformin_<timestamp>.json
+```
+
+`scout diff-report` exits non-zero on any `error`-severity Diff, so it's
+scriptable from a shell.
+
+#### Re-recording after an intentional pipeline change
+
+When you legitimately change the pipeline (new agent, prompt change, new
+data field) and the regression test fails for the right reason:
+
+```bash
+SCOUT_CASSETTE_MODE=record pytest -m regression -k <drug>
+# Inspect the new golden — confirm the changes are the ones you expected
+git diff tests/regression/golden/<drug>.json
+# If the diff looks right, commit cassette + golden together
+```
+
+#### Why HTTP-layer recording
+
+vcrpy records at the HTTP layer, so one cassette per drug covers **all**
+external traffic: the `aiohttp`-based data source clients (PubMed, Open
+Targets, ClinicalTrials.gov, ChEMBL, openFDA) and the `httpx`-based
+Anthropic SDK + LangChain LLM calls. A future third LLM entry point cannot
+silently bypass it.
+
+#### Database is still live during replay
+
+The cassette only stubs **external** HTTP / LLM traffic. The regression test
+still needs a live Postgres + pgvector connection at replay time, same as
+the rest of the integration suite — see [Database Setup](#database-setup)
+above.
 
 ### Code Formatting & Linting
 

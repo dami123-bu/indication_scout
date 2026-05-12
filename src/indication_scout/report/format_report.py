@@ -238,8 +238,20 @@ def _splice_blurbs_into_summary(summary: str, findings: list[CandidateFindings])
     # line is rebuilt flush-left so it lines up with the field/prose lines rendered
     # below it (and so CommonMark doesn't treat 4+ leading spaces as a code block).
     rank_line = re.compile(r"^\s*(?P<rank>\d+)\.\s+(?P<head>.+?)\s+—\s+.+$")
+    footer_line = re.compile(
+        r"^\s*(?:Demoted\s+—|Closed\s+signals\s*:|Evidence\s+gate\s+exclusions\s*:)",
+        re.IGNORECASE,
+    )
     out_lines: list[str] = []
+    footer_separator_emitted = False
     for line in summary.splitlines():
+        if not footer_separator_emitted and footer_line.match(line):
+            # Separator between the blurb stack and the footer block so the
+            # demoted/closed/exclusions lines don't sit flush against the last
+            # blurb's prose.
+            out_lines.append("---")
+            out_lines.append("")
+            footer_separator_emitted = True
         m = rank_line.match(line)
         if m is None:
             out_lines.append(line)
@@ -293,18 +305,19 @@ def format_report(output: SupervisorOutput) -> str:
 
     lines += ["## Summary", ""]
     if output.summary:
-        lines.append(_title_case_known_diseases(output.summary, known_diseases))
+        spliced = _splice_blurbs_into_summary(output.summary, output.disease_findings)
+        lines.append(_title_case_known_diseases(spliced, known_diseases))
         lines.append("")
-    elif not output.top_diseases:
+    elif output.top_diseases:
+        for rank, disease in enumerate(output.top_diseases, start=1):
+            finding = findings_by_canonical.get(disease.lower().strip())
+            lines.append(f"{rank}. {_title_case_disease(disease)}")
+            lines.append("")
+            if finding is not None and finding.blurb is not None:
+                lines.extend(_render_blurb(finding.blurb))
+            lines.append("")
+    else:
         lines.append("_No summary produced._")
-        lines.append("")
-
-    for rank, disease in enumerate(output.top_diseases, start=1):
-        finding = findings_by_canonical.get(disease.lower().strip())
-        lines.append(f"{rank}. {_title_case_disease(disease)}")
-        lines.append("")
-        if finding is not None and finding.blurb is not None:
-            lines.extend(_render_blurb(finding.blurb))
         lines.append("")
 
     lines += [

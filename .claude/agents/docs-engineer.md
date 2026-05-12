@@ -68,7 +68,7 @@ Additional `_DETAILS.md` variants (e.g., `ARCHITECTURE_DETAILS.md`, `PLAN_DETAIL
 When invoked, follow this exact process:
 
 ### Phase 1: Discovery & Analysis
-1. **Read ALL existing markdown files** in the project root and key subdirectories. List every `.md` file found.
+1. **Read ALL existing markdown files** in the project root and `docs` subdirectory.
 2. **Read the codebase** — scan all source files, configuration files, package manifests, Makefiles, and any CLAUDE.md or similar instruction files. Understand the actual architecture, dependencies, patterns, and current state.
 3. **Build an inventory** — For each existing doc file, note:
    - What it covers

@@ -8,7 +8,7 @@ At the start of every session, read `PROJECT_STATE.md`, the most recent `session
 
 ## Findings Workflow
 
-- When a non-obvious finding is confirmed (API behaviour, naming discrepancy, architectural decision, pattern, project rule), append it to `docs/findings.md` under the appropriate section with a date.
+- When a non-obvious finding is confirmed (API behaviour, naming discrepancy, architectural decision, pattern, project rule), append it to `docs/findings.md` under the appropriate section with a date. Items should be short and to-the-point.
 - `docs/findings.md` is the single source of truth for findings, decisions, and patterns — not `MEMORY.md`.
 
 ## Session File Workflow
