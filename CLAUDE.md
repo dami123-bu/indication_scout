@@ -112,6 +112,7 @@ When creating a plan:
 - [ ] Identify all external dependencies (APIs, databases, services)
 - [ ] Verify each dependency's schema/contract before writing code
 - [ ] If you can't verify, explicitly flag it as an assumption that needs human confirmation
+- [ ] Suggest changes that need to be made to the unit and integration tests
 
 ## Plan Tracking Workflow
 - When asked to design or plan a feature, write the plan to `PLAN.md` in the **project root** as a checklist (`- [ ]` items) before touching any code.

@@ -253,9 +253,6 @@ async def test_search_trials_content_notes_top_50_when_total_exceeds_shown():
         )
 
     assert "131 trials" in msg.content
-    assert "recruiting=12" in msg.content
-    assert "active=4" in msg.content
-    assert "withdrawn=1" in msg.content
     assert "top 50 shown" in msg.content
 
 

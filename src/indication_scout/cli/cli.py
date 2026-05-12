@@ -30,7 +30,10 @@ CONSTANTS_FILE = ".env.constants.test"
 def _load_env() -> None:
     """Load .env files before importing modules that read settings at import time."""
     load_dotenv(PROJECT_ROOT / ".env")
-    constants_path = PROJECT_ROOT / CONSTANTS_FILE
+    # Shell-level CONSTANTS_FILE wins over the module-level default so the CLI
+    # and the regression test can be pointed at the same constants.
+    constants_file = os.environ.get("CONSTANTS_FILE", CONSTANTS_FILE)
+    constants_path = PROJECT_ROOT / constants_file
     load_dotenv(constants_path)
     # Also export so config.py's pydantic Settings picks up the same file.
     os.environ["CONSTANTS_FILE"] = str(constants_path)
