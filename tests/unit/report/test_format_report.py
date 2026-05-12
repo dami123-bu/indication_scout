@@ -8,10 +8,6 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
     ClinicalTrialsOutput,
 )
 from indication_scout.agents.literature.literature_output import LiteratureOutput
-from indication_scout.agents.mechanism.mechanism_output import (
-    MechanismCandidate,
-    MechanismOutput,
-)
 from indication_scout.agents.supervisor.supervisor_output import (
     CandidateBlurb,
     CandidateFindings,
@@ -85,7 +81,7 @@ def test_fmt_clinical_trials_approval_no_label():
     assert "status undetermined" in rendered
 
 
-def test_fmt_clinical_trials_search_with_status_breakdown():
+def test_fmt_clinical_trials_search_renders_total():
     out = ClinicalTrialsOutput(
         search=SearchTrialsResult(
             total_count=12,
@@ -95,9 +91,8 @@ def test_fmt_clinical_trials_search_with_status_breakdown():
     )
     rendered = _fmt_clinical_trials(out)
     assert "**Trial activity:** 12 total trial(s) for this pair" in rendered
-    assert "5 recruiting" in rendered
-    assert "4 active not recruiting" in rendered
-    assert "3 withdrawn" in rendered
+    assert "recruiting" not in rendered.lower()
+    assert "withdrawn" not in rendered.lower()
 
 
 def test_fmt_clinical_trials_search_whitespace():
@@ -218,28 +213,11 @@ def test_format_report_full_assembly():
     output = SupervisorOutput(
         drug_name="semaglutide",
         candidate_diseases=["NASH", "Alzheimer's disease"],
-        summary="Semaglutide shows promise for NASH; Alzheimer's evidence is weaker.",
-        top_diseases=["NASH"],
-        mechanism=MechanismOutput(
-            summary="GLP-1 receptor agonist with metabolic and CNS effects.",
-            drug_targets={"GLP1R": "ENSG00000112164"},
-            candidates=[
-                MechanismCandidate(
-                    target_symbol="GLP1R",
-                    action_type="AGONIST",
-                    disease_name="NASH",
-                    disease_description="Non-alcoholic steatohepatitis.",
-                    target_function="GLP-1 receptor.",
-                ),
-                MechanismCandidate(
-                    target_symbol="GLP1R",
-                    action_type="AGONIST",
-                    disease_name="Parkinson's disease",
-                    disease_description="Neurodegenerative disorder.",
-                    target_function="GLP-1 receptor.",
-                ),
-            ],
+        summary=(
+            "1. NASH — literature: moderate, 4 PMIDs; trials: 5 total, 2 completed, "
+            "0 terminated\n"
         ),
+        top_diseases=["NASH"],
         disease_findings=[
             CandidateFindings(
                 disease="NASH",
@@ -275,26 +253,20 @@ def test_format_report_full_assembly():
 
     assert "# IndicationScout Report: Semaglutide" in rendered
     assert "## Summary" in rendered
-    assert "Semaglutide shows promise for NASH" in rendered
     assert "1. NASH" in rendered
     assert "**Stage**" in rendered
     assert "Phase 3" in rendered
     assert "NASH is the lead repurposing target." in rendered
-    assert "## Candidate Diseases" in rendered
+    assert "## Diseases Considered" in rendered
     assert "- NASH" in rendered
     assert "- Alzheimer's Disease" in rendered
-    assert "## Mechanistic Analysis" in rendered
-    assert "**Molecular targets:** GLP1R" in rendered
-    assert "GLP1R (AGONIST) → NASH" in rendered
-    assert "## Candidate Findings" in rendered
+    assert "## Findings by Disease" in rendered
     assert "## NASH _(source: both)_" in rendered
     assert "### Literature" in rendered
     assert "**Evidence strength:** moderate" in rendered
     assert "[12345678](https://pubmed.ncbi.nlm.nih.gov/12345678/)" in rendered
     assert "### Clinical Trials" in rendered
     assert "**Trial activity:** 5 total trial(s) for this pair" in rendered
-    # The "Other mechanism candidates" tail section was removed.
-    assert "Other mechanism candidates" not in rendered
 
 
 def test_format_report_summary_ranks_top_diseases_in_order():
@@ -359,7 +331,6 @@ def test_format_report_no_candidates_or_findings():
     assert "# IndicationScout Report: Metformin" in rendered
     assert "_No summary produced._" in rendered
     assert "_No candidates surfaced._" in rendered
-    assert "_Mechanism analysis not run._" in rendered
     assert "_No candidate findings produced._" in rendered
 
 

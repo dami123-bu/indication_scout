@@ -11,7 +11,6 @@ from indication_scout.agents.clinical_trials.clinical_trials_output import (
 from indication_scout.agents.literature.literature_output import LiteratureOutput
 from indication_scout.agents.mechanism.mechanism_output import (
     MechanismCandidate,
-    MechanismOutput,
 )
 from indication_scout.agents.supervisor.supervisor_tools import build_supervisor_tools
 from indication_scout.models.model_clinical_trials import (
@@ -131,8 +130,11 @@ def _build_tools_and_allowlists(
     competitors maps lowercase disease name → EFO ID. Each entry is registered as a
     "competitor"-source allowlist row, with its EFO ID indexed in allowed_efo_ids.
 
-    Returns (analyze_mechanism_tool, allowed_diseases, allowed_efo_ids) so tests can
-    invoke the tool and inspect the post-merge state.
+    Returns (merge_and_dedup, mechanism_candidates_buffer, allowed_diseases,
+    allowed_efo_ids). The merge logic now lives on _merge_and_dedup_impl
+    (reached via find_candidates → _find_candidates_impl → merge_and_dedup),
+    so tests seed the buffer directly and invoke merge_and_dedup, bypassing
+    the seed-phase gates and the analyze_mechanism path entirely.
     """
     llm = MagicMock()
     svc = MagicMock()
@@ -150,27 +152,40 @@ def _build_tools_and_allowlists(
         tools, _, _ = build_supervisor_tools(llm=llm, svc=svc, db=db)
 
     by_name = {t.name: t for t in tools}
-    am = by_name["analyze_mechanism"]
-    # analyze_mechanism's outer coroutine wraps _analyze_mechanism_impl in a
-    # try/finally; the impl is what closes over the allowlist dicts and the
-    # seed-phase asyncio.Events.
-    am_outer = dict(zip(am.coroutine.__code__.co_freevars, am.coroutine.__closure__))
-    am_impl = am_outer["_analyze_mechanism_impl"].cell_contents
-    am_closure = dict(zip(am_impl.__code__.co_freevars, am_impl.__closure__))
-    allowed_diseases = am_closure["allowed_diseases"].cell_contents
-    allowed_efo_ids = am_closure["allowed_efo_ids"].cell_contents
-
-    # Pre-set find_candidates_done so analyze_mechanism's merge can run without
-    # find_candidates having been called. Tests bypass the seed phase entirely.
-    am_closure["find_candidates_done"].cell_contents.set()
+    fc = by_name["find_candidates"]
+    # find_candidates wraps _find_candidates_impl; _find_candidates_impl closes
+    # over allowed_diseases, allowed_efo_ids, and merge_and_dedup. The merge
+    # function in turn closes over _merge_and_dedup_impl which holds the same
+    # allowlist dicts plus mechanism_candidates_buffer.
+    fc_outer = dict(zip(fc.coroutine.__code__.co_freevars, fc.coroutine.__closure__))
+    fc_impl = fc_outer["_find_candidates_impl"].cell_contents
+    fc_closure = dict(zip(fc_impl.__code__.co_freevars, fc_impl.__closure__))
+    allowed_diseases = fc_closure["allowed_diseases"].cell_contents
+    allowed_efo_ids = fc_closure["allowed_efo_ids"].cell_contents
+    merge_and_dedup = fc_closure["merge_and_dedup"].cell_contents
+    # Reach mechanism_candidates_buffer through _merge_and_dedup_impl.
+    md_closure = dict(
+        zip(merge_and_dedup.__code__.co_freevars, merge_and_dedup.__closure__)
+    )
+    md_impl = md_closure["_merge_and_dedup_impl"].cell_contents
+    md_impl_closure = dict(zip(md_impl.__code__.co_freevars, md_impl.__closure__))
+    mechanism_candidates_buffer = md_impl_closure[
+        "mechanism_candidates_buffer"
+    ].cell_contents
 
     allowed_diseases.clear()
     allowed_efo_ids.clear()
+    mechanism_candidates_buffer.clear()
     for name, efo_id in competitors.items():
         allowed_diseases[name] = (name, "competitor")
         allowed_efo_ids[efo_id] = name
 
-    return am, allowed_diseases, allowed_efo_ids
+    return (
+        merge_and_dedup,
+        mechanism_candidates_buffer,
+        allowed_diseases,
+        allowed_efo_ids,
+    )
 
 
 def _ot_client_mock(name_to_resolved_id: dict[str, str | None] | None = None):
@@ -268,37 +283,35 @@ async def test_analyze_mechanism_merges_by_efo_id(
     expected_diseases,
     expected_efo_ids,
 ):
-    """analyze_mechanism dedups against the competitor allowlist via three steps:
-    (1) ID match, (2) exact-name match, (3) OT name-resolve fallback."""
+    """merge_and_dedup dedups against the competitor allowlist via three steps:
+    (1) ID match, (2) exact-name match, (3) OT name-resolve fallback. The merge
+    runs in find_candidates after analyze_mechanism buffers raw candidates; this
+    test drives merge_and_dedup directly with a pre-seeded buffer."""
     # Drop empty-string EFOs from the seeded allowed_efo_ids — they're sentinels
     # for "competitor present but no EFO known" and the helper would index them.
     competitors_with_efo = {n: e for n, e in competitors.items() if e}
-    am, allowed_diseases, allowed_efo_ids = _build_tools_and_allowlists(
-        competitors_with_efo
-    )
+    (
+        merge_and_dedup,
+        mechanism_candidates_buffer,
+        allowed_diseases,
+        allowed_efo_ids,
+    ) = _build_tools_and_allowlists(competitors_with_efo)
 
     # Re-add the no-EFO competitor entries (those don't enter allowed_efo_ids).
     for name, efo_id in competitors.items():
         if not efo_id:
             allowed_diseases[name] = (name, "competitor")
 
-    candidates = [
-        MechanismCandidate(disease_name=name, disease_id=efo)
-        for name, efo in mech_candidates
-    ]
-    mech_output = MechanismOutput(candidates=candidates)
+    for name, efo in mech_candidates:
+        mechanism_candidates_buffer.append(
+            MechanismCandidate(disease_name=name, disease_id=efo)
+        )
 
-    with (
-        patch(
-            "indication_scout.agents.supervisor.supervisor_tools.run_mechanism_agent",
-            new=AsyncMock(return_value=mech_output),
-        ),
-        patch(
-            "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
-            new=_ot_client_mock(resolved_ids),
-        ),
+    with patch(
+        "indication_scout.agents.supervisor.supervisor_tools.OpenTargetsClient",
+        new=_ot_client_mock(resolved_ids),
     ):
-        await am.coroutine(drug_name="testdrug")
+        await merge_and_dedup(drug_name="testdrug")
 
     assert allowed_diseases == expected_diseases
     assert allowed_efo_ids == expected_efo_ids
