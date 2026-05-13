@@ -428,16 +428,23 @@ async def test_fetch_and_cache_is_idempotent(db_session_truncating, test_cache_d
     assert count_after_second == count_after_first
 
 
-# Landmark PMIDs should always be in pgvector and rank highly
+# Post pubtype-aware rerank: the top-5 for empagliflozin × MI should be
+# dominated by primary RCT readouts rather than reviews. Previously this
+# test pinned PMID 40765598 (a Review summarising EMPACT-MI) — the rerank
+# correctly demotes that below the underlying RCTs, so we now assert the
+# stronger claim that the rerank is working: ≥3 of the top-5 are RCTs.
 async def test_empareg_in_results(svc, db_session_truncating):
     pmids = await svc.fetch_and_cache(
         ["empagliflozin AND myocardial infarction"], db_session_truncating
     )
-    top_15 = await svc.semantic_search(
+    top = await svc.semantic_search(
         "myocardial infarction", "CHEMBL2107830", pmids, db_session_truncating
     )
-    result_pmids = [r.pmid for r in top_15]
-    assert "40765598" in result_pmids  # EMPACT-MI
+    rct_count = sum(1 for r in top if "Randomized Controlled Trial" in r.pubtype)
+    assert rct_count >= 3, (
+        f"Expected ≥3 RCTs in top-{len(top)}, got {rct_count}: "
+        f"{[(r.pmid, r.pubtype) for r in top]}"
+    )
 
 
 async def test_recovery_in_results(svc, db_session_truncating):

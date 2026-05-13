@@ -109,17 +109,6 @@ def _fmt_clinical_trials(ct: ClinicalTrialsOutput, indication: str = "") -> str:
                     f"- [{t.nct_id}](https://clinicaltrials.gov/study/{t.nct_id}){title} ({phase}){category}{reason}"
                 )
 
-    if ct.landscape and ct.landscape.competitors:
-        scope = f" for {_title_case_disease(indication)}" if indication else ""
-        lines.append(
-            f"\n**Competitive landscape{scope} "
-            f"({len(ct.landscape.competitors)} competitors):**"
-        )
-        for comp in ct.landscape.competitors[:10]:
-            lines.append(
-                f"- {comp.drug_name} ({comp.sponsor}) — {comp.max_phase}, {comp.trial_count} trial(s)"
-            )
-
     if not lines:
         lines.append("_No clinical trials data available._")
 

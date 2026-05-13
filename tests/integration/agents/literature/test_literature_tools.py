@@ -44,19 +44,22 @@ _CHEMBL_ID = "CHEMBL2108724"
 _EXPECTED_PMIDS = {"39735270", "39412509"}
 
 # Top-5 semantic search results (from test_literature_agent.py)
+# Updated 2026-05-12 for pubtype-aware rerank — primary RCT readouts surface
+# above reviews/preclinical. PMID 38847460 (Survodutide) is correctly excluded
+# from _EXPECTED_SUPPORTING_PMIDS — it ranks in the top-5 as a NASH RCT but is
+# not Semaglutide-specific evidence.
 _EXPECTED_TOP5 = [
-    ("37950798", "Potential New Therapeutic Implications of Semaglut"),
-    ("37994050", "Lysophosphatidic acid receptor 1 antagonist (EPGN2"),
-    ("38155202", "Semaglutide reduces tumor burden in the GAN diet-i"),
-    ("36051145", "Semaglutide might be a key for breaking the viciou"),
-    ("38464718", "Evolving role of semaglutide in NAFLD: in combinat"),
+    ("36934740", "Semaglutide 2"),
+    ("37328931", "Improved health-related quality of life with semaglutide"),
+    ("33185364", "A Placebo-Controlled Trial of Subcutaneous Semaglutide"),
+    ("38847460", "A Phase 2 Randomized Trial of Survodutide"),
+    ("37646192", "Comparison of clinical efficacy and safety of weekly glucagon"),
 ]
 _EXPECTED_SUPPORTING_PMIDS = {
-    "36051145",
-    "38464718",
-    "37950798",
-    "38155202",
-    "37994050",
+    "33185364",
+    "36934740",
+    "37328931",
+    "37646192",
 }
 
 # --- Values to fill in from a live run -----------------------------
