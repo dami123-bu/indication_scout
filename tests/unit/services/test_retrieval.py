@@ -849,7 +849,25 @@ def _make_db_with_rows(rows: list[tuple]) -> MagicMock:
     return mock_db
 
 
-async def test_semantic_search_returns_ranked_dicts(svc):
+@pytest.fixture
+def mock_pubtypes_empty():
+    """Patch PubMedClient so semantic_search's pubtype fetch is a no-op (empty map).
+    With no pubtypes, every record gets PUBTYPE_BOOST_DEFAULT (1.0), so the
+    rerank is a no-op and ordering follows pure similarity — matching the
+    pre-rerank behaviour these unit tests were written against.
+    """
+    mock_client = AsyncMock()
+    mock_client.fetch_pubtypes = AsyncMock(return_value={})
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    with patch(
+        "indication_scout.services.retrieval.PubMedClient",
+        return_value=mock_client,
+    ):
+        yield mock_client
+
+
+async def test_semantic_search_returns_ranked_dicts(svc, mock_pubtypes_empty):
     """Returns list of dicts with pmid, title, abstract, similarity for each DB row."""
     db_rows = [
         ("111", "Title A", "Abstract A", 0.92),
@@ -883,7 +901,7 @@ async def test_semantic_search_returns_ranked_dicts(svc):
     assert result[1].similarity == 0.85
 
 
-async def test_semantic_search_embeds_therapeutic_query(svc):
+async def test_semantic_search_embeds_therapeutic_query(svc, mock_pubtypes_empty):
     """embed() is called with the therapeutic intent query string."""
     mock_db = _make_db_with_rows([])
     mock_vector = [0.1] * 768
@@ -909,7 +927,7 @@ async def test_semantic_search_embeds_therapeutic_query(svc):
     assert "obesity" in captured["texts"][0]
 
 
-async def test_semantic_search_uses_pref_name_not_chembl_id(svc):
+async def test_semantic_search_uses_pref_name_not_chembl_id(svc, mock_pubtypes_empty):
     """The embedded query string uses pref_name (first element of get_all_drug_names),
     not the ChEMBL ID or any other identifier. Sentinel values guarantee correct routing.
     """
@@ -940,7 +958,7 @@ async def test_semantic_search_uses_pref_name_not_chembl_id(svc):
     assert "SENTINEL_SYN_A" not in query
 
 
-async def test_semantic_search_passes_pmids_to_query(svc):
+async def test_semantic_search_passes_pmids_to_query(svc, mock_pubtypes_empty):
     """The pmids list is passed as a bind parameter to the SQL query."""
     mock_db = _make_db_with_rows([])
     mock_vector = [0.1] * 768
@@ -963,11 +981,17 @@ async def test_semantic_search_passes_pmids_to_query(svc):
     assert params["pmids"] == pmids
 
 
-async def test_semantic_search_uses_top_k_from_settings(svc):
-    """top_k is read from settings and passed as a bind parameter to the SQL LIMIT clause."""
+async def test_semantic_search_respects_top_k_from_settings(svc, mock_pubtypes_empty):
+    """Returned list length is capped at settings.semantic_search_top_k after rerank."""
     from indication_scout.config import get_settings
 
-    mock_db = _make_db_with_rows([])
+    top_k = get_settings().semantic_search_top_k
+    # Build more rows than top_k so the slice has work to do.
+    db_rows = [
+        (f"{i}", f"Title {i}", f"Abstract {i}", 0.9 - 0.01 * i)
+        for i in range(top_k + 3)
+    ]
+    mock_db = _make_db_with_rows(db_rows)
     mock_vector = [0.1] * 768
 
     with (
@@ -980,14 +1004,14 @@ async def test_semantic_search_uses_top_k_from_settings(svc):
             return_value=[mock_vector],
         ),
     ):
-        await svc.semantic_search("diabetes", "CHEMBL1431", ["111"], mock_db)
+        result = await svc.semantic_search(
+            "diabetes", "CHEMBL1431", ["111"], mock_db
+        )
 
-    call_kwargs = mock_db.execute.call_args
-    params = call_kwargs[0][1]
-    assert params["top_k"] == get_settings().semantic_search_top_k
+    assert len(result) == top_k
 
 
-async def test_semantic_search_similarity_is_float(svc):
+async def test_semantic_search_similarity_is_float(svc, mock_pubtypes_empty):
     """similarity values in returned dicts are plain Python floats."""
     from decimal import Decimal
 
@@ -1058,7 +1082,7 @@ async def test_semantic_search_logs_wandb_table_when_run_active(svc):
     mock_table.add_data.assert_any_call("222", "Title B", 0.85)
 
 
-async def test_semantic_search_skips_wandb_log_when_no_run(svc):
+async def test_semantic_search_skips_wandb_log_when_no_run(svc, mock_pubtypes_empty):
     """When wandb.run is None, wandb.log is never called."""
     mock_db = _make_db_with_rows([("111", "Title A", "Abstract A", 0.92)])
     mock_vector = [0.1] * 768

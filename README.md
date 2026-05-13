@@ -238,25 +238,129 @@ Two things to set up once, in the venv you'll run pytest from:
    conftest.py` cannot reliably beat. Keep this consistent across all your
    pinned drugs so the cassettes and goldens are comparable.
 
+#### Three-layer architecture
+
+The regression suite is split into three layers, each catching a different
+kind of failure and each runnable independently. Don't conflate them — they
+trade off coverage, cost, and confidence differently.
+
+| Layer | Marker | What it catches | Cost | Determinism |
+|-------|--------|-----------------|------|-------------|
+| **1: deterministic** | none (always runs) | Logic regressions in pure functions (evidence gate, threshold filters, parsers). No LLM, no network. | ms | byte-exact |
+| **2: structural** | `regression_layer2` | Domain-meaningful invariants from a per-drug YAML spec (required NCTs/PMIDs appear, demoted indications stay demoted, forbidden phrases stay out). Runs against the latest `scout find` payload — no cassette replay. | seconds | structural |
+| **3: triage** *(planned)* | `regression_layer3` | LLM-as-judge over the rendered report. Never fails CI; writes a triage report for human review. | minutes + API cost | stochastic |
+
+Plus the existing **whole-pipeline replay** test (marker `regression`) — runs
+the full pipeline against a vcrpy cassette and compares the result to a
+committed `SupervisorOutput` golden. Heavier than Layer 2, narrower than
+Layer 3. Keep it as a backstop.
+
 #### Layout
 
 ```
 src/indication_scout/regression/
-├── constants.py     # tunable thresholds (Jaccard min, count tolerance, length bounds)
-├── diff.py          # Diff dataclass + Jaccard
-└── harness.py       # compare_reports(golden, current) -> list[Diff]
+├── constants.py        # tunable thresholds for the whole-pipeline diff
+├── diff.py             # Diff dataclass + Jaccard
+└── harness.py          # compare_reports(golden, current) -> list[Diff]
 tests/regression/
-├── cassette.py      # vcrpy wiring (record / replay / live modes)
-├── golden/          # committed SupervisorOutput JSON per pinned drug
-├── cassettes/       # committed HTTP cassettes per pinned drug
-├── test_harness.py  # unit tests for compare_reports (no LLM, no network)
-└── test_pipeline_regression.py   # marker-gated full-pipeline test
+├── failure_buckets.py  # Bucket enum + BucketedDiff (failure-mode taxonomy)
+├── cassette.py         # vcrpy wiring for the whole-pipeline test
+├── specs/              # per-drug YAML: the actual "test data"
+│   └── bupropion.yaml
+├── fixtures/           # (reserved) dated upstream snapshots per drug
+├── cassettes/          # committed HTTP cassettes for the whole-pipeline test
+├── golden/             # committed SupervisorOutput JSON per pinned drug
+├── layer1_deterministic/
+│   └── test_evidence_gate.py   # locks the top-N evidence-gate predicate
+├── layer2_structural/
+│   ├── spec.py         # Pydantic schema for the YAML
+│   ├── loader.py       # YAML → DrugSpec
+│   ├── assertions.py   # run_spec(spec, report) -> list[BucketedDiff]
+│   ├── test_per_drug.py        # parametrized over specs/*.yaml
+│   ├── test_assertions.py      # unit tests for the assertion functions
+│   └── test_loader.py
+├── layer3_triage/      # (reserved) LLM-as-judge triage reports
+├── test_harness.py     # unit tests for compare_reports (whole-pipeline diff)
+└── test_pipeline_regression.py # marker-gated full-pipeline replay test
 ```
 
-Pinned drugs live in `PINNED_DRUGS` at the top of
-`tests/regression/test_pipeline_regression.py`.
+Pinned drugs for the whole-pipeline replay test live in `PINNED_DRUGS` at the
+top of `tests/regression/test_pipeline_regression.py`. Layer 2 picks up every
+`*.yaml` in `specs/` automatically.
 
-#### Modes
+#### Layer 1: deterministic checks
+
+Pure-function tests on the parts of the pipeline that have no LLM in them.
+Run on every commit; no marker needed. The current proof-of-pattern is the
+top-N evidence gate — see
+[layer1_deterministic/test_evidence_gate.py](tests/regression/layer1_deterministic/test_evidence_gate.py).
+
+When the production logic legitimately changes, update the predicate in the
+test file in the same PR. The test is the contract; if it can't be edited
+to match the new behaviour, the new behaviour is the regression.
+
+```bash
+pytest tests/regression/layer1_deterministic/
+```
+
+#### Layer 2: spec-driven structural assertions
+
+A per-drug YAML in `tests/regression/specs/<drug>.yaml` encodes
+domain-meaningful invariants. Each entry is bucket-tagged (see
+[failure_buckets.py](tests/regression/failure_buckets.py)) so failures roll
+up into the same taxonomy used in the bioRxiv failure-mode analysis.
+
+Supported assertion types:
+
+- `candidate_set_contains` — these indications must appear in `candidate_diseases`.
+- `required_in_ranked` — this indication must appear in `top_diseases`.
+- `forbidden_in_ranked` — this indication must NOT appear in `top_diseases`
+  (demotion / gate worked).
+- `required_ncts_surfaced` — these NCTs must appear under
+  `disease_findings[indication].clinical_trials.{completed,terminated,search,any}`.
+- `required_pmids_cited` — these PMIDs must appear in
+  `disease_findings[indication].literature.pmids`.
+- `forbidden_phrases` — this phrase must NOT appear (scoped to `summary`,
+  `blurb`, or `anywhere`).
+
+To run Layer 2:
+
+```bash
+# 1. Produce a fresh payload via the CLI
+CONSTANTS_FILE=.env.constants scout find -d bupropion
+
+# 2. Run the spec against the latest test_reports/<drug>_*.json
+pytest -m regression_layer2 -k bupropion
+```
+
+A failure prints both the per-diff detail and a bucket rollup, so you can
+tell at a glance whether you've broken (e.g.) demotion logic vs. literature
+coverage vs. ranking. To add a new drug, drop a new YAML in `specs/` — no
+test code changes needed.
+
+The current [bupropion spec](tests/regression/specs/bupropion.yaml) is the
+worked example and a good template.
+
+#### Layer 3: LLM-as-judge triage (planned)
+
+Layer 3 is reserved. The intent is to run a separate LLM judge over the
+rendered report with a structured rubric, log the judgment to a triage
+report, and **never fail CI on the judgment alone**. A judge that gates CI
+quietly normalizes "approximately correct," which is the failure mode the
+project rule "error by omission is acceptable, inaccuracy is not" exists to
+prevent. Use Layer 3 as a flag for human review, not as a gate.
+
+#### Whole-pipeline replay (marker `regression`)
+
+The heaviest test: runs the full supervisor pipeline against a committed
+vcrpy cassette and compares the resulting `SupervisorOutput` to a committed
+golden via the `compare_reports` harness in
+`src/indication_scout/regression/`. Catches structural drift across the
+entire system in one shot. Slower than Layer 2 and harder to debug, but
+catches things spec-driven assertions can't (e.g. "the mechanism block
+disappeared entirely").
+
+##### Modes
 
 The cassette mode is selected by the `SCOUT_CASSETTE_MODE` env var:
 
@@ -266,7 +370,7 @@ The cassette mode is selected by the `SCOUT_CASSETTE_MODE` env var:
 | `record` | Hit real APIs, overwrite cassette **and** golden together. | First-time setup, or when a pipeline change legitimately moves the report. |
 | `live`   | Hit real APIs without recording. | Sanity-check against real services without touching cassettes. |
 
-#### First-time setup: pinning a golden
+##### First-time setup: pinning a golden
 
 ```bash
 # 0. Add the drug to PINNED_DRUGS in tests/regression/test_pipeline_regression.py
@@ -306,7 +410,7 @@ cp test_reports/metformin_2026-05-11_14-30-22.json tests/regression/golden/metfo
 #  once the golden is in place.)
 ```
 
-#### Day-to-day: running the test
+##### Day-to-day: running the test
 
 ```bash
 pytest -m regression                    # replay all pinned drugs
@@ -323,7 +427,7 @@ scout diff-report tests/regression/golden/metformin.json test_reports/metformin_
 `scout diff-report` exits non-zero on any `error`-severity Diff, so it's
 scriptable from a shell.
 
-#### Re-recording after an intentional pipeline change
+##### Re-recording after an intentional pipeline change
 
 When you legitimately change the pipeline (new agent, prompt change, new
 data field) and the regression test fails for the right reason:
@@ -335,7 +439,7 @@ git diff tests/regression/golden/<drug>.json
 # If the diff looks right, commit cassette + golden together
 ```
 
-#### Why HTTP-layer recording
+##### Why HTTP-layer recording
 
 vcrpy records at the HTTP layer, so one cassette per drug covers **all**
 external traffic: the `aiohttp`-based data source clients (PubMed, Open
@@ -343,12 +447,13 @@ Targets, ClinicalTrials.gov, ChEMBL, openFDA) and the `httpx`-based
 Anthropic SDK + LangChain LLM calls. A future third LLM entry point cannot
 silently bypass it.
 
-#### Database is still live during replay
+#### Database is still live for every layer
 
-The cassette only stubs **external** HTTP / LLM traffic. The regression test
-still needs a live Postgres + pgvector connection at replay time, same as
-the rest of the integration suite — see [Database Setup](#database-setup)
-above.
+Layer 2 and the whole-pipeline replay both need a live Postgres + pgvector
+connection — Layer 2 because `scout find` writes embeddings to the DB
+before the spec runs, the replay test because the cassette only stubs
+**external** HTTP / LLM traffic. Same setup as the integration suite — see
+[Database Setup](#database-setup) above. Layer 1 has no DB dependency.
 
 ### Code Formatting & Linting
 

@@ -46,12 +46,33 @@ _settings = get_settings()
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
+# Pubtype multiplicative boosts applied to semantic similarity to surface
+# primary clinical evidence (RCTs, phase trials) over reviews/commentary
+# in the final top-k. Types not listed get a neutral 1.0 boost; the
+# per-record boost is max() across the record's pubtype list, so a paper
+# tagged both "Journal Article" and "Randomized Controlled Trial" gets
+# the RCT boost.
+PUBTYPE_BOOSTS: dict[str, float] = {
+    "Randomized Controlled Trial": 2.0,
+    "Clinical Trial, Phase III": 1.8,
+    "Clinical Trial, Phase II": 1.6,
+    "Clinical Trial": 1.5,
+    "Meta-Analysis": 1.3,
+    "Systematic Review": 1.2,
+    "Review": 0.6,
+    "Comment": 0.3,
+    "Editorial": 0.3,
+    "Letter": 0.3,
+}
+PUBTYPE_BOOST_DEFAULT: float = 1.0
+
 
 class AbstractResult(BaseModel):
     pmid: str
     title: str
     abstract: str
     similarity: float
+    pubtype: list[str] = []
 
 
 class RetrievalService:
@@ -563,6 +584,13 @@ class RetrievalService:
         )
         query_vector = (await embed_async([query_string]))[0]
 
+        # Over-fetch cap: pull top-N by similarity from pgvector, then rerank
+        # by pubtype in Python. Cap gives the boost headroom to reorder
+        # (a 2x RCT boost at rank 50 can beat a review at rank 5) without
+        # an unbounded scan if the candidate pool grows.
+        top_k = _settings.semantic_search_top_k
+        rerank_cap = max(top_k * 10, 100)
+
         rows = db.execute(
             text("""
                 SELECT pmid, title, abstract, similarity
@@ -573,29 +601,65 @@ class RetrievalService:
                     WHERE pmid = ANY(:pmids)
                 ) sub
                 ORDER BY similarity DESC
-                LIMIT :top_k
+                LIMIT :rerank_cap
             """),
             {
                 "query_vec": "[" + ",".join(str(x) for x in query_vector) + "]",
                 "pmids": pmids,
-                "top_k": _settings.semantic_search_top_k,
+                "rerank_cap": rerank_cap,
             },
         ).fetchall()
 
-        results = [
-            AbstractResult(
-                pmid=row[0],
-                title=row[1],
-                abstract=row[2],
-                similarity=float(row[3]),
-            )
-            for row in rows
-        ]
-        avg_similarity = (
-            sum(r.similarity for r in results) / len(results) if results else 0.0
-        )
+        if not rows:
+            return []
 
-        return results
+        candidate_pmids = [row[0] for row in rows]
+        async with PubMedClient(cache_dir=self.cache_dir) as client:
+            pubtypes_map = await client.fetch_pubtypes(candidate_pmids)
+
+        if not pubtypes_map:
+            logger.warning(
+                "semantic_search: fetch_pubtypes returned empty for all %d "
+                "candidates (%s / %s); pubtype boost is a no-op for this call",
+                len(candidate_pmids), chembl_id, disease,
+            )
+
+        scored: list[tuple[AbstractResult, float, float]] = []
+        for row in rows:
+            pmid, title, abstract, similarity = row[0], row[1], row[2], float(row[3])
+            pubtypes = pubtypes_map.get(pmid, [])
+            boost = max(
+                (PUBTYPE_BOOSTS.get(pt, PUBTYPE_BOOST_DEFAULT) for pt in pubtypes),
+                default=PUBTYPE_BOOST_DEFAULT,
+            )
+            final_score = similarity * boost
+            result = AbstractResult(
+                pmid=pmid,
+                title=title,
+                abstract=abstract,
+                similarity=similarity,
+                pubtype=pubtypes,
+            )
+            scored.append((result, boost, final_score))
+
+        scored.sort(key=lambda x: x[2], reverse=True)
+
+        logger.info(
+            "semantic_search rerank top-20 for %s / %s (%d candidates, cap=%d):",
+            chembl_id, disease, len(scored), rerank_cap,
+        )
+        for result, boost, final_score in scored[:20]:
+            logger.info(
+                "  pmid=%s title=%r sim=%.4f pubtype=%s boost=%.2f final=%.4f",
+                result.pmid,
+                result.title[:60],
+                result.similarity,
+                result.pubtype,
+                boost,
+                final_score,
+            )
+
+        return [item[0] for item in scored[:top_k]]
 
     async def synthesize(
         self,

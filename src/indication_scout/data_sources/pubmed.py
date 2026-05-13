@@ -111,6 +111,7 @@ class PubMedClient(BaseClient):
             "term": query,
             "retmax": max_results,
             "retmode": "json",
+            'sort': 'relevance',
         }
         if effective_maxdate:
             params["datetype"] = "pdat"
@@ -196,6 +197,63 @@ class PubMedClient(BaseClient):
                 if pub_date < date_before:
                     kept.append(pmid)
         return kept
+
+    async def fetch_pubtypes(
+        self, pmids: list[str], batch_size: int | None = None
+    ) -> dict[str, list[str]]:
+        """Fetch publication types from esummary for the given PMIDs.
+
+        Returns a dict mapping pmid → list of pubtype strings (e.g.
+        ["Journal Article", "Randomized Controlled Trial"]). PMIDs with
+        no esummary record or no pubtype field are absent from the result.
+
+        Per-PMID file cache so re-runs across different candidate sets
+        reuse prior fetches. Cache misses are batched into single
+        esummary requests (pubmed_esummary_batch_size, default 200).
+        """
+        if not pmids:
+            return {}
+
+        if batch_size is None:
+            batch_size = get_settings().pubmed_esummary_batch_size
+
+        result: dict[str, list[str]] = {}
+        missing: list[str] = []
+        for pmid in pmids:
+            cached = cache_get("pubmed_pubtypes", {"pmid": pmid}, self.cache_dir)
+            if cached is not None:
+                if cached:
+                    result[pmid] = cached
+            else:
+                missing.append(pmid)
+
+        if not missing:
+            return result
+
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i : i + batch_size]
+            params: dict[str, Any] = {
+                "db": "pubmed",
+                "id": ",".join(batch),
+                "retmode": "json",
+            }
+            async with self._get_semaphore():
+                data = await self._rest_get_json_tolerant(
+                    self.SUMMARY_URL, self._inject_api_key(params)
+                )
+            summaries = data.get("result", {})
+            for pmid in batch:
+                summary = summaries.get(pmid, {})
+                pubtypes = summary.get("pubtype", []) or []
+                # Persist even empty lists so we don't refetch records
+                # that genuinely have no pubtype field.
+                cache_set(
+                    "pubmed_pubtypes", {"pmid": pmid}, pubtypes, self.cache_dir
+                )
+                if pubtypes:
+                    result[pmid] = pubtypes
+
+        return result
 
     async def fetch_abstracts(
         self, pmids: list[str], batch_size: int | None = None

@@ -42,7 +42,7 @@ def _fmt_literature(lit: LiteratureOutput) -> str:
                 f"[{pmid}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/)"
                 for pmid in es.supporting_pmids
             )
-            lines.append(f"\n**Relevant PMIDs (favorable only):** {pmid_links}")
+            lines.append(f"\n**Supporting PMIDs:** {pmid_links}")
     else:
         lines.append("_No evidence summary available._")
 

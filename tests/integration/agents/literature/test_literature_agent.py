@@ -120,3 +120,18 @@ async def test_semaglutide_nash_literature_agent(db_session_truncating, test_cac
 
     # --- summary ---
     assert len(output.summary) > 100
+
+async def test_random_literature_agent(db_session_truncating, test_cache_dir):
+
+    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0, max_tokens=4096)
+    svc = RetrievalService(test_cache_dir)
+    agent = build_literature_agent(
+        llm,
+        svc,
+        db_session_truncating,
+        date_before=_CUTOFF,
+    )
+    test_cache_dir="abc"
+    output = await run_literature_agent(agent, "ketamine", "Major Depressive Disorder")
+
+    assert isinstance(output, LiteratureOutput)
